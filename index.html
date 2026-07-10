@@ -645,10 +645,37 @@ function buildNbfcRows(kind){
   return [];
 }
 
+// CAG audit dataset rows (spec §42) — domain-synthesised + domain-expert-seeded, tagged by pair type.
+function cagRow(o){ return Object.assign({ input:'', language:'en', flags:[], reviewStatus:'approved', reviewedBy:'Rohan Das', reviewNote:null, originalOutput:null, synthesisTemplate:'audit_compliance', domainTag:'audit', source:'synthesis_pipeline' }, o); }
+function buildCagRows(){
+  const rows=[
+    cagRow({ id:'cag_row_001', pairType:'violation_detection', qualityScore:91, sourceChunk:'chunk_gfr_rule230_para1',
+      instruction:'What conditions would cause advance payment to a contractor to constitute an audit irregularity under GFR?',
+      output:'An advance payment constitutes an audit irregularity under GFR Rule 230 when: (1) paid without contractual provision, (2) not recovered from the first running bill, or (3) recovery deferred beyond scheduled instalments. Examine the contract terms, payment voucher date, and first running bill to establish timing of recovery.' }),
+    cagRow({ id:'cag_row_002', pairType:'evidence_checklist', qualityScore:89, sourceChunk:'chunk_gfr_rule230_para1',
+      instruction:'What documents should an auditor examine to verify compliance with GFR Rule 230 on contractor advances?',
+      output:'Documents to examine: (1) Original contract — verify advance clause and quantum, (2) Sanction order for advance — check authorisation level, (3) Payment voucher — verify date and amount, (4) First running bill — verify recovery deduction, (5) Subsequent bills if recovery spread — verify instalment schedule, (6) Correspondence if recovery disputed.' }),
+    cagRow({ id:'cag_row_003', pairType:'finding_formulation', qualityScore:94, sourceChunk:'domain_seed_pwd_2021', source:'domain_expert_seed',
+      instruction:'How should an auditor frame an audit finding when GFR Rule 230 has been violated through unrecovered advance?',
+      output:'Structure the finding as — Criteria: GFR Rule 230 requires advances to contractors to be recovered from the first running bill. Condition: Advances totalling ₹X were paid to M/s [contractor] during [period] but recovery was not initiated as of [audit date]. Cause: [lack of monitoring / oversight failure]. Effect: Government funds of ₹X remain at risk with no assurance of recovery. Recommendation: Initiate immediate recovery and fix accountability.' }),
+    cagRow({ id:'cag_row_004', pairType:'rule_explanation', qualityScore:88, sourceChunk:'chunk_gfr_rule230_intro',
+      instruction:'What is the purpose of GFR Rule 230 and when does it apply?',
+      output:'GFR Rule 230 regulates advance payments to contractors in government procurement. It applies whenever a contract involves advance payment and requires: (a) advances be permitted only under explicit contract terms, (b) recovery commence from the first running bill. The rule protects government funds by ensuring advances are not converted into interest-free loans to contractors.' }),
+    cagRow({ id:'cag_row_005', pairType:'impact_quantification', qualityScore:90, sourceChunk:'domain_seed_pwd_2021', source:'domain_expert_seed',
+      instruction:'How is the financial impact of an unrecovered contractor advance quantified and reported in an audit?',
+      output:'The financial effect is the outstanding advance not yet recovered as of the audit date. Report it as: advance paid (₹X) minus amount recovered (₹Y) = ₹Z at risk, with the period of non-recovery and notional interest foregone at the prevailing government borrowing rate stated separately.' }),
+    cagRow({ id:'cag_row_006', pairType:'rule_explanation', qualityScore:86, sourceChunk:'chunk_gfr_rule21',
+      instruction:'What does GFR Rule 21 require regarding the standards of financial propriety?',
+      output:'GFR Rule 21 requires every officer to exercise the same vigilance over public expenditure as a person of ordinary prudence would over their own money. Expenditure should not be prima facie more than the occasion demands, and no authority should sanction expenditure that benefits itself.' }),
+  ];
+  return rows;
+}
+
 const projects = [
   { id:'p1', tenantId:'tenant_pravartak', name:'Legal AI Assistant', description:'Fine-tuned assistant for Indian contract & company law.', status:'active', tags:['legal','en','hi'], members:[{userId:'u2',role:'ProjectManager'},{userId:'u3',role:'Architect'},{userId:'u4',role:'MLEngineer'},{userId:'u5',role:'Reviewer'},{userId:'u6',role:'Annotator'}], createdAt:'2025-02-01' },
   { id:'p2', tenantId:'tenant_pravartak', name:'Customer Support Bot — Tamil', description:'Bilingual Tamil/English support agent for a telecom client.', status:'active', tags:['support','ta'], members:[{userId:'u2',role:'ProjectManager'},{userId:'u4',role:'MLEngineer'},{userId:'u5',role:'Reviewer'}], createdAt:'2025-03-12' },
   { id:'p3', tenantId:'tenant_pravartak', name:'Medical QA — Multilingual', description:'Multilingual medical triage QA across Indic languages.', status:'active', tags:['medical','hi','te','kn'], members:[{userId:'u3',role:'Architect'},{userId:'u4',role:'MLEngineer'},{userId:'u6',role:'Annotator'}], createdAt:'2025-04-20' },
+  { id:'proj_cag_audit', tenantId:'tenant_pravartak', name:'CAG Audit Intelligence', description:'NLP chatbot for government auditors — GFR compliance, audit observation drafting, financial rules reference.', status:'active', tags:['audit','gfr','en'], synthesisTemplate:'audit_compliance', domainSeedRows:47, corpusSize:1200, members:[{userId:'u3',role:'Architect'},{userId:'u4',role:'MLEngineer'}], createdAt:'2025-05-02' },
   { id:'p4', tenantId:'tenant_legalai', name:'Contract Analysis AI', description:'Clause extraction and risk flagging for commercial contracts.', status:'active', tags:['legal','en'], members:[{userId:'u7',role:'Admin'},{userId:'u8',role:'MLEngineer'}], createdAt:'2025-03-05' },
   { id:'p5', tenantId:'tenant_legalai', name:'Due Diligence Bot', description:'Automated due-diligence Q&A over data rooms.', status:'active', tags:['legal'], members:[{userId:'u7',role:'Admin'},{userId:'u8',role:'MLEngineer'}], createdAt:'2025-04-01' },
   { id:'p6', tenantId:'tenant_legalai', name:'Compliance Checker', description:'Regulatory compliance verification assistant.', status:'active', tags:['compliance'], members:[{userId:'u7',role:'Admin'}], createdAt:'2025-04-18' },
@@ -673,6 +700,7 @@ const releases = [
   { id:'rel_v1_1', projectId:'proj_nbfc_chatbot', tenantId:'tenant_nbfc', name:'v1.1 — Factuality Fix', status:'deployed', datasetId:'ds_nbfc_v1_1', evalRunId:'eval_v1_1', createdBy:'un1', createdAt:'2025-04-23', deployedAt:'2025-04-27',
     approvals:[['Dataset quality > 70','System','24 Apr 14:02'],['Annotation complete','System','24 Apr 14:02'],['Eval score ≥ 80 (81.6)','System','24 Apr 14:04'],['ML Engineer approval','Arjun Mehta','24 Apr 14:30'],['PM sign-off','Rohan Desai','24 Apr 15:45']] },
   { id:'rel_v1_2', projectId:'proj_nbfc_chatbot', tenantId:'tenant_nbfc', name:'v1.2 — Interest Rate Update', status:'in-review', datasetId:'ds_nbfc_v1_2', evalRunId:null, createdBy:'un1', createdAt:'2025-06-10' },
+  { id:'rel_cag', projectId:'proj_cag_audit', tenantId:'tenant_pravartak', name:'v0.9 — Audit Corpus', status:'in-review', datasetId:'ds_cag_v1', evalRunId:null, createdBy:'u3', createdAt:'2025-05-20' },
 ];
 
 const datasets = [
@@ -701,11 +729,17 @@ const datasets = [
     sources:[{label:'Updated rate PDFs (Q2 2025)',fmt:'pdf',rows:450},{label:'Chat logs (JSONL)',fmt:'jsonl',rows:2000}],
     note:'Rate PDFs re-ingested with corrected Q2 2025 interest rates (sprint #7).',
     diversityScore:{ score:84, clusters:[{label:'EMI / repayment queries',pct:28,flag:null},{label:'Interest rate queries',pct:22,flag:null},{label:'Eligibility queries',pct:17,flag:null},{label:'KYC / documentation',pct:13,flag:null},{label:'Loan closure / prepay',pct:11,flag:null},{label:'Other',pct:9,flag:null}], insight:'Balanced distribution — no cluster over-represented.', gapLink:false } },
+  // CAG Audit Intelligence — domain-synthesised audit dataset (spec §42). Explicit rows via buildCagRows().
+  { id:'ds_cag_v1', projectId:'proj_cag_audit', releaseId:'rel_cag', tenantId:'tenant_pravartak', name:'GFR Audit Corpus v1', format:'jsonl', uploadedBy:'Rohan Das', uploadedAt:'2025-05-18', _cag:true,
+    totalRows:1247, flaggedRows:63, overallScore:81, languages:[{code:'en',pct:100}],
+    synthesisTemplate:'audit_compliance', domainSeedRows:47,
+    pairTypeDistribution:{ rule_explanation:38, violation_detection:31, evidence_checklist:14, finding_formulation:10, impact_quantification:7 },
+    diversityScore:{ score:72, clusters:[{label:'Advances & recovery',pct:34,flag:'over'},{label:'Procurement & tendering',pct:22,flag:null},{label:'Sanctions & delegation',pct:18,flag:null},{label:'Grants-in-aid',pct:14,flag:null},{label:'Asset management',pct:12,flag:null}], insight:'Advances & recovery slightly over-represented — broaden with procurement and grants observations.', gapLink:false } },
 ];
 // NOTE: rows are materialised in initMockData() (called from boot) — AFTER Section E
 // defines scoreRow/deriveFlags/PII_PATTERNS, to avoid a temporal-dead-zone reference.
 function finaliseDataset(d){
-  if(d._nbfc) return; // NBFC keeps fixed narrative rollups (spec §39) — don't recompute from the sample rows
+  if(d._nbfc||d._cag) return; // NBFC/CAG keep fixed narrative rollups (spec §39/§42) — don't recompute from the sample rows
   d.totalRows = d.rows.length;
   d.flaggedRows = d.rows.filter(r=>r.flags.length).length;
   d.overallScore = Math.round(d.rows.reduce((a,r)=>a+r.qualityScore,0)/d.rows.length);
@@ -800,6 +834,7 @@ const appState = {
   reviewTab:'datasets',                    // review queue tab: datasets | ocr | pref
   chunkStrategy:'structural', chunkSize:220, chunkOverlap:20, // chunking config
   synthTypes:['QA Pairs'], synthPerChunk:2, synthLLM:'Mock', // synthesis config
+  synthTemplate:'generic', synthPairTypes:{qa:true}, synthPromptEdits:{}, // domain-aware synthesis (spec §42)
   bulkView:'list', bulkStep:1, bulkJobId:null, showFailures:false, // bulk ingestion (spec §20)
   annotationJobId:null,                    // annotation project view
   bulkConfig:null,                         // wizard config in progress
@@ -1375,6 +1410,7 @@ const GLOSSARY={
   qualityscore:'<b>Quality score</b> — a 0–100 heuristic per row (length, duplication, PII, format, toxicity). Green ≥70, yellow 45–69, red below 45.',
   diversity:'<b>Diversity score</b> — how evenly the dataset spreads across instruction types. Homogeneous data (one topic asked many ways) generalises poorly even at scale (LIMA, 2023). Over-represented clusters (>30%) and gaps (<5% where production traffic exists) are flagged.',
   fatigue:'<b>Session health</b> — annotation quality degrades within long sessions (Snow et al., 2008). We watch time-per-row, agreement drift, and edit length; when signals fire we suggest a break. Framed as wellbeing, never surveillance — visible to PM/Admin only.',
+  synthtemplate:'<b>Synthesis template</b> — a domain-specific recipe for turning document chunks into instruction pairs. Each template selects the pair types most useful for that domain (e.g. audit → violation detection, evidence checklist, finding formulation) and its own prompt.',
 };
 function infoTip(term){ const t=GLOSSARY[term]; if(!t) return ''; return '<span class="info" tabindex="0" role="button" aria-label="What this means">i<span class="info-pop">'+t+'</span></span>'; }
 // Consistent compact empty / loading states for inline regions (UX redesign phase 3).
@@ -1736,7 +1772,9 @@ function datasetDetail(d){
   // Source badges (spec §39 note 116): show one pill per ingestion source with its row count.
   const srcIcon={jsonl:ICON.database,pdf:ICON.doc,csv:ICON.chart};
   const sourcesLine = d.sources ? '<div class="flex wrap gap6 mt8">'+d.sources.map(s=>'<span class="pill pill-muted" title="'+escapeAttr(s.label)+'" style="font-size:10.5px">'+(srcIcon[s.fmt]||ICON.database)+escapeHtml(s.label)+' · '+fmtNum(s.rows)+'</span>').join('')+'</div>' : '';
-  const hdr='<div class="card"><div class="row-between"><div><div class="flex gap8"><span class="card-title mono">'+escapeHtml(d.name)+'</span><span class="badge-fmt">'+d.format+'</span>'+(d.importMeta?'<span class="pill pill-blue" style="font-size:10px">'+escapeHtml(d.importMeta.sourceLabel)+'</span>':'')+'</div>'
+  const tplPill = d.synthesisTemplate ? '<span class="pill pill-muted" style="font-size:10px" title="Synthesis template">'+ICON.sparkles+'Template: '+escapeHtml(synthTemplate(d.synthesisTemplate).name)+'</span>' : '';
+  const seedBtn = (d.pairTypeDistribution && ['Architect','MLEngineer'].includes(currentUser.role)) ? '<button class="btn btn-ghost btn-sm" data-action="add-expert-pairs" data-id="'+d.id+'">'+ICON.plus+'Add Expert Pairs</button>' : '';
+  const hdr='<div class="card"><div class="row-between"><div><div class="flex wrap gap8" style="align-items:center"><span class="card-title mono">'+escapeHtml(d.name)+'</span><span class="badge-fmt">'+d.format+'</span>'+tplPill+(d.importMeta?'<span class="pill pill-blue" style="font-size:10px">'+escapeHtml(d.importMeta.sourceLabel)+'</span>':'')+seedBtn+'</div>'
     +'<div class="secondary mt4">'+fmtNum(d.importMeta?d.importMeta.rows:d.totalRows)+' rows · '+d.flaggedRows+' flagged · uploaded '+escapeHtml(d.uploadedAt)+' by '+escapeHtml(d.uploadedBy)+'</div>'+sourcesLine+importLine+'</div>'
     +'<div style="text-align:right"><div class="muted" style="font-size:11px">OVERALL SCORE'+infoTip('qualityscore')+'</div><div class="bignum '+scoreClass(d.overallScore)+'">'+d.overallScore+'</div></div></div>'
     +'<div class="grid-3 mt16" style="grid-template-columns:1.3fr 1fr 1fr"><div><div class="section-h">Languages</div>'+langBar(d.languages)
@@ -1751,7 +1789,44 @@ function datasetDetail(d){
     +'<div class="flex gap8"><select class="input" style="width:auto" data-action="ds-filter-sel" data-key="status"><option value="all"'+(f.status==='all'?' selected':'')+'>All status</option><option value="pending"'+(f.status==='pending'?' selected':'')+'>Pending</option><option value="approved"'+(f.status==='approved'?' selected':'')+'>Approved</option><option value="rejected"'+(f.status==='rejected'?' selected':'')+'>Rejected</option></select>'
     +'<select class="input" style="width:auto" data-action="ds-filter-sel" data-key="sort"><option value="score-asc"'+(f.sort==='score-asc'?' selected':'')+'>Score ↑</option><option value="score-desc"'+(f.sort==='score-desc'?' selected':'')+'>Score ↓</option><option value="flags"'+(f.sort==='flags'?' selected':'')+'>Most flags</option></select>'
     +(can('Datasets')?'<button class="btn btn-ghost btn-sm" data-action="export-dataset" data-id="'+d.id+'">'+ICON.download+'Export</button>':'')+'</div></div></div>';
-  return hdr+diversityPanel(d)+curationCard(d)+filterBar+'<div class="card mt16" style="padding:0;overflow:hidden"><div style="max-height:46vh;overflow:auto">'+rowTable(d)+'</div></div>';
+  return hdr+diversityPanel(d)+pairTypeReport(d)+curationCard(d)+filterBar+'<div class="card mt16" style="padding:0;overflow:hidden"><div style="max-height:46vh;overflow:auto">'+rowTable(d)+'</div></div>';
+}
+// Pair-type distribution + under-representation recommendation (spec §42).
+function pairTypeReport(d){
+  const dist=d.pairTypeDistribution; if(!dist) return '';
+  const entries=Object.entries(dist).sort((a,b)=>b[1]-a[1]); const max=Math.max.apply(null,entries.map(e=>e[1]));
+  const bars=entries.map(([k,v])=>{ const w=Math.round(v/max*100); const under=v<10;
+    return '<div class="flex gap8" style="align-items:center;font-size:12px;padding:3px 0"><span style="width:180px;flex-shrink:0" class="secondary">'+escapeHtml(pairTypeLabel(k))+'</span>'
+      +'<div style="flex:1;background:var(--bg-elevated);border-radius:4px;height:12px;overflow:hidden"><div style="width:'+w+'%;height:100%;background:'+(under?'var(--yellow)':'var(--pink)')+'"></div></div>'
+      +'<span class="mono" style="width:36px;text-align:right">'+v+'%</span>'+(under?'<span class="pill pill-yellow" style="font-size:9px">low</span>':'<span style="width:30px"></span>')+'</div>'; }).join('');
+  const under=entries.filter(e=>e[1]<10).map(e=>pairTypeLabel(e[0]));
+  const rec = under.length ? '<div class="warn-banner warn-yellow mt12" style="margin:0;font-size:12px">'+ICON.warn+'<span>'+under.join(' and ')+' under-represented. For an audit chatbot these are the highest-value pair types. Recommendation: run a domain-expert seeding sprint focused on them. <button class="btn btn-ghost btn-sm" style="padding:1px 8px;font-size:11px" data-action="add-expert-pairs" data-id="'+d.id+'">Seed expert pairs '+ICON.arrowR+'</button></span></div>' : '';
+  return '<div class="card mt16"><div class="section-h">Pair type distribution</div>'+bars+rec+'</div>';
+}
+// Domain-expert seed annotation — Architect/ML only; turns one expert observation into typed pairs (spec §42).
+function expertSeedModal(dsId){
+  if(!['Architect','MLEngineer'].includes(currentUser.role)){ showToast('Domain seeding is for Architect / ML Engineer','info'); return; }
+  const field=(lbl,id,ph)=>'<label class="field-label mt12">'+lbl+'</label><input class="input" id="'+id+'" placeholder="'+escapeAttr(ph)+'">';
+  openModal('<div class="modal-head"><strong class="flex gap6">'+ICON.plus+'Domain expert seed annotation</strong><button class="icon-btn" data-action="close-modal">'+ICON.x+'</button></div>'
+    +'<div class="modal-body"><p class="secondary" style="font-size:12.5px">Contribute expert knowledge pairs directly. One observation generates typed pairs synthesis cannot produce.</p>'
+    +'<label class="field-label mt12">Source observation</label><textarea class="input" id="seed-obs" style="min-height:80px;font-family:var(--font-body)" placeholder="Paste an audit observation…">Audit of PWD revealed that advances of ₹2.3 Cr were paid to contractors without contractual provision during 2021-22, in violation of GFR Rule 230. Recovery was not initiated as of date of audit. Financial effect: ₹2.3 Cr.</textarea>'
+    +field('Rule violated','seed-rule','GFR Rule 230')+field('Violation type','seed-vtype','Advance without contractual basis')
+    +field('Evidence needed','seed-ev','Contract, payment voucher, running bills')+field('Financial effect','seed-fin','₹2.3 Cr outstanding advance')
+    +'<div class="warn-banner mt16" style="margin:0;background:var(--bg-hover);border:1px solid var(--border);color:var(--text-secondary);font-size:12px">'+ICON.info+'<span>This generates 1 each: violation detection · evidence checklist · finding formulation · impact quantification pair.</span></div></div>'
+    +'<div class="modal-foot"><button class="btn btn-ghost" data-action="close-modal">Cancel</button><button class="btn btn-primary" data-action="generate-seed-pairs" data-id="'+dsId+'">'+ICON.sparkles+'Generate pairs</button></div>');
+}
+function generateSeedPairs(dsId){
+  const d=byId(datasets,dsId); if(!d||!assertTenant(d)) return;
+  const rule=(el('seed-rule')&&el('seed-rule').value.trim())||'the cited rule';
+  const types=['violation_detection','evidence_checklist','finding_formulation','impact_quantification'];
+  const base=Date.now();
+  types.forEach((pt,i)=>{ d.rows.unshift({ id:'seed_'+base+'_'+i, instruction:(PAIR_INSTR[pt]?PAIR_INSTR[pt]({headingContext:rule}):pairTypeLabel(pt)), input:'',
+    output:'[Expert-seeded from the observation on '+escapeHtml(rule)+' — '+pairTypeLabel(pt)+'.]', language:'en', flags:[], reviewStatus:'approved', reviewedBy:currentUser.name, reviewNote:null, originalOutput:null,
+    qualityScore:90+i%4, pairType:pt, synthesisTemplate:d.synthesisTemplate||'audit_compliance', domainTag:'audit', source:'domain_expert_seed' }); });
+  if(d.pairTypeDistribution){ /* nudge distribution toward the under-represented types */ }
+  closeModal(); log.event('seed:generate',{dataset:dsId, pairs:types.length}); pushActivity('seeded '+types.length+' domain-expert pairs into '+d.name);
+  showToast(types.length+' expert pairs added (finding formulation + impact quantification boosted)','ok');
+  if(appState.panel&&appState.panel.kind==='row'){} setView('datasets'); activeDatasetId=dsId;
 }
 // Dataset diversity: quality alone isn't enough — homogeneous data generalises poorly (LIMA 2023). Spec §41 Change 7.
 function diversityBand(s){ return s>75?'green':s>=60?'yellow':'red'; }
@@ -1797,8 +1872,10 @@ function rowTable(d){
   const cap=Math.min(rows.length,120); // perf: cap DOM rows (CLAUDE.md §10)
   let body='';
   for(let i=0;i<cap;i++){ const r=rows[i];
+    const seedStar = r.source==='domain_expert_seed' ? '<span title="Domain expert seed" style="color:#F5B301">★</span> ' : '';
+    const ptTag = r.pairType ? pairTypePill(r.pairType)+' ' : '';
     body+='<tr data-action="open-row" data-id="'+r.id+'"><td class="mono muted">'+escapeHtml(r.id)+'</td>'
-      +'<td class="cell-wide"><div class="truncate">'+escapeHtml(truncate(r.instruction||'—',60))+'</div></td>'
+      +'<td class="cell-wide">'+ptTag+seedStar+'<div class="truncate" style="display:inline">'+escapeHtml(truncate(r.instruction||'—',52))+'</div></td>'
       +'<td class="cell-wide"><div class="truncate secondary">'+escapeHtml(truncate(r.output||'—',60))+'</div></td>'
       +'<td><span class="pill pill-'+pillColorForScore(r.qualityScore)+'">'+r.qualityScore+'</span></td>'
       +'<td>'+(r.flags.length?'<span class="pill pill-muted">'+r.flags.length+' '+ICON.flag+'</span>':'<span class="muted">—</span>')+'</td>'
@@ -1820,7 +1897,9 @@ function panelRow(rowId){
   const actions = can('Annotation') ? '<div class="flex gap8 mt16 wrap"><button class="btn btn-green btn-sm" data-action="review-row" data-id="'+row.id+'" data-do="approve">'+ICON.check+'Approve</button>'
     +'<button class="btn btn-red btn-sm" data-action="review-row" data-id="'+row.id+'" data-do="reject">'+ICON.x+'Reject</button>'
     +'<button class="btn btn-ghost btn-sm" data-action="edit-row" data-id="'+row.id+'">'+ICON.pencil+'Edit</button></div>' : '<div class="muted mt16">You do not have annotation permission.</div>';
-  const html='<div class="flex gap8"><span class="pill pill-'+pillColorForScore(row.qualityScore)+'">Score '+row.qualityScore+'</span>'+langPill(row.language)+statusPill(row.reviewStatus)+'</div>'
+  const ptRow = row.pairType ? ' '+pairTypePill(row.pairType) : '';
+  const srcRow = row.source==='domain_expert_seed' ? ' <span class="pill pill-muted" style="font-size:10px" title="Contributed by a domain expert"><span style="color:#F5B301">★</span> Expert seed</span>' : (row.source==='synthesis_pipeline'?' <span class="pill pill-muted" style="font-size:10px">'+ICON.sparkles+'Synthesised</span>':'');
+  const html='<div class="flex wrap gap8" style="align-items:center"><span class="pill pill-'+pillColorForScore(row.qualityScore)+'">Score '+row.qualityScore+'</span>'+langPill(row.language)+statusPill(row.reviewStatus)+ptRow+srcRow+'</div>'
     +'<div class="section-h mt16">Instruction</div><div class="card" style="padding:12px">'+escapeHtml(row.instruction||'—')+'</div>'
     +(row.input?'<div class="section-h mt16">Input</div><div class="card" style="padding:12px">'+escapeHtml(row.input)+'</div>':'')
     +'<div class="section-h mt16">Output</div><div class="card" style="padding:12px" id="row-output">'+escapeHtml(row.output||'—')+'</div>'
@@ -2624,39 +2703,128 @@ function screenChunking(d){
 
 /* ---- Synthesis sub-screen ---- */
 const SYNTH_TYPES=['QA Pairs','Summarisation','Information Extraction','Instruction Following'];
+// Domain-aware synthesis templates (spec §42). Each defines its recommended pair types + a preview prompt.
+const PAIR_TYPE={
+  rule_explanation:{label:'Rule / Norm explanation',color:'blue'},
+  violation_detection:{label:'Violation detection',color:'yellow'},
+  evidence_checklist:{label:'Evidence checklist',color:'teal'},
+  finding_formulation:{label:'Finding formulation',color:'coral'},
+  impact_quantification:{label:'Impact quantification',color:'purple'},
+  provision_explanation:{label:'Provision explanation',color:'blue'},
+  applicability_conditions:{label:'Applicability conditions',color:'teal'},
+  exception_identification:{label:'Exception / exclusion',color:'yellow'},
+  precedent_questions:{label:'Precedent / interpretation',color:'coral'},
+  cross_reference:{label:'Cross-reference',color:'purple'},
+  product_explanation:{label:'Product / rule explanation',color:'blue'},
+  eligibility_threshold:{label:'Eligibility / threshold',color:'teal'},
+  compliance_scenario:{label:'Compliance violation scenario',color:'yellow'},
+  customer_response:{label:'Customer-facing response',color:'coral'},
+  regulatory_reference:{label:'Regulatory cross-ref (RBI/SEBI/IRDAI)',color:'purple'},
+  guideline_explanation:{label:'Clinical guideline explanation',color:'blue'},
+  contraindication:{label:'Contraindication / risk',color:'yellow'},
+  diagnostic_criteria:{label:'Diagnostic criteria',color:'teal'},
+  treatment_protocol:{label:'Treatment protocol steps',color:'coral'},
+  differential_diagnosis:{label:'Differential diagnosis',color:'purple'},
+  qa:{label:'Rule explanation',color:'blue'},
+};
+function pairTypeLabel(k){ return (PAIR_TYPE[k]&&PAIR_TYPE[k].label)||k; }
+function pairTypePill(k){ const p=PAIR_TYPE[k]; const c=p?p.color:'muted';
+  const map={teal:'background:rgba(20,184,166,.16);color:#14B8A6;border-color:#14B8A6',purple:'background:rgba(139,92,246,.16);color:#8B5CF6;border-color:#8B5CF6'};
+  return map[c] ? '<span class="pill" style="'+map[c]+';font-size:10px">'+escapeHtml(pairTypeLabel(k))+'</span>' : '<span class="pill pill-'+c+'" style="font-size:10px">'+escapeHtml(pairTypeLabel(k))+'</span>'; }
+const SYNTH_TEMPLATES=[
+  { key:'generic', name:'Generic Q&A', desc:'General purpose — any domain', domain:'generic', pairTypes:['qa'],
+    prompt:'Generate factual Q&A pairs from the text. Focus on what the text says.' },
+  { key:'audit_compliance', name:'Audit & Compliance', desc:'Government audit, GFR, CAG-type', domain:'audit', pairTypes:['rule_explanation','violation_detection','evidence_checklist','finding_formulation','impact_quantification'],
+    prompt:'Generate pairs that reflect how a government auditor would use this text — focused on compliance checking, violation detection, evidence gathering, and finding formulation. For each rule, cover: what it requires, what constitutes non-compliance, what evidence proves it, how to frame a finding, and how to quantify financial impact.' },
+  { key:'legal_reference', name:'Legal Reference', desc:'Contracts, case law, statutes', domain:'legal', pairTypes:['provision_explanation','applicability_conditions','exception_identification','precedent_questions','cross_reference'],
+    prompt:'Generate pairs a legal researcher would use — explaining provisions, their applicability conditions, exceptions and exclusions, interpretation/precedent questions, and cross-references to related provisions.' },
+  { key:'financial_services', name:'Financial Services', desc:'NBFC, banking, RBI guidelines', domain:'financial', pairTypes:['product_explanation','eligibility_threshold','compliance_scenario','customer_response','regulatory_reference'],
+    prompt:'Generate pairs for a financial-services assistant — explaining products and rules, eligibility and thresholds, compliance violation scenarios, customer-facing response formulation, and regulatory cross-references (RBI/SEBI/IRDAI).' },
+  { key:'medical_clinical', name:'Medical / Clinical', desc:'Clinical guidelines, diagnostics', domain:'medical', pairTypes:['guideline_explanation','contraindication','diagnostic_criteria','treatment_protocol','differential_diagnosis'],
+    prompt:'Generate pairs for a clinical assistant — explaining guidelines, identifying contraindications and risks, diagnostic criteria, treatment protocol steps, and differential diagnosis scenarios.' },
+  { key:'custom', name:'Custom', desc:'Edit prompt directly', domain:'custom', pairTypes:[], prompt:'' },
+];
+function synthTemplate(key){ return SYNTH_TEMPLATES.find(t=>t.key===key)||SYNTH_TEMPLATES[0]; }
+function synthPromptFor(key){ return (appState.synthPromptEdits&&appState.synthPromptEdits[key]!=null) ? appState.synthPromptEdits[key] : synthTemplate(key).prompt; }
 function screenSynthesis(d){
   const dch=chunksForDoc(d.id);
   const head='<div class="row-between"><div><button class="btn btn-sm btn-ghost" data-action="doc-back">'+ICON.chevR+' Documents</button><h1 class="page-h mt8">Instruction Pair Synthesis</h1><p class="page-sub">'+escapeHtml(d.name)+' · '+dch.length+' chunks</p></div>'
     +'<button class="btn btn-primary" data-action="generate-pairs" data-id="'+d.id+'">'+ICON.sparkles+'Generate Pairs</button></div>';
   if(!dch.length) return head+'<div class="mt24">'+emptyState('scissors','No chunks yet','Configure and apply chunking before synthesising pairs.','<button class="btn btn-primary" data-action="configure-chunking" data-id="'+d.id+'">'+ICON.scissors+'Configure Chunking</button>')+'</div>';
-  let types=''; SYNTH_TYPES.forEach(t=>{ const on=appState.synthTypes.includes(t); types+='<button class="chip '+(on?'is-on':'')+'" data-action="toggle-synth-type" data-val="'+escapeAttr(t)+'">'+escapeHtml(t)+'</button>'; });
-  const cfg='<div class="card"><div class="section-h">Configuration</div>'
-    +'<label class="field-label">Pair types</label><div class="flex wrap gap6">'+types+'</div>'
-    +'<div class="row-between mt16"><span class="secondary">Pairs per chunk</span><span class="mono" id="spc">'+appState.synthPerChunk+'</span></div>'
-    +'<input type="range" min="1" max="3" value="'+appState.synthPerChunk+'" data-action="set-synth-per" style="width:100%;accent-color:var(--coral)">'
-    +'<label class="field-label mt16">LLM</label><div class="flex gap6">'+['Mock','Claude API','Local Model'].map(m=>'<button class="chip '+(appState.synthLLM===m?'is-on':'')+'" data-action="set-synth-llm" data-val="'+escapeAttr(m)+'">'+m+'</button>').join('')+'</div></div>';
+  // Domain template selector (spec §42)
+  const tpl=synthTemplate(appState.synthTemplate);
+  const tplRadios=SYNTH_TEMPLATES.map(t=>{ const on=appState.synthTemplate===t.key;
+    return '<label class="flex gap8" style="padding:5px 0;cursor:pointer;align-items:flex-start" data-action="synth-template" data-key="'+t.key+'">'
+      +'<span style="width:15px;height:15px;border-radius:50%;border:2px solid '+(on?'var(--coral)':'var(--border-active)')+';flex-shrink:0;margin-top:2px;'+(on?'background:var(--coral);box-shadow:inset 0 0 0 3px var(--bg-surface)':'')+'"></span>'
+      +'<span><span style="font-size:13px;font-weight:500">'+escapeHtml(t.name)+'</span><span class="muted" style="display:block;font-size:11px">'+escapeHtml(t.desc)+'</span></span></label>'; }).join('');
+  const ptChecks = tpl.key==='custom' ? '<div class="muted" style="font-size:12px">Custom template — define pairs directly in the prompt.</div>'
+    : tpl.pairTypes.map(pt=>{ const on=!!appState.synthPairTypes[pt];
+      return '<label class="flex gap8" style="padding:4px 0;cursor:pointer" data-action="synth-pairtype" data-key="'+pt+'"><span style="width:15px;height:15px;border-radius:4px;border:2px solid '+(on?'var(--coral)':'var(--border-active)')+';flex-shrink:0;display:grid;place-items:center;'+(on?'background:var(--coral)':'')+'">'+(on?'<span style="color:#fff;font-size:10px">✓</span>':'')+'</span><span style="font-size:12.5px">'+escapeHtml(pairTypeLabel(pt))+'</span></label>'; }).join('');
+  const isArchitect = currentUser.role==='Architect';
+  const cfg='<div class="card"><div class="section-h">Synthesis template'+infoTip('synthtemplate')+'</div>'
+    +'<label class="field-label">Select domain template</label>'+tplRadios
+    +'<label class="field-label mt16">Pair types to generate</label>'+ptChecks
+    +'<div class="row-between mt16"><span class="secondary">Pairs per chunk</span><select class="input" style="width:auto;padding:2px 8px" data-action="set-synth-per-sel">'+[1,2,3].map(n=>'<option value="'+n+'"'+(appState.synthPerChunk===n?' selected':'')+'>'+n+'</option>').join('')+'</select></div>'
+    +'<div class="flex gap8 mt16"><button class="btn btn-ghost btn-sm" data-action="preview-synth-prompt">'+ICON.info+'Preview prompt</button>'
+    +(isArchitect?'<button class="btn btn-ghost btn-sm" data-action="edit-synth-prompt">'+ICON.pencil+'Edit prompt</button>':'<span class="muted" style="font-size:11px;align-self:center">Edit — Architect only</span>')+'</div></div>';
   // existing generated pairs
   const pairs=(d.synthesisedPairs||[]);
   let pairRows='';
   if(pairs.length){ pairs.forEach(p=>{ pairRows+='<tr data-action="open-pair" data-doc="'+d.id+'" data-pid="'+p.id+'"><td class="cell-wide"><div class="truncate">'+escapeHtml(truncate(p.instruction,60))+'</div></td>'
-    +'<td class="cell-wide"><div class="truncate secondary">'+escapeHtml(truncate(p.output,60))+'</div></td><td><span class="pill pill-pink">'+escapeHtml(p.pairType)+'</span></td><td><span class="pill pill-'+pillColorForScore(p.confidence)+'">'+p.confidence+'</span></td></tr>'; }); }
+    +'<td class="cell-wide"><div class="truncate secondary">'+escapeHtml(truncate(p.output,60))+'</div></td><td>'+(PAIR_TYPE[p.pairType]?pairTypePill(p.pairType):'<span class="pill pill-pink">'+escapeHtml(p.pairType)+'</span>')+'</td><td><span class="pill pill-'+pillColorForScore(p.confidence)+'">'+p.confidence+'</span></td></tr>'; }); }
   const resultCard = pairs.length
     ? '<div class="card" style="padding:0;overflow:hidden"><div class="row-between" style="padding:14px 16px"><span class="section-h" style="margin:0">Generated pairs ('+pairs.length+')</span><button class="btn btn-primary btn-sm" data-action="send-to-curation" data-id="'+d.id+'">'+ICON.arrowR+'Send to Curation Pipeline</button></div><table class="tbl"><thead><tr><th>Instruction</th><th>Output</th><th>Type</th><th>Conf</th></tr></thead><tbody>'+pairRows+'</tbody></table></div>'
     : '<div class="card">'+emptyState('sparkles','No pairs generated yet','Configure and click Generate Pairs to synthesise instruction pairs from chunks.','')+'</div>';
   return head+'<div class="mt24" style="display:grid;grid-template-columns:320px 1fr;gap:20px;align-items:start">'+cfg+resultCard+'</div>';
 }
+// Domain-aware pair synthesis (spec §42) — uses the selected template's pair types, tags each pair.
+const PAIR_INSTR={
+  qa:c=>'What does this section describe?',
+  rule_explanation:c=>'What does '+(c.headingContext||'this rule')+' require?',
+  violation_detection:c=>'What constitutes non-compliance with '+(c.headingContext||'this rule')+'?',
+  evidence_checklist:c=>'What documents should an auditor examine to verify compliance with '+(c.headingContext||'this rule')+'?',
+  finding_formulation:c=>'How should an auditor frame a finding when '+(c.headingContext||'this rule')+' has been violated?',
+  impact_quantification:c=>'How is the financial impact of a violation of '+(c.headingContext||'this rule')+' calculated and reported?',
+  provision_explanation:c=>'Explain the provision in '+(c.headingContext||'this section')+'.',
+  applicability_conditions:c=>'Under what conditions does '+(c.headingContext||'this provision')+' apply?',
+  exception_identification:c=>'What exceptions or exclusions apply to '+(c.headingContext||'this provision')+'?',
+  precedent_questions:c=>'How has '+(c.headingContext||'this provision')+' been interpreted?',
+  cross_reference:c=>'Which related provisions connect to '+(c.headingContext||'this section')+'?',
+  product_explanation:c=>'Explain the product or rule described in '+(c.headingContext||'this section')+'.',
+  eligibility_threshold:c=>'What eligibility criteria or thresholds does '+(c.headingContext||'this section')+' set?',
+  compliance_scenario:c=>'Describe a compliance violation scenario for '+(c.headingContext||'this rule')+'.',
+  customer_response:c=>'Draft a customer-facing response based on '+(c.headingContext||'this section')+'.',
+  regulatory_reference:c=>'Which regulator (RBI/SEBI/IRDAI) governs '+(c.headingContext||'this rule')+'?',
+  guideline_explanation:c=>'Explain the clinical guideline in '+(c.headingContext||'this section')+'.',
+  contraindication:c=>'What contraindications or risks does '+(c.headingContext||'this section')+' note?',
+  diagnostic_criteria:c=>'What diagnostic criteria does '+(c.headingContext||'this section')+' specify?',
+  treatment_protocol:c=>'What are the treatment protocol steps in '+(c.headingContext||'this section')+'?',
+  differential_diagnosis:c=>'What differential diagnoses does '+(c.headingContext||'this section')+' suggest?',
+};
+// Preview / edit the synthesis prompt for the selected template (spec §42 notes 147). Architect can edit.
+function previewSynthPromptModal(editable){
+  const tpl=synthTemplate(appState.synthTemplate); const prompt=synthPromptFor(tpl.key);
+  const body = editable
+    ? '<label class="field-label">Prompt sent to the judge for '+escapeHtml(tpl.name)+'</label><textarea class="input" id="synth-prompt-ta" style="min-height:130px;font-family:var(--font-mono);font-size:12px">'+escapeHtml(prompt)+'</textarea>'
+    : '<label class="field-label">Prompt for '+escapeHtml(tpl.name)+' (read-only)</label><div class="card mono" style="padding:12px;font-size:12px;line-height:1.7;white-space:pre-wrap">'+escapeHtml(prompt||'Custom — define the prompt directly.')+'</div>';
+  const foot = editable ? '<button class="btn btn-ghost" data-action="close-modal">Cancel</button><button class="btn btn-primary" data-action="save-synth-prompt">'+ICON.check+'Save prompt</button>'
+    : '<button class="btn btn-primary" data-action="close-modal">Close</button>';
+  openModal('<div class="modal-head"><strong>'+(editable?'Edit synthesis prompt':'Synthesis prompt preview')+'</strong><button class="icon-btn" data-action="close-modal">'+ICON.x+'</button></div>'
+    +'<div class="modal-body">'+body+'<div class="muted mt8" style="font-size:11px">Generates these pair types: '+tpl.pairTypes.map(pairTypeLabel).join(', ')+'</div></div>'
+    +'<div class="modal-foot">'+foot+'</div>');
+}
 function synthesisePairs(d){
-  const dch=chunksForDoc(d.id); const per=appState.synthPerChunk; const types=appState.synthTypes.length?appState.synthTypes:['QA Pairs'];
+  const dch=chunksForDoc(d.id); const per=appState.synthPerChunk;
+  const tpl=synthTemplate(appState.synthTemplate);
+  let ptKeys=Object.keys(appState.synthPairTypes).filter(k=>appState.synthPairTypes[k]);
+  if(!ptKeys.length) ptKeys=(tpl.pairTypes.length?tpl.pairTypes:['qa']);
   const rand=mkRand(d.id.length*77+dch.length);
   const pairs=[];
-  dch.forEach((c,ci)=>{ for(let i=0;i<per;i++){ const type=types[i%types.length];
+  dch.forEach((c,ci)=>{ for(let i=0;i<per;i++){ const ptKey=ptKeys[i%ptKeys.length];
     const sentences=c.text.split(/(?<=[.।!?])\s+/).filter(Boolean); const first2=sentences.slice(0,2).join(' ');
-    let instruction, output;
-    if(type==='Summarisation'){ instruction='Summarise the following section: '+c.headingContext; output=truncate(first2,160); }
-    else if(type==='Information Extraction'){ instruction='Extract the key obligation or finding from this passage.'; output=truncate(sentences[0]||c.text,140); }
-    else if(type==='Instruction Following'){ instruction='Rewrite the following clause in plain language.'; output=truncate(first2,160); }
-    else { instruction='What does this section describe?'; output=truncate(first2,160); }
-    pairs.push({ id:'pair_'+d.id+'_'+ci+'_'+i, chunkId:c.id, chunkIndex:c.chunkIndex, pairType:type,
+    const instruction=(PAIR_INSTR[ptKey]||PAIR_INSTR.qa)(c); const output=truncate(first2||c.text,160);
+    pairs.push({ id:'pair_'+d.id+'_'+ci+'_'+i, chunkId:c.id, chunkIndex:c.chunkIndex, pairType:ptKey,
+      synthesisTemplate:tpl.key, domainTag:tpl.domain, source:'synthesis_pipeline',
       instruction, input:'', output, confidence:62+Math.floor(rand()*33), sourcePages:c.sourcePages, headingContext:c.headingContext }); } });
   return pairs;
 }
@@ -3879,7 +4047,16 @@ function dispatch(action, d){
     case 'apply-chunking': applyChunking(d.id); break;
     case 'toggle-synth-type': toggleSynthType(d.val); break;
     case 'set-synth-per': appState.synthPerChunk=+d.val||1; { const n=el('spc'); if(n) n.textContent=appState.synthPerChunk; } break;
+    case 'set-synth-per-sel': appState.synthPerChunk=+d.val||1; break;
     case 'set-synth-llm': appState.synthLLM=d.val; renderView(); break;
+    // --- Domain synthesis templates (spec §42) ---
+    case 'synth-template': { appState.synthTemplate=d.key; const tpl=synthTemplate(d.key); appState.synthPairTypes={}; tpl.pairTypes.forEach(pt=>appState.synthPairTypes[pt]=true); renderView(); break; }
+    case 'synth-pairtype': appState.synthPairTypes[d.key]=!appState.synthPairTypes[d.key]; renderView(); break;
+    case 'add-expert-pairs': expertSeedModal(d.id); break;
+    case 'generate-seed-pairs': generateSeedPairs(d.id); break;
+    case 'preview-synth-prompt': previewSynthPromptModal(false); break;
+    case 'edit-synth-prompt': if(currentUser.role==='Architect') previewSynthPromptModal(true); else showToast('Prompt editing is Architect-only','info'); break;
+    case 'save-synth-prompt': { const ta=el('synth-prompt-ta'); if(ta){ appState.synthPromptEdits[appState.synthTemplate]=ta.value; } closeModal(); showToast('Synthesis prompt saved for this template','ok'); break; }
     case 'generate-pairs': generatePairsFlow(d.id); break;
     case 'send-to-curation': sendPairsToCuration(d.id); break;
     case 'open-pair': openPairPanel(d.doc, d.pid); break;
@@ -4555,6 +4732,7 @@ function initMockData(){
   // Materialise dataset rows + rollups now that all mock logic (Section E) is defined.
   datasets.forEach(d=>{
     if(d._nbfc){ d.rows = buildNbfcRows(d._nbfc); return; } // NBFC uses explicit rows + fixed rollups (spec §39)
+    if(d._cag){ d.rows = buildCagRows(); return; }          // CAG audit uses explicit domain-synthesised rows (spec §42)
     d.rows = buildRows(d._seed, d._count); finaliseDataset(d);
   });
   // Attach rubric + precompute completed eval results (skip NBFC — it ships explicit rubric+results).

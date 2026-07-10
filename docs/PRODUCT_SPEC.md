@@ -4015,3 +4015,24 @@ Completed bulk jobs carry a diversity score; when < 60 the job dashboard shows a
 - Claim-level uses an inline breakdown list for source attribution rather than a click-popover (note 142); highlighting is inline via `<mark>`.
 - Fatigue sessions are seeded mock data (PM/Admin visibility), not live per-row tracking; the rest prompt has no 30s auto-dismiss timer (avoids leaked timers, CLAUDE.md §10).
 - `finaliseDataset` preserves NBFC fixed rollups so review/edit actions never clobber the narrative counts (added in Priority 2).
+
+---
+
+## §42 — Domain-Aware Synthesis Templates
+
+The instruction-pair synthesis step (Document Ingestion) gains a configurable domain-template system.
+
+### 42.1 Synthesis template config
+The synthesis sub-screen leads with a **Synthesis template** panel: a radio selector across six templates — **Generic Q&A, Audit & Compliance, Legal Reference, Financial Services, Medical / Clinical, Custom** (`SYNTH_TEMPLATES`). Selecting a template checks its recommended **pair types** (checkbox multi-select). A **Pairs per chunk** dropdown and **Preview prompt** button are shown; **Edit prompt** is Architect-only (edits persist per template in `appState.synthPromptEdits`). `synthesisePairs` now generates by the selected pair types and tags every pair with `pairType`, `synthesisTemplate`, `domainTag`, and `source:'synthesis_pipeline'`.
+
+### 42.2 Pair-type tagging & badges
+Each pair type has a coloured pill (`PAIR_TYPE` / `pairTypePill`): rule/norm=blue, violation=amber, evidence=teal, finding=coral, impact=purple. Badges appear in the synthesis result table, the dataset row table (with a gold ★ for expert-seeded rows), and the row panel (with a Synthesised / Expert-seed source pill).
+
+### 42.3 Pair-type distribution report
+The dataset detail screen shows a **Pair type distribution** bar chart (below diversity) with under-represented types (<10%) flagged and a recommendation to run a domain-expert seeding sprint. The dataset header shows a **Template: …** pill.
+
+### 42.4 Domain-expert seeding
+Architect / ML-Engineer only (hidden from Annotator/Reviewer): an **Add Expert Pairs** button opens a seeding modal that turns one pasted observation (rule / violation type / evidence / financial effect) into four typed pairs (violation detection, evidence checklist, finding formulation, impact quantification), tagged `source:'domain_expert_seed'`.
+
+### 42.5 CAG Audit Intelligence mock project
+A fifth Pravartak project ("CAG Audit Intelligence", `audit_compliance` template, 47 domain-seed rows, corpus 1,200) with a **GFR Audit Corpus v1** dataset (1,247 rows, score 81, pair-type distribution 38/31/14/10/7). Rows carry realistic GFR Rule 230 audit content across all five pair types, two of them domain-expert-seeded. `finaliseDataset` preserves the fixed rollups (`_cag`), so seeding/editing never clobbers the narrative counts.
