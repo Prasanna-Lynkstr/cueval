@@ -46,7 +46,7 @@ Because everything lives in one file, **internal structure is the only thing kee
 <!doctype html>
 <head>
   <meta> tags, <title>
-  <link> Google Fonts (Syne, Inter, JetBrains Mono)
+  <link> Google Fonts (Space Grotesk, Inter, JetBrains Mono)
   <style>
     /* 1. :root design tokens (colors, type, spacing, motion)      */
     /* 2. reset + base element styles                              */
@@ -177,7 +177,7 @@ const log = {
 The look is the product. Adherence is mandatory, not aesthetic preference.
 
 - **Tokens are the only source of color/type/spacing.** Define every palette value from product spec §2 as a `:root` CSS variable. JS that needs a color reads it from a mirrored `TOKENS` const — no inline hex in JS either.
-- **Typography roles are fixed:** `Syne` = product name + big numbers only; `Inter` = all UI text; `JetBrains Mono` = code/JSON/rows/scores. Don't use display font for body copy.
+- **Typography roles are fixed:** `Space Grotesk` (the display font — product name + big numbers only; superseded the original Syne, which read as too extended/stretched); `Inter` = all UI text; `JetBrains Mono` = code/JSON/rows/scores. Don't use display font for body copy.
 - **Signature elements must be preserved and never downgraded to a plain sidebar:** the orbital dock (frosted glass, glow ring on active, breathing pulse for pending), the slide-in right panel, the command palette.
 - **Status is always color + icon/text**, never color alone (accessibility + spec §12).
 - **Motion budget:** page transition 200ms, panel slide 250ms ease-out, dock hover 150ms scale, score bars 600ms, dock pulse 2s loop. Match these; don't invent new durations.

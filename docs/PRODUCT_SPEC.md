@@ -45,7 +45,7 @@
 
 ### Typography
 ```
-Display:  'Syne' (Google Fonts) — weight 700/800. Used for product name, big numbers only.
+Display:  'Space Grotesk' (Google Fonts) — weight 500/600/700. Used for product name, big numbers only. (Superseded 'Syne', which read as too extended/stretched.)
 Body:     'Inter' (Google Fonts) — weight 400/500/600. All UI text.
 Mono:     'JetBrains Mono' (Google Fonts) — code, JSON, dataset rows, scores.
 ```
@@ -628,7 +628,7 @@ Examples:
 ## 14. IMPLEMENTATION NOTES FOR CLAUDE CODE
 
 1. Build as a single `.html` file. All CSS in `<style>`, all JS in `<script>`. No external files.
-2. Load Google Fonts via `<link>` in `<head>`: Syne, Inter, JetBrains Mono.
+2. Load Google Fonts via `<link>` in `<head>`: Space Grotesk, Inter, JetBrains Mono.
 3. No frameworks. Pure DOM manipulation with vanilla JS.
 4. Use SVG icons inline (Heroicons style) — do not import icon libraries.
 5. Routing: simple JS state variable `currentView`. Re-render main canvas on change.
