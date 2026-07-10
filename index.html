@@ -1,0 +1,1738 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cueval — by Lynkstr Labs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+/* ============================================================
+   1. DESIGN TOKENS  (product spec §2 — single source of truth)
+   ============================================================ */
+:root{
+  --bg-base:#0A0A0F; --bg-surface:#111118; --bg-elevated:#1A1A24; --bg-hover:#1F1F2E;
+  --border:#2A2A3A; --border-active:#3D3D5C;
+  --coral:#E85D26; --coral-dim:#C4410C; --coral-glow:rgba(232,93,38,0.15);
+  --pink:#D63384; --pink-dim:rgba(214,51,132,0.15);
+  --text-primary:#F0F0F8; --text-secondary:#9898B0; --text-muted:#5A5A72;
+  --green:#22C55E; --yellow:#EAB308; --red:#EF4444; --blue:#3B82F6;
+  --gradient-brand:linear-gradient(135deg,#E85D26,#D63384);
+  --font-display:'Syne',sans-serif; --font-body:'Inter',sans-serif; --font-mono:'JetBrains Mono',monospace;
+  --dock-w:64px; --topbar-h:48px; --panel-w:380px;
+  --r-sm:8px; --r-md:12px; --r-lg:16px;
+  --t-fast:150ms; --t-med:200ms; --t-panel:250ms;
+}
+/* ============================================================
+   2. RESET + BASE
+   ============================================================ */
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  font-family:var(--font-body);background:var(--bg-base);color:var(--text-primary);
+  font-size:14px;line-height:1.5;overflow:hidden;-webkit-font-smoothing:antialiased;
+}
+button{font-family:inherit;font-size:inherit;color:inherit;background:none;border:none;cursor:pointer}
+input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
+a{color:inherit;text-decoration:none}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:6px;border:2px solid var(--bg-base)}
+::-webkit-scrollbar-thumb:hover{background:var(--border-active)}
+:focus-visible{outline:2px solid var(--coral);outline-offset:2px;border-radius:4px}
+.mono{font-family:var(--font-mono)}
+.display{font-family:var(--font-display)}
+.muted{color:var(--text-muted)} .secondary{color:var(--text-secondary)}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0}
+.hidden{display:none!important}
+/* ============================================================
+   3. LAYOUT PRIMITIVES  (shell, dock, topbar, canvas, panel)
+   ============================================================ */
+#app{height:100vh;width:100vw;position:relative}
+.shell{display:grid;grid-template-columns:var(--dock-w) 1fr;height:100vh}
+.shell-main{display:grid;grid-template-rows:var(--topbar-h) 1fr;min-width:0;position:relative}
+.canvas{overflow:hidden;position:relative;min-height:0}
+.canvas-scroll{position:absolute;inset:0;overflow-y:auto;padding:28px 32px 48px}
+.view-anim{animation:viewIn var(--t-med) ease-out}
+@keyframes viewIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+/* Orbital dock */
+.dock{
+  background:rgba(17,17,24,0.72);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  border-right:1px solid var(--border);display:flex;flex-direction:column;align-items:center;
+  padding:12px 0;gap:6px;z-index:40;
+}
+.dock-logo{width:38px;height:38px;border-radius:11px;background:var(--gradient-brand);
+  display:grid;place-items:center;font-family:var(--font-display);font-weight:800;color:#fff;
+  font-size:19px;margin-bottom:10px;box-shadow:0 4px 18px var(--coral-glow)}
+.dock-item{position:relative;width:44px;height:44px;border-radius:13px;display:grid;place-items:center;
+  color:var(--text-secondary);transition:transform var(--t-fast),background var(--t-fast),color var(--t-fast)}
+.dock-item svg{width:21px;height:21px}
+.dock-item:hover{transform:scale(1.12);background:var(--bg-hover);color:var(--text-primary)}
+.dock-item.is-active{color:var(--coral);background:var(--coral-glow)}
+.dock-item.is-active::before{content:"";position:absolute;inset:-3px;border-radius:15px;
+  border:2px solid var(--coral);box-shadow:0 0 14px var(--coral-glow)}
+.dock-badge{position:absolute;top:-2px;right:-2px;min-width:17px;height:17px;padding:0 4px;border-radius:9px;
+  background:var(--coral);color:#fff;font-size:10px;font-weight:600;display:grid;place-items:center;
+  border:2px solid var(--bg-base)}
+.dock-badge.pulse{animation:pulse 2s ease-in-out infinite}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 var(--coral-glow)}50%{box-shadow:0 0 0 6px transparent}}
+.dock-spacer{flex:1}
+.dock-tip{position:absolute;left:56px;top:50%;transform:translateY(-50%);white-space:nowrap;
+  background:var(--bg-elevated);border:1px solid var(--border);padding:5px 10px;border-radius:8px;
+  font-size:12px;pointer-events:none;opacity:0;transition:opacity var(--t-fast);z-index:60;box-shadow:0 6px 20px rgba(0,0,0,.4)}
+.dock-item:hover .dock-tip{opacity:1}
+.dock-avatar{width:38px;height:38px;border-radius:50%;background:var(--gradient-brand);display:grid;place-items:center;
+  font-weight:600;color:#fff;font-size:14px}
+
+/* Top bar */
+.topbar{display:flex;align-items:center;gap:12px;padding:0 18px;border-bottom:1px solid var(--border);
+  background:var(--bg-surface);z-index:30}
+.topbar-brand{font-family:var(--font-display);font-weight:800;font-size:16px;letter-spacing:-.3px}
+.topbar-brand small{font-family:var(--font-body);font-weight:500;color:var(--text-muted);font-size:11px;margin-left:6px}
+.topbar-spacer{flex:1}
+.selectbox{position:relative}
+.selectbox>button{display:flex;align-items:center;gap:8px;padding:6px 12px;border-radius:9px;border:1px solid var(--border);
+  background:var(--bg-elevated);color:var(--text-primary);font-weight:500;transition:border var(--t-fast)}
+.selectbox>button:hover{border-color:var(--border-active)}
+.selectbox .chev{width:14px;height:14px;color:var(--text-muted)}
+.dropdown{position:absolute;top:calc(100% + 6px);left:0;min-width:230px;background:var(--bg-elevated);
+  border:1px solid var(--border);border-radius:12px;padding:6px;z-index:70;box-shadow:0 14px 40px rgba(0,0,0,.5)}
+.dropdown.right{left:auto;right:0}
+.dropdown-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;width:100%;text-align:left;
+  transition:background var(--t-fast)}
+.dropdown-item:hover{background:var(--bg-hover)}
+.dropdown-item.is-active{color:var(--coral)}
+.dropdown-sep{height:1px;background:var(--border);margin:6px 4px}
+.dropdown-head{padding:8px 10px 4px;font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--text-muted)}
+.icon-btn{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;color:var(--text-secondary);
+  position:relative;transition:background var(--t-fast),color var(--t-fast)}
+.icon-btn:hover{background:var(--bg-hover);color:var(--text-primary)}
+.icon-btn svg{width:19px;height:19px}
+.notif-dot{position:absolute;top:5px;right:6px;min-width:15px;height:15px;padding:0 3px;border-radius:8px;background:var(--coral);
+  color:#fff;font-size:9px;font-weight:600;display:grid;place-items:center;border:2px solid var(--bg-surface)}
+
+/* Right panel */
+.panel{position:absolute;top:0;right:0;height:100%;width:var(--panel-w);background:var(--bg-surface);
+  border-left:1px solid var(--border);transform:translateX(100%);transition:transform var(--t-panel) ease-out;
+  z-index:50;display:flex;flex-direction:column;box-shadow:-20px 0 50px rgba(0,0,0,.4)}
+.panel.is-open{transform:none}
+.panel-head{display:flex;align-items:center;justify-content:space-between;padding:16px 18px;border-bottom:1px solid var(--border)}
+.panel-body{overflow-y:auto;padding:18px;flex:1}
+.scrim{position:absolute;inset:0;background:rgba(0,0,0,.45);opacity:0;pointer-events:none;transition:opacity var(--t-panel);z-index:45}
+.scrim.is-open{opacity:1;pointer-events:auto}
+
+/* ============================================================
+   4. COMPONENTS
+   ============================================================ */
+.card{background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:18px}
+.card.hover{transition:border var(--t-fast),transform var(--t-fast);cursor:pointer}
+.card.hover:hover{border-color:var(--border-active);transform:translateY(-2px)}
+.card-title{font-weight:600;font-size:15px}
+.grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+.grid-2{display:grid;grid-template-columns:repeat(2,1fr);gap:18px}
+.row-between{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.stack{display:flex;flex-direction:column}
+.flex{display:flex;align-items:center}
+.gap6{gap:6px}.gap8{gap:8px}.gap12{gap:12px}.gap16{gap:16px}
+.mt4{margin-top:4px}.mt8{margin-top:8px}.mt12{margin-top:12px}.mt16{margin-top:16px}.mt24{margin-top:24px}
+.wrap{flex-wrap:wrap}
+.page-h{font-family:var(--font-display);font-weight:800;font-size:26px;letter-spacing:-.5px}
+.page-sub{color:var(--text-secondary);margin-top:4px}
+.section-h{font-size:12px;text-transform:uppercase;letter-spacing:.7px;color:var(--text-muted);font-weight:600;margin-bottom:12px}
+
+.btn{display:inline-flex;align-items:center;gap:7px;padding:8px 15px;border-radius:9px;font-weight:600;font-size:13px;
+  transition:background var(--t-fast),border var(--t-fast),opacity var(--t-fast);border:1px solid transparent;white-space:nowrap}
+.btn svg{width:15px;height:15px}
+.btn-primary{background:var(--coral);color:#fff}
+.btn-primary:hover{background:var(--coral-dim)}
+.btn-ghost{background:var(--bg-elevated);border-color:var(--border);color:var(--text-primary)}
+.btn-ghost:hover{border-color:var(--border-active);background:var(--bg-hover)}
+.btn-sm{padding:5px 10px;font-size:12px;border-radius:7px}
+.btn-green{background:var(--green);color:#04210f}.btn-green:hover{opacity:.88}
+.btn-red{background:var(--red);color:#2a0606}.btn-red:hover{opacity:.88}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+
+.pill{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:600;
+  border:1px solid transparent}
+.pill svg{width:12px;height:12px}
+.pill-green{background:rgba(34,197,94,.14);color:#4ade80;border-color:rgba(34,197,94,.3)}
+.pill-yellow{background:rgba(234,179,8,.14);color:#facc15;border-color:rgba(234,179,8,.3)}
+.pill-red{background:rgba(239,68,68,.14);color:#f87171;border-color:rgba(239,68,68,.3)}
+.pill-blue{background:rgba(59,130,246,.14);color:#60a5fa;border-color:rgba(59,130,246,.3)}
+.pill-coral{background:var(--coral-glow);color:#fb923c;border-color:rgba(232,93,38,.3)}
+.pill-pink{background:var(--pink-dim);color:#f472b6;border-color:rgba(214,51,132,.3)}
+.pill-muted{background:var(--bg-hover);color:var(--text-secondary);border-color:var(--border)}
+.badge-fmt{font-family:var(--font-mono);font-size:10px;padding:2px 6px;border-radius:5px;background:var(--bg-hover);
+  color:var(--text-secondary);border:1px solid var(--border);text-transform:uppercase}
+
+.bignum{font-family:var(--font-display);font-weight:800;font-size:34px;line-height:1;letter-spacing:-1px}
+.score-good{color:var(--green)}.score-mid{color:var(--yellow)}.score-bad{color:var(--red)}
+
+.meter{height:8px;border-radius:6px;background:var(--bg-hover);overflow:hidden}
+.meter-fill{height:100%;border-radius:6px;width:0;transition:width 600ms ease-out}
+.bar-lang{display:flex;height:12px;border-radius:6px;overflow:hidden;background:var(--bg-hover)}
+.bar-lang span{height:100%}
+
+table.tbl{width:100%;border-collapse:collapse;font-size:13px}
+.tbl th{text-align:left;padding:9px 12px;color:var(--text-muted);font-weight:600;font-size:11px;text-transform:uppercase;
+  letter-spacing:.5px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg-surface);z-index:1}
+.tbl td{padding:10px 12px;border-bottom:1px solid var(--border);vertical-align:middle}
+.tbl tbody tr{cursor:pointer;transition:background var(--t-fast)}
+.tbl tbody tr:hover{background:var(--bg-hover)}
+.tbl tbody tr.is-sel{background:var(--coral-glow)}
+.truncate{max-width:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cell-wide{width:34%}
+
+.input{width:100%;padding:9px 12px;border-radius:9px;background:var(--bg-base);border:1px solid var(--border);
+  color:var(--text-primary);transition:border var(--t-fast)}
+.input:focus{border-color:var(--coral);outline:none}
+.input::placeholder{color:var(--text-muted)}
+textarea.input{resize:vertical;min-height:90px;font-family:var(--font-mono);font-size:12px;line-height:1.6}
+.field-label{font-size:12px;color:var(--text-secondary);font-weight:500;margin-bottom:5px;display:block}
+.field-err{color:var(--red);font-size:11px;margin-top:4px;display:flex;align-items:center;gap:4px}
+
+.chip{padding:5px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg-elevated);font-size:12px;
+  color:var(--text-secondary);cursor:pointer;transition:all var(--t-fast)}
+.chip:hover{border-color:var(--border-active)}
+.chip.is-on{background:var(--coral-glow);border-color:var(--coral);color:#fb923c}
+
+.kbd{font-family:var(--font-mono);font-size:11px;background:var(--bg-hover);border:1px solid var(--border);
+  border-radius:5px;padding:1px 6px;color:var(--text-secondary)}
+
+/* Modal */
+.modal-scrim{position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(3px);display:grid;place-items:center;z-index:200;
+  animation:fadeIn var(--t-med)}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+.modal{background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--r-lg);width:min(560px,92vw);
+  max-height:88vh;overflow-y:auto;box-shadow:0 30px 80px rgba(0,0,0,.6);animation:viewIn var(--t-med) ease-out}
+.modal-head{display:flex;align-items:center;justify-content:space-between;padding:18px 20px;border-bottom:1px solid var(--border)}
+.modal-body{padding:20px}
+.modal-foot{padding:16px 20px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px}
+
+/* Toast */
+.toast-wrap{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);z-index:300;display:flex;flex-direction:column;gap:8px;align-items:center}
+.toast{display:flex;align-items:center;gap:10px;padding:11px 16px;border-radius:11px;background:var(--bg-elevated);
+  border:1px solid var(--border);box-shadow:0 14px 40px rgba(0,0,0,.5);font-size:13px;font-weight:500;animation:toastIn var(--t-med) ease-out}
+.toast svg{width:17px;height:17px;flex-shrink:0}
+.toast.ok{border-color:rgba(34,197,94,.4)} .toast.ok svg{color:var(--green)}
+.toast.error{border-color:rgba(239,68,68,.4)} .toast.error svg{color:var(--red)}
+.toast.info svg{color:var(--blue)}
+@keyframes toastIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+
+/* Command palette */
+.palette-scrim{position:fixed;inset:0;background:rgba(0,0,0,.55);backdrop-filter:blur(4px);z-index:250;
+  display:flex;justify-content:center;align-items:flex-start;padding-top:12vh;animation:fadeIn var(--t-med)}
+.palette{width:min(620px,92vw);background:var(--bg-elevated);border:1px solid var(--border-active);border-radius:var(--r-lg);
+  overflow:hidden;box-shadow:0 30px 90px rgba(0,0,0,.7);animation:viewIn var(--t-med) ease-out}
+.palette-input{width:100%;padding:18px 20px;background:none;border:none;font-size:16px;border-bottom:1px solid var(--border)}
+.palette-input:focus{outline:none}
+.palette-results{max-height:52vh;overflow-y:auto;padding:8px}
+.palette-group{font-size:10px;text-transform:uppercase;letter-spacing:.7px;color:var(--text-muted);padding:10px 12px 4px}
+.palette-item{display:flex;align-items:center;gap:11px;padding:9px 12px;border-radius:9px;cursor:pointer}
+.palette-item .pi-ic{width:28px;height:28px;border-radius:8px;background:var(--bg-hover);display:grid;place-items:center;color:var(--text-secondary)}
+.palette-item .pi-ic svg{width:15px;height:15px}
+.palette-item.is-active{background:var(--coral-glow)}
+.palette-item.is-active .pi-ic{color:var(--coral)}
+.palette-hint{font-size:11px;color:var(--text-muted);margin-left:auto}
+
+/* Empty state */
+.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:56px 20px;gap:14px}
+.empty svg{width:52px;height:52px;color:var(--text-muted)}
+.empty-title{font-weight:600;font-size:15px}
+.empty-sub{color:var(--text-secondary);max-width:340px}
+
+/* Login */
+.login{position:fixed;inset:0;display:grid;place-items:center;overflow:hidden}
+.login-mesh{position:absolute;inset:0;background:
+  radial-gradient(60% 50% at 20% 20%,rgba(232,93,38,.14),transparent),
+  radial-gradient(50% 50% at 82% 75%,rgba(214,51,132,.13),transparent);
+  animation:mesh 14s ease-in-out infinite alternate}
+@keyframes mesh{from{transform:translate(0,0) scale(1)}to{transform:translate(-4%,3%) scale(1.08)}}
+.login-card{position:relative;width:min(400px,92vw);background:var(--bg-surface);border:1px solid var(--border);
+  border-radius:20px;padding:34px 30px;box-shadow:0 40px 100px rgba(0,0,0,.6)}
+.login-logo{width:54px;height:54px;border-radius:16px;background:var(--gradient-brand);display:grid;place-items:center;
+  font-family:var(--font-display);font-weight:800;color:#fff;font-size:26px;margin:0 auto 16px;box-shadow:0 8px 30px var(--coral-glow)}
+.demo-list{border:1px solid var(--border);border-radius:11px;overflow:hidden;margin-top:14px}
+.demo-toggle{width:100%;display:flex;align-items:center;justify-content:space-between;padding:11px 14px;background:var(--bg-elevated)}
+.demo-body{max-height:0;overflow:hidden;transition:max-height var(--t-panel) ease}
+.demo-body.is-open{max-height:340px;overflow-y:auto}
+.demo-acct{display:flex;align-items:center;justify-content:space-between;padding:8px 14px;border-top:1px solid var(--border);cursor:pointer;font-size:12px}
+.demo-acct:hover{background:var(--bg-hover)}
+
+/* Impersonation banner */
+.imp-banner{position:fixed;top:0;left:0;right:0;height:34px;background:var(--gradient-brand);color:#fff;display:flex;
+  align-items:center;justify-content:center;gap:14px;font-size:12px;font-weight:600;z-index:150}
+body.impersonating .shell,body.impersonating #app>.shell{margin-top:34px;height:calc(100vh - 34px)}
+
+.timeline{position:relative;padding-left:26px}
+.timeline::before{content:"";position:absolute;left:7px;top:6px;bottom:6px;width:2px;background:var(--border)}
+.tl-node{position:relative;margin-bottom:18px}
+.tl-node::before{content:"";position:absolute;left:-23px;top:4px;width:14px;height:14px;border-radius:50%;
+  background:var(--bg-base);border:2px solid var(--coral)}
+
+.radar-wrap{display:grid;place-items:center}
+.delta-up{color:var(--green)}.delta-down{color:var(--red)}
+
+.warn-banner{display:flex;align-items:center;gap:10px;padding:11px 15px;border-radius:11px;font-size:13px;font-weight:500;margin-bottom:16px}
+.warn-yellow{background:rgba(234,179,8,.1);border:1px solid rgba(234,179,8,.35);color:#facc15}
+.warn-orange{background:rgba(232,93,38,.1);border:1px solid rgba(232,93,38,.4);color:#fb923c}
+.warn-red{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.4);color:#f87171}
+
+@media (max-width:1024px){.grid-3{grid-template-columns:repeat(2,1fr)}}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation:none!important;transition:none!important}
+}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="overlays"></div>
+<div class="toast-wrap" id="toasts"></div>
+<script>
+"use strict";
+/* ============================================================
+   SECTION A — CONFIG & CONSTANTS
+   ============================================================ */
+const LOG_LEVEL = 1; // 0 debug · 1 info · 2 warn · 3 error
+const TOKENS = { coral:'#E85D26', pink:'#D63384', green:'#22C55E', yellow:'#EAB308', red:'#EF4444', blue:'#3B82F6',
+  border:'#2A2A3A', muted:'#5A5A72', text:'#F0F0F8', surface:'#111118' };
+
+const ROLE_LABEL = { Admin:'Admin', ProjectManager:'Project Manager', Architect:'Architect',
+  MLEngineer:'ML Engineer', Reviewer:'Reviewer', Annotator:'Annotator', SuperAdmin:'Super Admin' };
+
+// Permission matrix — permission group -> roles allowed. Admin implicitly all.
+const PERMISSIONS = {
+  'Org':            ['Admin'],
+  'Projects':       ['Admin','ProjectManager','Architect'],
+  'Releases':       ['Admin','ProjectManager','Architect'],
+  'Datasets':       ['Admin','ProjectManager','Architect','MLEngineer'],
+  'Annotation':     ['Admin','ProjectManager','Reviewer','Annotator'],
+  'Eval':           ['Admin','ProjectManager','Architect','MLEngineer'],
+  'Experiments':    ['Admin','ProjectManager','Architect','MLEngineer'],
+  'Reports':        ['Admin','ProjectManager','Architect','MLEngineer','Reviewer'],
+};
+function can(group){
+  if(!currentUser) return false;
+  if(currentUser.role==='Admin'||currentUser.role==='SuperAdmin') return true;
+  return (PERMISSIONS[group]||[]).includes(currentUser.role);
+}
+const LANG_LABEL = { en:'English', hi:'Hindi', ta:'Tamil', te:'Telugu', kn:'Kannada', ml:'Malayalam', mixed:'Mixed' };
+const LANG_COLOR = { en:'#3B82F6', hi:'#E85D26', ta:'#D63384', te:'#22C55E', kn:'#EAB308', ml:'#8b5cf6', mixed:'#9898B0' };
+const FLAG_LABEL = {
+  'duplicate':'Exact duplicate', 'near-duplicate':'Near-duplicate', 'short-response':'Short response',
+  'format-violation':'Format violation', 'pii-detected':'PII detected', 'toxic':'Toxic / biased', 'low-clarity':'Low clarity' };
+const RUBRIC_DEFAULT = ['Factuality','Instruction Following','Tone','Task Completion','Refusal Behaviour'];
+
+/* ============================================================
+   SECTION B — MOCK DATA
+   ============================================================ */
+const tenants = [
+  { id:'tenant_pravartak', name:'IITM Pravartak AI Lab', slug:'pravartak', plan:'Enterprise',
+    planLimits:{ rowsPerMonth:Infinity, evalRunsPerMonth:Infinity, maxUsers:Infinity, maxProjects:Infinity, sovereignDeployment:true },
+    usage:{ rowsThisMonth:14832, evalRunsThisMonth:7, activeUsers:6, activeProjects:3 }, fee:200000,
+    createdAt:'2025-01-15', status:'active' },
+  { id:'tenant_legalai', name:'Legal AI Corp', slug:'legalai', plan:'Pro',
+    planLimits:{ rowsPerMonth:500000, evalRunsPerMonth:50, maxUsers:20, maxProjects:10, sovereignDeployment:false },
+    usage:{ rowsThisMonth:312400, evalRunsThisMonth:31, activeUsers:8, activeProjects:3 }, fee:35000,
+    createdAt:'2025-03-02', status:'active' },
+  { id:'tenant_healthbot', name:'HealthBot India', slug:'healthbot', plan:'Starter',
+    planLimits:{ rowsPerMonth:50000, evalRunsPerMonth:10, maxUsers:5, maxProjects:3, sovereignDeployment:false },
+    usage:{ rowsThisMonth:41200, evalRunsThisMonth:8, activeUsers:3, activeProjects:1 }, fee:5000,
+    createdAt:'2025-05-10', status:'active' },
+];
+
+const users = [
+  { id:'u1', email:'admin@cueval.ai', name:'Aarav Menon', tenantId:'tenant_pravartak', role:'Admin', lastActive:'2m ago', projects:3 },
+  { id:'u2', email:'pm@cueval.ai', name:'Priya Nair', tenantId:'tenant_pravartak', role:'ProjectManager', lastActive:'18m ago', projects:3 },
+  { id:'u3', email:'architect@cueval.ai', name:'Rohan Das', tenantId:'tenant_pravartak', role:'Architect', lastActive:'1h ago', projects:2 },
+  { id:'u4', email:'mlengineer@cueval.ai', name:'Arjun ML', tenantId:'tenant_pravartak', role:'MLEngineer', lastActive:'5m ago', projects:3 },
+  { id:'u5', email:'reviewer@cueval.ai', name:'Ravi Kumar', tenantId:'tenant_pravartak', role:'Reviewer', lastActive:'32m ago', projects:2 },
+  { id:'u6', email:'annotator@cueval.ai', name:'Neha Shah', tenantId:'tenant_pravartak', role:'Annotator', lastActive:'just now', projects:1 },
+  { id:'u7', email:'admin@legalai.com', name:'Vikram Rao', tenantId:'tenant_legalai', role:'Admin', lastActive:'12m ago', projects:3 },
+  { id:'u8', email:'ml@legalai.com', name:'Sara Iyer', tenantId:'tenant_legalai', role:'MLEngineer', lastActive:'44m ago', projects:2 },
+  { id:'u9', email:'admin@healthbot.in', name:'Meera Pillai', tenantId:'tenant_healthbot', role:'Admin', lastActive:'3h ago', projects:1 },
+  { id:'u0', email:'superadmin@cueval.ai', name:'Lynkstr Ops', tenantId:null, role:'SuperAdmin', lastActive:'now', projects:0 },
+];
+const PASSWORD = 'demo123';
+
+// Deterministic PRNG so mock data is stable across reloads (ADR-5).
+function mkRand(seed){ let s=seed>>>0; return ()=>{ s=(s*1664525+1013904223)>>>0; return s/4294967296; }; }
+
+// ---- Row generation: builds mixed-quality rows meeting spec §5 distribution ----
+const CLEAN_ROWS = [
+  ['Explain the concept of consideration in contract law.','','Consideration is something of value exchanged between parties to a contract. It can be a promise, an act, or forbearance. For a contract to be enforceable, consideration must be present, sufficient, and move from the promisee. It need not be adequate, but must have some value in the eyes of the law.'],
+  ['Summarise the key duties of a company director.','','A company director owes fiduciary duties including: acting in good faith for the benefit of the company, exercising reasonable care and skill, avoiding conflicts of interest, not making secret profits, and complying with statutory obligations under the Companies Act.'],
+  ['What is the difference between a warranty and a condition in a sales contract?','','A condition is a fundamental term whose breach entitles the innocent party to terminate the contract and claim damages. A warranty is a minor term whose breach only entitles the injured party to claim damages, not to terminate. The distinction determines the available remedy.'],
+  ['Describe the doctrine of frustration in contract law.','','Frustration occurs when an unforeseen event makes contractual performance impossible, illegal, or radically different from what was agreed, through no fault of either party. It automatically discharges the contract and both parties are released from future obligations.'],
+  ['A customer asks how to reset their account password. Provide a helpful response.','','I can help you reset your password. Please click "Forgot Password" on the login screen, enter your registered email, and you will receive a secure reset link valid for 30 minutes. If you do not see the email, check your spam folder or contact support.'],
+  ['Explain what a force majeure clause covers.','','A force majeure clause excuses a party from performing contractual obligations when extraordinary events beyond their control — such as natural disasters, war, or pandemics — prevent performance. It typically defines qualifying events, notice requirements, and consequences like suspension or termination.'],
+  ['How should a support agent handle an angry customer requesting a refund?','','Acknowledge the customer\'s frustration with empathy, apologise for the inconvenience, and confirm you will help. Review the order and refund policy, explain eligibility clearly, and process the refund if valid. Offer a goodwill gesture where appropriate and confirm the resolution timeline.'],
+  ['What are the essential elements of a valid contract?','','A valid contract requires: (1) offer, (2) acceptance, (3) consideration, (4) intention to create legal relations, (5) capacity of the parties, and (6) legality of purpose. Absence of any element may render the agreement void or unenforceable.'],
+  ['Explain patient confidentiality obligations for a triage assistant.','','A triage assistant must keep all patient health information confidential, share it only with authorised care providers, obtain consent before disclosure, and comply with applicable data-protection law. Confidentiality builds trust and is a legal and ethical duty.'],
+  ['Provide first-aid guidance for a minor burn.','','For a minor burn, cool the area under running water for 10-20 minutes, remove tight items nearby, cover loosely with a sterile non-stick dressing, and take paracetamol for pain if needed. Do not apply ice, butter, or ointments. Seek medical care if the burn is large, deep, or on the face.'],
+];
+const NEARDUP_BASE = 'A condition is a fundamental term of a contract whose breach lets the innocent party terminate and claim damages, whereas a warranty is a minor term whose breach only gives rise to a claim for damages.';
+const PII_ROWS = [
+  ['Draft a confirmation message for a client booking.','','Your consultation is confirmed. Our lawyer Rahul Sharma will call you on 9876543210. Please email documents to rahul.sharma@legalfirm.co before the meeting.'],
+  ['Write a follow-up note for the patient.','','Hi, this is Dr. Anjali Verma. Your report is ready. Call me at 9123456780 or reach me at anjali.verma@clinic.in to discuss the results.'],
+  ['Generate an appointment reminder.','','Reminder: appointment with Mr. Karthik at 4 PM. His Aadhaar 4321 8765 1234 is on file and contact 9988776655 for rescheduling.'],
+  ['Create a KYC acknowledgement for the customer.','','KYC received for Suresh Menon, PAN ABCDE1234F, mobile 9001122334. Verification will complete within 48 hours.'],
+  ['Summarise the caller\'s complaint with contact details.','','Caller Deepa reported a billing error. Callback number 9345678901, email deepa.r@mail.com. Escalated to the finance team.'],
+];
+const SHORT_ROWS = [
+  ['Explain the statute of limitations.','','It sets a time limit.'],
+  ['What is GDPR?','','A data law.'],
+  ['How do I file a complaint?','','Contact support.'],
+  ['Define negligence.','','Careless act causing harm.'],
+  ['What is triage?','','Sorting patients.'],
+];
+const FORMAT_ROWS = [
+  ['','','This response has no instruction, which violates the required instruction/output schema for supervised fine-tuning datasets.'],
+  ['Return the answer as JSON with keys "diagnosis" and "advice".','Patient reports fever and cough for 3 days.','The patient probably has a viral infection and should rest and hydrate.'],
+  ['Respond only in the required bullet format.','','Fever, cough, rest — but not structured as requested bullets per the schema.'],
+  ['Provide output in the fixed template: SECTION A / SECTION B.','','Just a paragraph ignoring the required template sections entirely.'],
+];
+const TOXIC_ROWS = [
+  ['Respond to a user asking about loan eligibility.','','People from that community are always fraudsters and should never be given loans. Reject them all outright.'],
+  ['Advise on hiring for a support role.','','Do not hire women for this job, they are too emotional and useless under pressure.'],
+  ['Answer a medical question about diet.','','Just starve yourself, fat people are lazy idiots who deserve their illnesses.'],
+  ['Reply to a customer query about service delay.','','Shut up and stop whining, you stupid worthless customer, nobody cares about your problem.'],
+];
+const INDIC_ROWS = [
+  ['வாடிக்கையாளர் கணக்கை எவ்வாறு மீட்டமைப்பது?','','உங்கள் கணக்கை மீட்டமைக்க, உள்நுழைவு பக்கத்தில் "கடவுச்சொல்லை மறந்துவிட்டீர்களா" என்பதைக் கிளிக் செய்து, பதிவுசெய்யப்பட்ட மின்னஞ்சலை உள்ளிடவும். பாதுகாப்பான இணைப்பு அனுப்பப்படும்.','ta'],
+  ['अनुबंध में प्रतिफल क्या होता है?','','प्रतिफल वह मूल्यवान वस्तु है जो अनुबंध के पक्षकारों के बीच आदान-प्रदान की जाती है। एक वैध अनुबंध के लिए प्रतिफल का होना आवश्यक है।','hi'],
+  ['రోగి గోప్యత అంటే ఏమిటి?','','రోగి యొక్క ఆరోగ్య సమాచారాన్ని రహస్యంగా ఉంచడం మరియు అధీకృత సంరక్షణ ప్రదాతలతో మాత్రమే పంచుకోవడం రోగి గోప్యత. ఇది చట్టపరమైన మరియు నైతిక బాధ్యత.','te'],
+  ['ಒಪ್ಪಂದದ ಅಗತ್ಯ ಅಂಶಗಳು ಯಾವುವು?','','ಮಾನ್ಯ ಒಪ್ಪಂದಕ್ಕೆ ಪ್ರಸ್ತಾಪ, ಸ್ವೀಕಾರ, ಪ್ರತಿಫಲ, ಕಾನೂನು ಸಂಬಂಧ ಸೃಷ್ಟಿಸುವ ಉದ್ದೇಶ ಮತ್ತು ಪಕ್ಷಗಳ ಸಾಮರ್ಥ್ಯ ಅಗತ್ಯ.','kn'],
+  ['ग्राहक सहायता के लिए संपर्क कैसे करें?','','आप हमारी सहायता टीम से सप्ताह के सातों दिन सुबह 9 से रात 9 बजे तक चैट या ईमेल के माध्यम से संपर्क कर सकते हैं। हम आपकी शीघ्र सहायता करेंगे।','hi'],
+  ['நோயாளிக்கு முதலுதவி ஆலோசனை வழங்கவும்.','','சிறு தீக்காயத்திற்கு, பாதிக்கப்பட்ட பகுதியை 10-20 நிமிடங்கள் ஓடும் நீரில் குளிர்விக்கவும். பனிக்கட்டி அல்லது வெண்ணெய் தடவ வேண்டாம்.','ta'],
+];
+
+let ROW_UID = 0;
+function buildRows(seed, count){
+  const rand = mkRand(seed); const rows=[];
+  const push = (instruction,input,output,langHint)=>{
+    const id='r'+(++ROW_UID);
+    const language = langHint || detectLanguage((instruction||'')+' '+(output||''));
+    const row = { id, instruction, input, output, language, reviewStatus:'pending', reviewedBy:null, reviewNote:null, originalOutput:null, flags:[] };
+    row.flags = deriveFlags(row, rows);
+    row.qualityScore = scoreRow(row);
+    // a portion already reviewed for realism
+    const r = rand();
+    if(r < 0.45) row.reviewStatus = r<0.32 ? 'approved' : (r<0.4 ? 'rejected':'edited');
+    if(row.reviewStatus!=='pending'){ row.reviewedBy = 'Ravi Kumar'; }
+    rows.push(row); return row;
+  };
+  CLEAN_ROWS.forEach(r=>push(r[0],r[1],r[2]));
+  for(let i=0;i<7;i++){ push('Distinguish a condition from a warranty in a contract.','', NEARDUP_BASE + (i?' It matters for the remedy available.':''),'en'); }
+  PII_ROWS.forEach(r=>push(r[0],r[1],r[2]));
+  SHORT_ROWS.forEach(r=>push(r[0],r[1],r[2]));
+  FORMAT_ROWS.forEach(r=>push(r[0],r[1],r[2]));
+  TOXIC_ROWS.forEach(r=>push(r[0],r[1],r[2]));
+  INDIC_ROWS.forEach(r=>push(r[0],r[1],r[2],r[3]));
+  // pad with clean variants until count reached
+  let i=0; while(rows.length<count){ const b=CLEAN_ROWS[i%CLEAN_ROWS.length]; push(b[0],b[1],b[2]+' (case ref '+(1000+rows.length)+')'); i++; }
+  return rows;
+}
+
+const projects = [
+  { id:'p1', tenantId:'tenant_pravartak', name:'Legal AI Assistant', description:'Fine-tuned assistant for Indian contract & company law.', status:'active', tags:['legal','en','hi'], members:[{userId:'u2',role:'ProjectManager'},{userId:'u3',role:'Architect'},{userId:'u4',role:'MLEngineer'},{userId:'u5',role:'Reviewer'},{userId:'u6',role:'Annotator'}], createdAt:'2025-02-01' },
+  { id:'p2', tenantId:'tenant_pravartak', name:'Customer Support Bot — Tamil', description:'Bilingual Tamil/English support agent for a telecom client.', status:'active', tags:['support','ta'], members:[{userId:'u2',role:'ProjectManager'},{userId:'u4',role:'MLEngineer'},{userId:'u5',role:'Reviewer'}], createdAt:'2025-03-12' },
+  { id:'p3', tenantId:'tenant_pravartak', name:'Medical QA — Multilingual', description:'Multilingual medical triage QA across Indic languages.', status:'active', tags:['medical','hi','te','kn'], members:[{userId:'u3',role:'Architect'},{userId:'u4',role:'MLEngineer'},{userId:'u6',role:'Annotator'}], createdAt:'2025-04-20' },
+  { id:'p4', tenantId:'tenant_legalai', name:'Contract Analysis AI', description:'Clause extraction and risk flagging for commercial contracts.', status:'active', tags:['legal','en'], members:[{userId:'u7',role:'Admin'},{userId:'u8',role:'MLEngineer'}], createdAt:'2025-03-05' },
+  { id:'p5', tenantId:'tenant_legalai', name:'Due Diligence Bot', description:'Automated due-diligence Q&A over data rooms.', status:'active', tags:['legal'], members:[{userId:'u7',role:'Admin'},{userId:'u8',role:'MLEngineer'}], createdAt:'2025-04-01' },
+  { id:'p6', tenantId:'tenant_legalai', name:'Compliance Checker', description:'Regulatory compliance verification assistant.', status:'active', tags:['compliance'], members:[{userId:'u7',role:'Admin'}], createdAt:'2025-04-18' },
+  { id:'p7', tenantId:'tenant_healthbot', name:'Symptom Triage Assistant', description:'Hindi/English symptom triage for primary care.', status:'active', tags:['medical','hi'], members:[{userId:'u9',role:'Admin'}], createdAt:'2025-05-12' },
+];
+
+const releases = [
+  { id:'rel1', projectId:'p1', tenantId:'tenant_pravartak', name:'v1.0 — Base Model', status:'approved', datasetId:'d1', evalRunId:'e1', createdBy:'u3', createdAt:'2025-03-01' },
+  { id:'rel2', projectId:'p1', tenantId:'tenant_pravartak', name:'v1.1 — Curated Legal Corpus', status:'in-review', datasetId:'d1', evalRunId:'e2', createdBy:'u3', createdAt:'2025-05-14' },
+  { id:'rel3', projectId:'p1', tenantId:'tenant_pravartak', name:'v1.2 — Extended Hindi', status:'draft', datasetId:'d1', evalRunId:null, createdBy:'u2', createdAt:'2025-06-20' },
+  { id:'rel4', projectId:'p2', tenantId:'tenant_pravartak', name:'v1.0 — Tamil Launch', status:'training', datasetId:'d2', evalRunId:'e3', createdBy:'u4', createdAt:'2025-04-02' },
+  { id:'rel5', projectId:'p3', tenantId:'tenant_pravartak', name:'v0.9 — Multilingual Draft', status:'draft', datasetId:'d3', evalRunId:null, createdBy:'u3', createdAt:'2025-06-01' },
+  { id:'rel6', projectId:'p4', tenantId:'tenant_legalai', name:'v1.0 — Contract Base', status:'deployed', datasetId:'d4', evalRunId:'e4', createdBy:'u7', createdAt:'2025-04-10' },
+  { id:'rel7', projectId:'p4', tenantId:'tenant_legalai', name:'v1.1 — Clause Refinement', status:'in-review', datasetId:'d4', evalRunId:'e5', createdBy:'u8', createdAt:'2025-06-08' },
+  { id:'rel8', projectId:'p5', tenantId:'tenant_legalai', name:'v0.8 — DD Draft', status:'draft', datasetId:'d5', evalRunId:null, createdBy:'u7', createdAt:'2025-05-22' },
+  { id:'rel9', projectId:'p6', tenantId:'tenant_legalai', name:'v1.0 — Compliance', status:'approved', datasetId:'d6', evalRunId:'e6', createdBy:'u7', createdAt:'2025-05-30' },
+  { id:'rel10', projectId:'p7', tenantId:'tenant_healthbot', name:'v1.0 — Triage Launch', status:'training', datasetId:'d7', evalRunId:'e7', createdBy:'u9', createdAt:'2025-06-15' },
+];
+
+const datasets = [
+  { id:'d1', projectId:'p1', releaseId:'rel2', tenantId:'tenant_pravartak', name:'legal_corpus_v2.jsonl', format:'jsonl', uploadedBy:'Arjun ML', uploadedAt:'2025-05-13', _seed:101, _count:60 },
+  { id:'d2', projectId:'p2', releaseId:'rel4', tenantId:'tenant_pravartak', name:'tamil_support.jsonl', format:'jsonl', uploadedBy:'Arjun ML', uploadedAt:'2025-04-01', _seed:202, _count:58 },
+  { id:'d3', projectId:'p3', releaseId:'rel5', tenantId:'tenant_pravartak', name:'medical_multilingual.csv', format:'csv', uploadedBy:'Rohan Das', uploadedAt:'2025-05-28', _seed:303, _count:55 },
+  { id:'d4', projectId:'p4', releaseId:'rel6', tenantId:'tenant_legalai', name:'contract_clauses.jsonl', format:'jsonl', uploadedBy:'Sara Iyer', uploadedAt:'2025-04-08', _seed:404, _count:56 },
+  { id:'d5', projectId:'p5', releaseId:'rel8', tenantId:'tenant_legalai', name:'dd_dataroom.parquet', format:'parquet', uploadedBy:'Sara Iyer', uploadedAt:'2025-05-20', _seed:505, _count:52 },
+  { id:'d6', projectId:'p6', releaseId:'rel9', tenantId:'tenant_legalai', name:'compliance_rules.jsonl', format:'jsonl', uploadedBy:'Vikram Rao', uploadedAt:'2025-05-25', _seed:606, _count:54 },
+  { id:'d7', projectId:'p7', releaseId:'rel10', tenantId:'tenant_healthbot', name:'triage_hi_en.jsonl', format:'jsonl', uploadedBy:'Meera Pillai', uploadedAt:'2025-06-12', _seed:707, _count:57 },
+];
+// NOTE: rows are materialised in initMockData() (called from boot) — AFTER Section E
+// defines scoreRow/deriveFlags/PII_PATTERNS, to avoid a temporal-dead-zone reference.
+function finaliseDataset(d){
+  d.totalRows = d.rows.length;
+  d.flaggedRows = d.rows.filter(r=>r.flags.length).length;
+  d.overallScore = Math.round(d.rows.reduce((a,r)=>a+r.qualityScore,0)/d.rows.length);
+  const counts={}; d.rows.forEach(r=>{ counts[r.language]=(counts[r.language]||0)+1; });
+  d.languages = Object.entries(counts).map(([code,n])=>({code,pct:Math.round(n/d.rows.length*100)})).sort((a,b)=>b.pct-a.pct);
+}
+
+const evalRuns = [
+  { id:'e1', projectId:'p1', releaseId:'rel1', tenantId:'tenant_pravartak', checkpointA:'ckpt-base', checkpointB:'ckpt-v1.0', status:'completed', runAt:'2025-03-02', runBy:'Arjun ML', _seed:11 },
+  { id:'e2', projectId:'p1', releaseId:'rel2', tenantId:'tenant_pravartak', checkpointA:'ckpt-v1.0', checkpointB:'ckpt-v1.1', status:'completed', runAt:'2025-05-15', runBy:'Arjun ML', _seed:12 },
+  { id:'e3', projectId:'p2', releaseId:'rel4', tenantId:'tenant_pravartak', checkpointA:'ckpt-base', checkpointB:'ckpt-tamil', status:'running', runAt:'2025-07-09', runBy:'Arjun ML', _seed:13 },
+  { id:'e4', projectId:'p4', releaseId:'rel6', tenantId:'tenant_legalai', checkpointA:'ckpt-base', checkpointB:'ckpt-contract', status:'completed', runAt:'2025-04-11', runBy:'Sara Iyer', _seed:14 },
+  { id:'e5', projectId:'p4', releaseId:'rel7', tenantId:'tenant_legalai', checkpointA:'ckpt-contract', checkpointB:'ckpt-clause', status:'completed', runAt:'2025-06-09', runBy:'Sara Iyer', _seed:15 },
+  { id:'e6', projectId:'p6', releaseId:'rel9', tenantId:'tenant_legalai', checkpointA:'ckpt-base', checkpointB:'ckpt-comp', status:'completed', runAt:'2025-05-31', runBy:'Vikram Rao', _seed:16 },
+  { id:'e7', projectId:'p7', releaseId:'rel10', tenantId:'tenant_healthbot', checkpointA:'ckpt-base', checkpointB:'ckpt-triage', status:'completed', runAt:'2025-06-16', runBy:'Meera Pillai', _seed:17 },
+];
+const experiments = [
+  { id:'x1', projectId:'p1', releaseId:'rel1', tenantId:'tenant_pravartak', name:'Legal base SFT', datasetId:'d1', datasetVersion:'v2.0', checkpointId:'ckpt-v1.0', evalRunId:'e1', costEstimate:1980, status:'completed', createdBy:'Arjun ML', createdAt:'2025-03-01', notes:'Baseline supervised fine-tune on curated legal corpus.', trainingConfig:{ baseModel:'Llama-3.1-8B', epochs:3, learningRate:0.0002, batchSize:16, loraRank:16, optimizer:'adamw' } },
+  { id:'x2', projectId:'p1', releaseId:'rel2', tenantId:'tenant_pravartak', name:'Legal v1.1 curated', datasetId:'d1', datasetVersion:'v2.1', checkpointId:'ckpt-v1.1', evalRunId:'e2', costEstimate:2340, status:'completed', createdBy:'Arjun ML', createdAt:'2025-05-14', notes:'Retrained after removing near-duplicates and PII rows.', trainingConfig:{ baseModel:'Llama-3.1-8B', epochs:4, learningRate:0.00018, batchSize:16, loraRank:32, optimizer:'adamw' } },
+  { id:'x3', projectId:'p2', releaseId:'rel4', tenantId:'tenant_pravartak', name:'Tamil support v1', datasetId:'d2', datasetVersion:'v1.0', checkpointId:'ckpt-tamil', evalRunId:'e3', costEstimate:2760, status:'running', createdBy:'Arjun ML', createdAt:'2025-07-08', notes:'Bilingual Tamil/English run, LoRA rank 32.', trainingConfig:{ baseModel:'Sarvam-2B', epochs:5, learningRate:0.0003, batchSize:8, loraRank:32, optimizer:'adamw' } },
+  { id:'x4', projectId:'p4', releaseId:'rel7', tenantId:'tenant_legalai', name:'Clause refinement', datasetId:'d4', datasetVersion:'v1.1', checkpointId:'ckpt-clause', evalRunId:'e5', costEstimate:3120, status:'completed', createdBy:'Sara Iyer', createdAt:'2025-06-08', notes:'Refined clause extraction with higher rank.', trainingConfig:{ baseModel:'Llama-3.1-8B', epochs:4, learningRate:0.00015, batchSize:32, loraRank:64, optimizer:'adamw' } },
+];
+
+let notifications = [
+  { id:'n1', tenantId:'tenant_pravartak', text:'Ravi approved 23 rows in Legal AI v1.1', time:'8m ago', read:false, icon:'check' },
+  { id:'n2', tenantId:'tenant_pravartak', text:'Eval run completed — Factuality improved +4.2', time:'25m ago', read:false, icon:'eval' },
+  { id:'n3', tenantId:'tenant_pravartak', text:'Neha flagged 3 PII rows in Medical QA', time:'1h ago', read:false, icon:'flag' },
+  { id:'n4', tenantId:'tenant_pravartak', text:'v1.1 release blocked — 8 rows unreviewed', time:'2h ago', read:true, icon:'release' },
+  { id:'n5', tenantId:'tenant_legalai', text:'Clause refinement eval completed (+2.4 overall)', time:'40m ago', read:false, icon:'eval' },
+  { id:'n6', tenantId:'tenant_healthbot', text:'Usage at 82% of monthly row limit', time:'3h ago', read:false, icon:'warn' },
+];
+let activity = [
+  { id:'a1', tenantId:'tenant_pravartak', who:'Ravi Kumar', text:'approved 23 rows in Legal AI v1.1', time:'8m ago' },
+  { id:'a2', tenantId:'tenant_pravartak', who:'Arjun ML', text:'completed eval run e2 — Factuality +4.2', time:'25m ago' },
+  { id:'a3', tenantId:'tenant_pravartak', who:'Neha Shah', text:'flagged 3 PII rows in Medical QA', time:'1h ago' },
+  { id:'a4', tenantId:'tenant_pravartak', who:'Priya Nair', text:'created release v1.2 — Extended Hindi', time:'4h ago' },
+  { id:'a5', tenantId:'tenant_legalai', who:'Sara Iyer', text:'started training for Clause Refinement', time:'1h ago' },
+  { id:'a6', tenantId:'tenant_healthbot', who:'Meera Pillai', text:'uploaded triage_hi_en.jsonl (41.2K rows)', time:'5h ago' },
+];
+
+/* ============================================================
+   SECTION C — STATE
+   ============================================================ */
+let currentUser = null;      // resolved at login
+let currentTenant = null;    // resolved at login, immutable except via impersonation
+let impersonating = false;   // SuperAdmin viewing a tenant (read-only)
+let superReturn = null;      // to restore SuperAdmin after exiting impersonation
+let currentView = 'dashboard';
+const appState = {
+  projectId:null, releaseId:null,          // active project/release context (top bar)
+  panel:null,                              // {kind, id} for right panel
+  reviewIndex:0,                           // review queue cursor
+  dsFilters:{ flag:'all', lang:'all', status:'all', sort:'score-asc' },
+  paletteOpen:false, paletteQuery:'', paletteSel:0,
+  evalResult:null,                         // last eval shown in harness
+  superView:'tenants', superTenant:null,   // superadmin sub-state
+};
+
+function setView(v){ currentView=v; appState.panel=null; renderShell(); log.event('nav',{view:v}); }
+
+/* ============================================================
+   SECTION D — DATA ACCESSORS  (tenant isolation boundary, CLAUDE.md §5)
+   ============================================================ */
+function scoped(collection){
+  // SuperAdmin outside impersonation has NO tenant — platform accessors are separate.
+  if(currentUser && currentUser.role==='SuperAdmin' && !impersonating) return collection.slice();
+  if(!currentTenant) return [];
+  return collection.filter(r=>r.tenantId===currentTenant.id);
+}
+function getProjects(){ return scoped(projects); }
+function getReleases(){ return scoped(releases); }
+function getDatasets(){ return scoped(datasets); }
+function getEvalRuns(){ return scoped(evalRuns); }
+function getExperiments(){ return scoped(experiments); }
+function getUsers(){ if(currentUser && currentUser.role==='SuperAdmin' && !impersonating) return users.slice(); return currentTenant?users.filter(u=>u.tenantId===currentTenant.id):[]; }
+function getNotifications(){ return scoped(notifications); }
+function getActivity(){ return scoped(activity); }
+function assertTenant(record){
+  if(!record) return false;
+  if(currentUser && currentUser.role==='SuperAdmin') return true;
+  if(currentTenant && record.tenantId!==currentTenant.id){
+    log.error('[isolation] cross-tenant write blocked', {want:currentTenant.id, got:record.tenantId});
+    showToast('Action blocked — cross-tenant access denied','error');
+    return false;
+  }
+  return true;
+}
+// convenience lookups (still tenant-scoped through the accessors above)
+const byId = (arr,id)=>arr.find(x=>x.id===id);
+function activeProject(){ return byId(getProjects(), appState.projectId) || getProjects()[0] || null; }
+function activeRelease(){ return byId(getReleases(), appState.releaseId) || projectReleases(appState.projectId)[0] || null; }
+function projectReleases(pid){ return getReleases().filter(r=>r.projectId===pid); }
+function datasetForRelease(rid){ return getDatasets().find(d=>d.releaseId===rid) || null; }
+function findRow(rowId){ for(const d of datasets){ const r=byId(d.rows,rowId); if(r) return {row:r,dataset:d}; } return null; }
+
+/* ============================================================
+   SECTION E — MOCK LOGIC  (product spec §10; centralised, ADR-5)
+   ============================================================ */
+function detectLanguage(text){
+  if(/[஀-௿]/.test(text)) return 'ta';
+  if(/[ऀ-ॿ]/.test(text)) return 'hi';
+  if(/[ఀ-౿]/.test(text)) return 'te';
+  if(/[ಀ-೿]/.test(text)) return 'kn';
+  if(/[ഀ-ൿ]/.test(text)) return 'ml';
+  return 'en';
+}
+const PII_PATTERNS = [ /\b\d{10}\b/, /[a-z0-9._%+-]+@[a-z0-9.-]+/i, /\b\d{4}\s?\d{4}\s?\d{4}\b/, /\b[a-z]{5}\d{4}[a-z]\b/i ];
+function hasPII(row){ const t=(row.output||'')+' '+(row.input||''); return PII_PATTERNS.some(p=>p.test(t)); }
+const TOXIC_WORDS = ['fraudster','stupid','worthless','idiot','lazy','useless','shut up','starve','deserve their'];
+function hasToxic(row){ const t=(row.output||'').toLowerCase(); return TOXIC_WORDS.some(w=>t.includes(w)); }
+function tokenSet(t){ return new Set((t||'').toLowerCase().replace(/[^a-z0-9\s]/g,'').split(/\s+/).filter(Boolean)); }
+function jaccard(a,b){ const A=tokenSet(a),B=tokenSet(b); if(!A.size||!B.size) return 0; let inter=0; A.forEach(x=>{if(B.has(x))inter++;}); return inter/(A.size+B.size-inter); }
+function hasFormatViolation(row){
+  if(!row.instruction || row.instruction.length<10) return true;
+  if(/json/i.test(row.instruction||'') && !/[{[]/.test(row.output||'')) return true;
+  if(/(template|bullet|format)/i.test(row.instruction||'') && (row.output||'').length && !/[-•\n]|SECTION/i.test(row.output||'')) return true;
+  return false;
+}
+function deriveFlags(row, existing){
+  const flags=[];
+  const out=row.output||'';
+  const dup = existing.find(r=>r.output===out && out);
+  const near = existing.find(r=>r!==row && jaccard(r.output,out)>0.7 && !flags.includes('duplicate'));
+  if(dup) flags.push('duplicate');
+  else if(near) flags.push('near-duplicate');
+  if(out.length<20) flags.push('short-response');
+  if(hasPII(row)) flags.push('pii-detected');
+  if(hasFormatViolation(row)) flags.push('format-violation');
+  if(hasToxic(row)) flags.push('toxic');
+  if(out.length && out.length<40 && !flags.includes('short-response')) flags.push('low-clarity');
+  return flags;
+}
+function scoreRow(row){
+  let score=100; const out=row.output||'';
+  if(out.length<20) score-=40; else if(out.length<50) score-=20;
+  if(!row.instruction || row.instruction.length<10) score-=30;
+  if(row.flags.includes('duplicate')) score-=50;
+  if(row.flags.includes('near-duplicate')) score-=30;
+  if(row.flags.includes('pii-detected')) score-=35;
+  if(row.flags.includes('format-violation')) score-=25;
+  if(row.flags.includes('toxic')) score-=60;
+  return Math.max(0,Math.min(100,score));
+}
+function scoreBreakdown(row){
+  const clarity = Math.max(0,Math.min(100, 100 - (row.flags.includes('low-clarity')?45:0) - (row.flags.includes('toxic')?50:0)));
+  const completeness = Math.max(0,Math.min(100, Math.round(Math.min(100,(row.output||'').length/2)) - (row.flags.includes('short-response')?30:0)));
+  const relevance = Math.max(0,Math.min(100, 100 - (row.flags.includes('format-violation')?40:0) - (row.flags.includes('near-duplicate')?30:0)));
+  return { clarity, completeness, relevance };
+}
+function computeEval(e){
+  const rand = mkRand(e._seed);
+  const results = { A:{}, B:{} };
+  e.rubric.forEach(dim=>{
+    const a = 65 + rand()*25, b = 68 + rand()*25;
+    results.A[dim.dimension]=+a.toFixed(1);
+    results.B[dim.dimension]=+b.toFixed(1);
+  });
+  const wsum = e.rubric.reduce((s,d)=>s+d.weight,0)||1;
+  results.A.Overall = +(e.rubric.reduce((s,d)=>s+results.A[d.dimension]*d.weight,0)/wsum).toFixed(1);
+  results.B.Overall = +(e.rubric.reduce((s,d)=>s+results.B[d.dimension]*d.weight,0)/wsum).toFixed(1);
+  e.results = results;
+  e.tokens = 3800 + Math.round(rand()*1200);
+  e.cost = +(e.tokens*0.0002).toFixed(2);
+  // low-confidence rows for human review (direct lookup — internal mock computation,
+  // operates only on the eval's own release, not user-facing data access)
+  const ds = datasets.find(d=>d.releaseId===e.releaseId);
+  e.humanReviewQueue = ds && ds.rows ? ds.rows.filter(r=>r.qualityScore<55).slice(0,5).map(r=>r.id) : [];
+  return e;
+}
+function usagePct(t){ const l=t.planLimits.rowsPerMonth; return l===Infinity?0:Math.round(t.usage.rowsThisMonth/l*100); }
+function usageLevel(pct){ if(pct>95)return'red'; if(pct>85)return'orange'; if(pct>=70)return'yellow'; return'green'; }
+
+/* ============================================================
+   SECTION F — LOGGING & ERRORS  (CLAUDE.md §7; never raw console.*)
+   ============================================================ */
+const log = {
+  debug:(...a)=>{ if(LOG_LEVEL<=0) console.debug('%c[cueval:debug]','color:#5A5A72',...a); },
+  info: (...a)=>{ if(LOG_LEVEL<=1) console.info('%c[cueval:info]','color:#3B82F6',...a); },
+  warn: (...a)=>{ if(LOG_LEVEL<=2) console.warn('%c[cueval:warn]','color:#EAB308',...a); },
+  error:(...a)=>{ console.error('%c[cueval:error]','color:#EF4444',...a); },
+  event:(name,payload)=>{ if(LOG_LEVEL<=1) console.info('%c[cueval:event]','color:#E85D26',name,payload||''); },
+};
+// Wrap a render fn so one broken screen never white-screens the app.
+function guard(fn, label){
+  return function(...args){
+    try{ return fn.apply(this,args); }
+    catch(err){ log.error('['+label+'] render failed', err); showToast('Something went wrong in '+label+' — see console','error');
+      return '<div class="empty"><div class="empty-title">This section failed to render.</div><div class="empty-sub secondary">The error was logged to the console. Try another screen.</div></div>'; }
+  };
+}
+let _toastId=0;
+function showToast(msg, kind='info'){
+  const wrap=document.getElementById('toasts'); if(!wrap) return;
+  const id='t'+(++_toastId);
+  const ic = kind==='ok'?ICON.check:kind==='error'?ICON.x:ICON.info;
+  const div=document.createElement('div'); div.className='toast '+kind; div.setAttribute('role','status');
+  div.innerHTML=ic+'<span>'+escapeHtml(msg)+'</span>'; div.id=id; wrap.appendChild(div);
+  setTimeout(()=>{ const n=document.getElementById(id); if(n) n.remove(); }, 3200);
+}
+
+/* ============================================================
+   SECTION G — DOM / RENDER HELPERS
+   ============================================================ */
+function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function fmtNum(n){ if(n===Infinity) return '∞'; return n.toLocaleString('en-IN'); }
+function fmtK(n){ if(n===Infinity) return '∞'; if(n>=1000) return (n/1000).toFixed(n>=100000?0:1).replace(/\.0$/,'')+'K'; return String(n); }
+function fmtMoney(n){ return '₹'+n.toLocaleString('en-IN'); }
+function truncate(s,n){ s=String(s||''); return s.length>n ? s.slice(0,n)+'…' : s; }
+function scoreClass(s){ return s>=70?'score-good':s>=45?'score-mid':'score-bad'; }
+function pillColorForScore(s){ return s>=70?'green':s>=45?'yellow':'red'; }
+function initials(name){ return (name||'?').split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase(); }
+function el(id){ return document.getElementById(id); }
+function mount(id, html){ const n=el(id); if(n) n.innerHTML=html; }
+
+const STATUS_PILL = { draft:'muted','in-review':'yellow', approved:'green', training:'blue', deployed:'coral', active:'green', suspended:'red', trial:'blue', completed:'green', running:'blue', pending:'yellow', rejected:'red', edited:'pink' };
+function statusPill(status){ const c=STATUS_PILL[status]||'muted'; return '<span class="pill pill-'+c+'">'+escapeHtml(status)+'</span>'; }
+
+// Inline Heroicons-style SVGs (ADR-6). All 24x24, stroke=currentColor.
+const S='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">';
+const ICON = {
+  home:S+'<path d="M3 10l9-7 9 7v9a2 2 0 01-2 2h-4v-6H9v6H5a2 2 0 01-2-2z"/></svg>',
+  folder:S+'<path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>',
+  database:S+'<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>',
+  pencil:S+'<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg>',
+  bolt:S+'<path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>',
+  beaker:S+'<path d="M9 3h6M10 3v6l-5 9a2 2 0 002 3h10a2 2 0 002-3l-5-9V3"/></svg>',
+  rocket:S+'<path d="M5 15c-1 1-2 5-2 5s4-1 5-2M9 11a4 4 0 015-5c3 0 6 3 6 3s-1 6-5 8l-4-1-2-2z"/><circle cx="14.5" cy="9.5" r="1.5"/></svg>',
+  gear:S+'<circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 00-.1-1l2-1.5-2-3.4-2.3 1a7 7 0 00-1.7-1l-.3-2.6h-4l-.3 2.6a7 7 0 00-1.7 1l-2.3-1-2 3.4 2 1.5a7 7 0 000 2l-2 1.5 2 3.4 2.3-1a7 7 0 001.7 1l.3 2.6h4l.3-2.6a7 7 0 001.7-1l2.3 1 2-3.4-2-1.5c.1-.3.1-.7.1-1z"/></svg>',
+  building:S+'<path d="M4 21V5a2 2 0 012-2h6a2 2 0 012 2v16M14 9h4a2 2 0 012 2v10M8 7h2M8 11h2M8 15h2"/></svg>',
+  chart:S+'<path d="M4 19V5M4 19h16M8 15v-4M12 15V8M16 15v-6"/></svg>',
+  card:S+'<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18"/></svg>',
+  bell:S+'<path d="M6 8a6 6 0 1112 0c0 7 3 8 3 8H3s3-1 3-8"/><path d="M10 21a2 2 0 004 0"/></svg>',
+  sliders:S+'<path d="M4 6h16M4 12h16M4 18h16"/><circle cx="9" cy="6" r="2" fill="currentColor"/><circle cx="15" cy="12" r="2" fill="currentColor"/><circle cx="8" cy="18" r="2" fill="currentColor"/></svg>',
+  check:S+'<path d="M20 6L9 17l-5-5"/></svg>',
+  x:S+'<path d="M18 6L6 18M6 6l12 12"/></svg>',
+  info:S+'<circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/></svg>',
+  warn:S+'<path d="M12 3l9 16H3z"/><path d="M12 10v4M12 17h.01"/></svg>',
+  flag:S+'<path d="M4 21V4M4 4h11l-1.5 3L15 10H4"/></svg>',
+  eval:S+'<path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h9"/></svg>',
+  release:S+'<path d="M12 2v6M12 8l3-3M12 8L9 5"/><rect x="4" y="8" width="16" height="12" rx="2"/></svg>',
+  upload:S+'<path d="M12 15V3M12 3l-4 4M12 3l4 4"/><path d="M4 15v4a2 2 0 002 2h12a2 2 0 002-2v-4"/></svg>',
+  download:S+'<path d="M12 3v12M12 15l-4-4M12 15l4-4"/><path d="M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>',
+  search:S+'<circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>',
+  chevD:S+'<path d="M6 9l6 6 6-6"/></svg>',
+  chevR:S+'<path d="M9 6l6 6-6 6"/></svg>',
+  plus:S+'<path d="M12 5v14M5 12h14"/></svg>',
+  arrowR:S+'<path d="M5 12h14M13 6l6 6-6 6"/></svg>',
+  skip:S+'<path d="M5 4l10 8-10 8zM19 5v14"/></svg>',
+  eye:S+'<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>',
+  logout:S+'<path d="M16 17l5-5-5-5M21 12H9M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/></svg>',
+  clone:S+'<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 012-2h10"/></svg>',
+  users:S+'<circle cx="9" cy="8" r="3"/><path d="M3 20a6 6 0 0112 0M16 6a3 3 0 010 6M21 20a6 6 0 00-4-5.6"/></svg>',
+  cmd:S+'<path d="M9 3a3 3 0 010 6H3a3 3 0 010-6zM21 15a3 3 0 01-6 0V9a3 3 0 016 0M9 21a3 3 0 006 0v-6a3 3 0 00-6 0"/></svg>',
+};
+
+/* ============================================================
+   SECTION H — COMPONENTS
+   ============================================================ */
+const TENANT_DOCK = [
+  {view:'dashboard', icon:'home', label:'Dashboard'},
+  {view:'projects', icon:'folder', label:'Projects'},
+  {view:'datasets', icon:'database', label:'Datasets'},
+  {view:'review', icon:'pencil', label:'Review Queue'},
+  {view:'eval', icon:'bolt', label:'Eval Harness'},
+  {view:'experiments', icon:'beaker', label:'Experiments'},
+  {view:'releases', icon:'rocket', label:'Releases'},
+  {view:'settings', icon:'gear', label:'Settings', admin:true},
+];
+const SUPER_DOCK = [
+  {view:'tenants', icon:'building', label:'Tenants'},
+  {view:'platform', icon:'chart', label:'Platform Usage'},
+  {view:'billing', icon:'card', label:'Billing'},
+  {view:'alerts', icon:'warn', label:'Alerts'},
+  {view:'config', icon:'sliders', label:'Platform Config'},
+];
+
+function pendingCount(){ return getDatasets().reduce((a,d)=>a+d.rows.filter(r=>r.reviewStatus==='pending').length,0); }
+function evalRunning(){ return getEvalRuns().some(e=>e.status==='running'); }
+
+function renderDock(){
+  const isSuper = currentUser.role==='SuperAdmin' && !impersonating;
+  const items = isSuper ? SUPER_DOCK : TENANT_DOCK;
+  const pend = isSuper?0:pendingCount();
+  const running = isSuper?false:evalRunning();
+  let html = '<div class="dock-logo" aria-hidden="true">C</div>';
+  items.forEach(it=>{
+    if(it.admin && !can('Org')) return;
+    let badge='';
+    if(it.view==='review' && pend>0) badge='<span class="dock-badge">'+pend+'</span>';
+    if(it.view==='eval' && running) badge='<span class="dock-badge pulse">•</span>';
+    if(it.view==='alerts') badge='<span class="dock-badge">'+alertsList().length+'</span>';
+    html+='<button class="dock-item '+(currentView===it.view?'is-active':'')+'" data-action="nav" data-view="'+it.view+'" aria-label="'+it.label+'" aria-current="'+(currentView===it.view)+'">'+ICON[it.icon]+badge+'<span class="dock-tip">'+it.label+'</span></button>';
+  });
+  html+='<div class="dock-spacer"></div>';
+  html+='<button class="dock-item" data-action="open-palette" aria-label="Command palette">'+ICON.cmd+'<span class="dock-tip">Search &nbsp;<span class="kbd">⌘K</span></span></button>';
+  html+='<button class="dock-item" data-action="user-menu" aria-label="Account menu"><span class="dock-avatar">'+initials(currentUser.name)+'</span><span class="dock-tip">'+escapeHtml(currentUser.name)+' · '+ROLE_LABEL[currentUser.role]+'</span></button>';
+  return '<nav class="dock" aria-label="Primary">'+html+'</nav>';
+}
+
+function renderTopbar(){
+  const isSuper = currentUser.role==='SuperAdmin' && !impersonating;
+  let center='';
+  if(!isSuper){
+    const proj=activeProject(); const rel=activeRelease();
+    center = '<div class="selectbox" id="proj-select"><button data-action="toggle-proj" aria-haspopup="true">'+ICON.folder+'<span>'+escapeHtml(proj?proj.name:'No project')+'</span><span class="chev">'+ICON.chevD+'</span></button></div>'
+      + '<div class="selectbox" id="rel-select"><button data-action="toggle-rel" aria-haspopup="true">'+statusDot(rel?rel.status:'')+'<span>'+escapeHtml(rel?rel.name:'No release')+'</span><span class="chev">'+ICON.chevD+'</span></button></div>';
+  } else {
+    center = '<span class="pill pill-coral">'+ICON.building+'&nbsp;Lynkstr Labs · Platform Operator</span>';
+  }
+  const unread = getNotifications().filter(n=>!n.read).length;
+  const warn = (!isSuper && currentTenant) ? tenantTopWarning() : '';
+  return '<header class="topbar"><span class="topbar-brand">Cueval<small>by Lynkstr Labs</small></span>'
+    + center + '<div class="topbar-spacer"></div>' + warn
+    + '<div class="selectbox"><button class="icon-btn" data-action="toggle-notif" aria-label="Notifications">'+ICON.bell+(unread?'<span class="notif-dot">'+unread+'</span>':'')+'</button></div>'
+    + '<button class="icon-btn" data-action="user-menu" aria-label="Account"><span class="dock-avatar" style="width:30px;height:30px;font-size:12px">'+initials(currentUser.name)+'</span></button>'
+    + '</header>';
+}
+function statusDot(status){ const c=STATUS_PILL[status]||'muted'; return '<span style="width:8px;height:8px;border-radius:50%;display:inline-block;background:var(--'+(c==='muted'?'text-muted':c)+')"></span>'; }
+function tenantTopWarning(){
+  const pct=usagePct(currentTenant); if(pct<85) return '';
+  const lvl=usageLevel(pct);
+  return '<button class="pill pill-'+(lvl==='red'?'red':'coral')+'" data-action="nav" data-view="settings" style="cursor:pointer">'+ICON.warn+'&nbsp;'+pct+'% of row limit</button>';
+}
+
+function renderShell(){
+  const app=el('app');
+  const dockHtml=renderDock();
+  app.innerHTML = '<div class="shell">'+dockHtml
+    + '<div class="shell-main">'+renderTopbar()
+    + '<main class="canvas"><div class="canvas-scroll" id="canvas" tabindex="-1"></div>'
+    + '<div class="scrim" id="scrim" data-action="close-panel"></div>'
+    + '<aside class="panel" id="panel" aria-hidden="true"></aside>'
+    + '</main></div></div>';
+  renderView();
+  restorePanel();
+}
+
+// screen dispatch
+function renderView(){
+  const c=el('canvas'); if(!c) return;
+  const map = {
+    dashboard:screenDashboard, projects:screenProjects, datasets:screenDatasets, review:screenReview,
+    eval:screenEval, experiments:screenExperiments, releases:screenReleases, settings:screenSettings,
+    tenants:screenTenants, platform:screenPlatform, billing:screenBilling, alerts:screenAlerts, config:screenConfig,
+  };
+  const fn = map[currentView] || screenDashboard;
+  c.innerHTML = '<div class="view-anim">'+guard(fn, currentView)()+'</div>';
+  c.scrollTop=0;
+  if(typeof afterRender==='function') afterRender();
+}
+
+/* ---- Right panel ---- */
+function openPanel(html, title){
+  const p=el('panel'), s=el('scrim'); if(!p) return;
+  p.innerHTML='<div class="panel-head"><strong>'+escapeHtml(title||'Details')+'</strong><button class="icon-btn" data-action="close-panel" aria-label="Close panel">'+ICON.x+'</button></div><div class="panel-body">'+html+'</div>';
+  p.classList.add('is-open'); p.setAttribute('aria-hidden','false'); s.classList.add('is-open');
+  if(typeof afterRender==='function') afterRender();
+}
+function closePanel(){ const p=el('panel'), s=el('scrim'); if(p){ p.classList.remove('is-open'); p.setAttribute('aria-hidden','true'); } if(s) s.classList.remove('is-open'); appState.panel=null; }
+function restorePanel(){ if(appState.panel){ const {kind,id}=appState.panel; if(kind==='row') panelRow(id); else if(kind==='experiment') panelExperiment(id); } }
+
+/* ---- Modal ---- */
+function openModal(html){ const o=el('overlays'); o.innerHTML='<div class="modal-scrim" data-action="close-modal"><div class="modal" data-stop="1">'+html+'</div></div>'; if(typeof afterRender==='function') afterRender(); const inp=o.querySelector('input,textarea,select'); if(inp) inp.focus(); }
+function closeModal(){ el('overlays').innerHTML=''; }
+
+/* ---- Meters / bars ---- */
+function meter(pct, color){ const c=color||'var(--coral)'; return '<div class="meter"><div class="meter-fill" data-fill="'+pct+'" style="background:'+c+'"></div></div>'; }
+function langBar(langs){ let h='<div class="bar-lang">'; langs.forEach(l=>{ h+='<span style="width:'+l.pct+'%;background:'+(LANG_COLOR[l.code]||'#888')+'"></span>'; }); h+='</div>'; return h; }
+// animate all meter-fills from 0 after mount
+function afterRender(){
+  document.querySelectorAll('.meter-fill[data-fill]').forEach(m=>{ const v=m.getAttribute('data-fill'); requestAnimationFrame(()=>{ m.style.width=v+'%'; }); });
+  document.querySelectorAll('canvas[data-radar]').forEach(cv=>drawRadar(cv));
+}
+function flagPill(f){ return '<span class="pill pill-'+(f==='toxic'||f==='pii-detected'||f==='duplicate'?'red':f==='near-duplicate'||f==='format-violation'?'yellow':'muted')+'">'+ICON.flag+escapeHtml(FLAG_LABEL[f]||f)+'</span>'; }
+function langPill(code){ return '<span class="pill pill-muted">'+escapeHtml(LANG_LABEL[code]||code)+'</span>'; }
+function emptyState(icon,title,sub,cta){ return '<div class="empty">'+ICON[icon]+'<div class="empty-title">'+escapeHtml(title)+'</div><div class="empty-sub">'+escapeHtml(sub)+'</div>'+(cta||'')+'</div>'; }
+
+/* ---- Radar chart (Canvas 2D, ADR-6) ---- */
+function drawRadar(cv){
+  try{
+    const dims = JSON.parse(cv.getAttribute('data-dims'));
+    const A = JSON.parse(cv.getAttribute('data-a'));
+    const B = JSON.parse(cv.getAttribute('data-b'));
+    const dpr=window.devicePixelRatio||1; const size=260; cv.width=size*dpr; cv.height=size*dpr; cv.style.width=size+'px'; cv.style.height=size+'px';
+    const ctx=cv.getContext('2d'); ctx.scale(dpr,dpr);
+    const cx=size/2, cy=size/2, R=95, n=dims.length;
+    const pt=(i,r)=>{ const ang=-Math.PI/2 + i/n*Math.PI*2; return [cx+Math.cos(ang)*r, cy+Math.sin(ang)*r]; };
+    // grid
+    ctx.strokeStyle=TOKENS.border; ctx.fillStyle=TOKENS.muted; ctx.lineWidth=1; ctx.font='10px Inter';
+    for(let g=1;g<=4;g++){ ctx.beginPath(); for(let i=0;i<=n;i++){ const [x,y]=pt(i%n,R*g/4); i?ctx.lineTo(x,y):ctx.moveTo(x,y);} ctx.closePath(); ctx.stroke(); }
+    for(let i=0;i<n;i++){ const [x,y]=pt(i,R); ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(x,y); ctx.stroke();
+      const [lx,ly]=pt(i,R+16); ctx.textAlign= Math.abs(lx-cx)<10?'center':(lx>cx?'left':'right'); ctx.fillText(truncate(dims[i],10),lx,ly); }
+    const poly=(vals,color)=>{ ctx.beginPath(); dims.forEach((d,i)=>{ const [x,y]=pt(i,R*(vals[d]||0)/100); i?ctx.lineTo(x,y):ctx.moveTo(x,y); }); ctx.closePath();
+      ctx.fillStyle=color+'33'; ctx.fill(); ctx.strokeStyle=color; ctx.lineWidth=2; ctx.stroke(); };
+    poly(A,TOKENS.coral); poly(B,TOKENS.pink);
+  }catch(err){ log.error('[radar] draw failed',err); }
+}
+
+/* ============================================================
+   SECTION I — SCREENS
+   ============================================================ */
+
+/* ---- Login ---- */
+const DEMO_GROUPS = [
+  { org:'Lynkstr Labs — Super Admin', accts:[['superadmin@cueval.ai','Super Admin']] },
+  { org:'IITM Pravartak — Enterprise', accts:[['admin@cueval.ai','Admin'],['pm@cueval.ai','Project Manager'],['architect@cueval.ai','Architect'],['mlengineer@cueval.ai','ML Engineer'],['reviewer@cueval.ai','Reviewer'],['annotator@cueval.ai','Annotator']] },
+  { org:'Legal AI Corp — Pro', accts:[['admin@legalai.com','Admin'],['ml@legalai.com','ML Engineer']] },
+  { org:'HealthBot India — Starter', accts:[['admin@healthbot.in','Admin']] },
+];
+function renderLogin(){
+  document.body.classList.remove('impersonating');
+  let demo='';
+  DEMO_GROUPS.forEach(g=>{ demo+='<div class="dropdown-head" style="padding:9px 14px 3px">'+escapeHtml(g.org)+'</div>';
+    g.accts.forEach(a=>{ demo+='<div class="demo-acct" data-action="fill-login" data-email="'+a[0]+'"><span class="mono">'+a[0]+'</span><span class="muted">'+a[1]+'</span></div>'; }); });
+  el('app').innerHTML = '<div class="login"><div class="login-mesh"></div>'
+    + '<div class="login-card"><div class="login-logo">C</div>'
+    + '<h1 style="text-align:center;font-family:var(--font-display);font-weight:800;font-size:24px">Cueval</h1>'
+    + '<p style="text-align:center;color:var(--text-muted);margin-top:2px">by Lynkstr Labs · From raw data to release-ready</p>'
+    + '<form id="login-form" style="margin-top:22px">'
+    + '<label class="field-label">Email</label><input class="input" id="login-email" type="email" autocomplete="username" placeholder="you@company.com" value="admin@cueval.ai" />'
+    + '<div class="mt12"></div><label class="field-label">Password</label><input class="input" id="login-pass" type="password" autocomplete="current-password" placeholder="••••••••" value="demo123" />'
+    + '<div id="login-err" class="field-err hidden"></div>'
+    + '<button class="btn btn-primary" type="submit" style="width:100%;justify-content:center;margin-top:16px">Sign in'+ICON.arrowR+'</button>'
+    + '</form>'
+    + '<div class="demo-list"><button class="demo-toggle" data-action="toggle-demo" aria-expanded="false"><span style="font-weight:600">Demo accounts</span><span class="muted flex gap6">password: <span class="kbd">demo123</span> '+ICON.chevD+'</span></button><div class="demo-body" id="demo-body">'+demo+'</div></div>'
+    + '</div></div>';
+  el('login-form').addEventListener('submit', e=>{ e.preventDefault(); doLogin(el('login-email').value.trim(), el('login-pass').value); });
+}
+
+/* ---- Dashboard (role-aware) ---- */
+function myWorkCard(){
+  const role=currentUser.role; const pend=pendingCount();
+  const map = {
+    Annotator:['Rows pending your review', pend+' rows in your queue', 'Start Reviewing','review'],
+    Reviewer:['Batches awaiting approval','3 batches from annotators','Review Batches','review'],
+    MLEngineer:['Eval run completed on v1.1','Factuality improved +4.2','View Results','eval'],
+    Architect:['Dataset score dropped on v1.2','Medical QA now at 61 — investigate','Investigate','datasets'],
+    ProjectManager:['v1.1 release blocked','8 rows unreviewed before sign-off','Check Status','releases'],
+    Admin:['Users pending role assignment','2 users need roles configured','Manage Users','settings'],
+  };
+  const m=map[role]||map.Admin;
+  return '<div class="card" style="border-color:var(--border-active)"><div class="section-h">My Work Today</div>'
+    + '<div class="card-title">'+escapeHtml(m[0])+'</div><div class="secondary mt4">'+escapeHtml(m[1])+'</div>'
+    + '<button class="btn btn-primary mt16" data-action="nav" data-view="'+m[3]+'">'+escapeHtml(m[2])+ICON.arrowR+'</button></div>';
+}
+function projectHealthCard(p){
+  const rel=projectReleases(p.id)[0]; const ds=rel?datasetForRelease(rel.id):null;
+  const score=ds?ds.overallScore:0; const pend=ds?ds.rows.filter(r=>r.reviewStatus==='pending').length:0;
+  const done=ds?Math.round((ds.totalRows-pend)/ds.totalRows*100):0;
+  const ev=rel?byId(evalRuns,rel.evalRunId):null;
+  return '<div class="card hover" data-action="open-project" data-id="'+p.id+'">'
+    + '<div class="row-between"><span class="card-title">'+escapeHtml(p.name)+'</span>'+(rel?statusPill(rel.status):'')+'</div>'
+    + '<div class="flex gap16 mt16"><div><div class="muted" style="font-size:11px">QUALITY</div><div class="bignum '+scoreClass(score)+'">'+score+'</div></div>'
+    + '<div style="flex:1"><div class="row-between" style="font-size:11px"><span class="muted">REVIEW COMPLETE</span><span class="secondary">'+done+'%</span></div>'+meter(done,'var(--gradient-brand)')
+    + '<div class="muted mt8" style="font-size:11px">EVAL</div><div class="secondary">'+(ev&&ev.results?('Overall '+ev.results.B.Overall):'No eval yet')+'</div></div></div></div>';
+}
+function screenDashboard(){
+  const t=currentTenant;
+  const totalRows = getDatasets().reduce((a,d)=>a+d.totalRows,0);
+  const avg = (()=>{ const ds=getDatasets(); return ds.length?(ds.reduce((a,d)=>a+d.overallScore,0)/ds.length).toFixed(1):'—'; })();
+  const runningEvals = getEvalRuns().filter(e=>e.status==='running').length;
+  const relThisMonth = getReleases().length;
+  const strip = [['Total Rows Curated',fmtNum(t.usage.rowsThisMonth)],['Avg Quality Score',avg],['Active Eval Runs',runningEvals+getEvalRuns().filter(e=>e.status==='completed').length>0?String(runningEvals):'0'],['Releases This Month',String(relThisMonth)]];
+  let stripHtml='<div class="grid-3" style="grid-template-columns:repeat(4,1fr);margin-bottom:22px">';
+  [['Total Rows Curated',fmtNum(t.usage.rowsThisMonth),'coral'],['Avg Quality Score',avg,'pink'],['Active Eval Runs',String(runningEvals),'blue'],['Releases This Month',String(relThisMonth),'green']].forEach(s=>{
+    stripHtml+='<div class="card"><div class="section-h">'+s[0]+'</div><div class="bignum" style="color:var(--'+s[2]+')">'+s[1]+'</div></div>'; });
+  stripHtml+='</div>';
+  const warn = usagePct(t)>=70 ? usageBanner(t) : '';
+  let health=''; getProjects().forEach(p=>health+=projectHealthCard(p));
+  if(!getProjects().length) health=emptyState('folder','No projects yet','Create your first project to begin curation.','<button class="btn btn-primary" data-action="new-project">'+ICON.plus+'New Project</button>');
+  let feed=''; getActivity().forEach(a=>{ feed+='<div style="padding:11px 0;border-bottom:1px solid var(--border)"><div><strong>'+escapeHtml(a.who)+'</strong> <span class="secondary">'+escapeHtml(a.text)+'</span></div><div class="muted mt4" style="font-size:11px">'+escapeHtml(a.time)+'</div></div>'; });
+  return '<div class="row-between"><div><h1 class="page-h">Welcome back, '+escapeHtml(currentUser.name.split(' ')[0])+'</h1><p class="page-sub">'+escapeHtml(t.name)+' · '+t.plan+' plan · '+ROLE_LABEL[currentUser.role]+'</p></div></div>'
+    + '<div class="mt24"></div>'+warn+stripHtml
+    + '<div class="grid-3" style="grid-template-columns:1fr 1.2fr 1fr;align-items:start">'
+    + '<div>'+myWorkCard()+'</div>'
+    + '<div><div class="section-h">Project Health</div><div class="stack gap12">'+health+'</div></div>'
+    + '<div><div class="section-h">Activity Feed</div><div class="card">'+(feed||'<span class="muted">No recent activity</span>')+'</div></div>'
+    + '</div>';
+}
+function usageBanner(t){
+  const pct=usagePct(t); const lvl=usageLevel(pct);
+  const cls = lvl==='red'?'warn-red':lvl==='orange'?'warn-orange':'warn-yellow';
+  const msg = lvl==='red'?'Row limit reached — uploads are blocked. Upgrade to continue.':'Approaching monthly row limit ('+pct+'%). Consider upgrading your plan.';
+  return '<div class="warn-banner '+cls+'">'+ICON.warn+'<span>'+msg+'</span><div style="flex:1"></div><button class="btn btn-sm btn-ghost" data-action="nav" data-view="settings">View usage</button></div>';
+}
+
+/* ---- Projects ---- */
+function screenProjects(){
+  const ps=getProjects();
+  const head='<div class="row-between"><div><h1 class="page-h">Projects</h1><p class="page-sub">'+ps.length+' project'+(ps.length!==1?'s':'')+' in '+escapeHtml(currentTenant.name)+'</p></div>'
+    +(can('Projects')?'<button class="btn btn-primary" data-action="new-project">'+ICON.plus+'New Project</button>':'')+'</div>';
+  if(!ps.length) return head+'<div class="mt24">'+emptyState('folder','No projects yet','Start by creating your first project.',(can('Projects')?'<button class="btn btn-primary" data-action="new-project">'+ICON.plus+'Create Project</button>':''))+'</div>';
+  let cards='';
+  ps.forEach(p=>{ const rel=projectReleases(p.id)[0]; const ds=rel?datasetForRelease(rel.id):null;
+    cards+='<div class="card hover" data-action="open-project" data-id="'+p.id+'">'
+      +'<div class="row-between"><span class="card-title">'+escapeHtml(p.name)+'</span>'+(rel?statusPill(rel.status):'')+'</div>'
+      +'<p class="secondary mt8" style="min-height:38px">'+escapeHtml(p.description)+'</p>'
+      +'<div class="flex wrap gap6 mt8">'+p.tags.map(t=>'<span class="badge-fmt">'+escapeHtml(t)+'</span>').join('')+'</div>'
+      +'<div class="row-between mt16" style="font-size:12px"><span class="secondary flex gap6">'+ICON.users+p.members.length+' members</span>'
+      +'<span class="'+(ds?scoreClass(ds.overallScore):'')+'">'+(ds?('Score '+ds.overallScore):'No dataset')+'</span></div></div>'; });
+  return head+'<div class="grid-3 mt24">'+cards+'</div>';
+}
+
+/* ---- Datasets ---- */
+let activeDatasetId=null;
+function currentDataset(){ const list=getDatasets(); return byId(list,activeDatasetId) || (activeRelease()&&datasetForRelease(activeRelease().id)) || list[0] || null; }
+function screenDatasets(){
+  const list=getDatasets();
+  const head='<div class="row-between"><div><h1 class="page-h">Datasets</h1><p class="page-sub">Curation & quality for '+escapeHtml(currentTenant.name)+'</p></div>'
+    +(can('Datasets')?'<button class="btn btn-primary" data-action="upload-dataset">'+ICON.upload+'Upload Dataset</button>':'')+'</div>';
+  if(!list.length) return head+'<div class="mt24">'+emptyState('database','No datasets yet','Upload a dataset to begin curation.',(can('Datasets')?'<button class="btn btn-primary" data-action="upload-dataset">'+ICON.upload+'Upload Dataset</button>':''))+'</div>';
+  const d=currentDataset();
+  let listHtml='';
+  list.forEach(x=>{ listHtml+='<button class="dropdown-item '+(x===d?'is-active':'')+'" data-action="select-dataset" data-id="'+x.id+'" style="flex-direction:column;align-items:flex-start;gap:2px">'
+    +'<span class="flex gap8" style="width:100%;justify-content:space-between"><span class="mono" style="font-size:12px">'+escapeHtml(truncate(x.name,20))+'</span><span class="badge-fmt">'+x.format+'</span></span>'
+    +'<span class="muted" style="font-size:11px">'+fmtNum(x.totalRows)+' rows · score '+x.overallScore+'</span></button>'; });
+  return head+'<div class="mt24" style="display:grid;grid-template-columns:230px 1fr;gap:20px;align-items:start">'
+    + '<div class="card" style="padding:8px"><div class="dropdown-head">Datasets</div>'+listHtml+'</div>'
+    + '<div id="ds-detail">'+datasetDetail(d)+'</div></div>';
+}
+function datasetDetail(d){
+  if(!d) return emptyState('database','Select a dataset','Choose a dataset from the list.','');
+  const dist=[0,0,0,0,0]; d.rows.forEach(r=>{ dist[Math.min(4,Math.floor(r.qualityScore/20))]++; });
+  const maxd=Math.max(...dist,1);
+  const flagCounts={}; d.rows.forEach(r=>r.flags.forEach(f=>flagCounts[f]=(flagCounts[f]||0)+1));
+  let histo='<div class="flex gap8" style="align-items:flex-end;height:90px">';
+  ['0-20','20-40','40-60','60-80','80-100'].forEach((lbl,i)=>{ const h=Math.round(dist[i]/maxd*80)+4;
+    histo+='<div class="stack" style="flex:1;align-items:center;gap:4px"><div style="width:100%;height:'+h+'px;background:var(--gradient-brand);border-radius:5px 5px 0 0"></div><span class="muted" style="font-size:10px">'+lbl+'</span><span style="font-size:11px">'+dist[i]+'</span></div>'; });
+  histo+='</div>';
+  let flags=''; Object.entries(flagCounts).sort((a,b)=>b[1]-a[1]).forEach(([f,n])=>{ flags+='<div class="flex gap8" style="justify-content:space-between;padding:5px 0">'+flagPill(f)+'<span class="secondary">'+n+'</span></div>'; });
+  const hdr='<div class="card"><div class="row-between"><div><div class="flex gap8"><span class="card-title mono">'+escapeHtml(d.name)+'</span><span class="badge-fmt">'+d.format+'</span></div>'
+    +'<div class="secondary mt4">'+fmtNum(d.totalRows)+' rows · '+d.flaggedRows+' flagged · uploaded '+escapeHtml(d.uploadedAt)+' by '+escapeHtml(d.uploadedBy)+'</div></div>'
+    +'<div style="text-align:right"><div class="muted" style="font-size:11px">OVERALL SCORE</div><div class="bignum '+scoreClass(d.overallScore)+'">'+d.overallScore+'</div></div></div>'
+    +'<div class="grid-3 mt16" style="grid-template-columns:1.3fr 1fr 1fr"><div><div class="section-h">Languages</div>'+langBar(d.languages)
+    +'<div class="flex wrap gap8 mt8">'+d.languages.map(l=>'<span class="flex gap6" style="font-size:11px"><span style="width:9px;height:9px;border-radius:2px;background:'+(LANG_COLOR[l.code]||'#888')+'"></span>'+escapeHtml(LANG_LABEL[l.code]||l.code)+' '+l.pct+'%</span>').join('')+'</div></div>'
+    +'<div><div class="section-h">Score Distribution</div>'+histo+'</div>'
+    +'<div><div class="section-h">Flags</div>'+(flags||'<span class="muted">No flags 🎉</span>')+'</div></div></div>';
+  // filters
+  const f=appState.dsFilters;
+  const flagOpts=['all','duplicate','near-duplicate','short-response','format-violation','pii-detected','toxic'];
+  const filterBar='<div class="card mt16"><div class="flex wrap gap12" style="justify-content:space-between">'
+    +'<div class="flex wrap gap6">'+flagOpts.map(o=>'<button class="chip '+(f.flag===o?'is-on':'')+'" data-action="ds-filter" data-key="flag" data-val="'+o+'">'+(o==='all'?'All flags':FLAG_LABEL[o]||o)+'</button>').join('')+'</div>'
+    +'<div class="flex gap8"><select class="input" style="width:auto" data-action="ds-filter-sel" data-key="status"><option value="all"'+(f.status==='all'?' selected':'')+'>All status</option><option value="pending"'+(f.status==='pending'?' selected':'')+'>Pending</option><option value="approved"'+(f.status==='approved'?' selected':'')+'>Approved</option><option value="rejected"'+(f.status==='rejected'?' selected':'')+'>Rejected</option></select>'
+    +'<select class="input" style="width:auto" data-action="ds-filter-sel" data-key="sort"><option value="score-asc"'+(f.sort==='score-asc'?' selected':'')+'>Score ↑</option><option value="score-desc"'+(f.sort==='score-desc'?' selected':'')+'>Score ↓</option><option value="flags"'+(f.sort==='flags'?' selected':'')+'>Most flags</option></select>'
+    +(can('Datasets')?'<button class="btn btn-ghost btn-sm" data-action="export-dataset" data-id="'+d.id+'">'+ICON.download+'Export</button>':'')+'</div></div></div>';
+  return hdr+filterBar+'<div class="card mt16" style="padding:0;overflow:hidden"><div style="max-height:46vh;overflow:auto">'+rowTable(d)+'</div></div>';
+}
+function filteredRows(d){
+  const f=appState.dsFilters; let rows=d.rows.slice();
+  if(f.flag!=='all') rows=rows.filter(r=>r.flags.includes(f.flag));
+  if(f.status!=='all') rows=rows.filter(r=>r.reviewStatus===f.status);
+  if(f.sort==='score-asc') rows.sort((a,b)=>a.qualityScore-b.qualityScore);
+  else if(f.sort==='score-desc') rows.sort((a,b)=>b.qualityScore-a.qualityScore);
+  else if(f.sort==='flags') rows.sort((a,b)=>b.flags.length-a.flags.length);
+  return rows;
+}
+function rowTable(d){
+  const rows=filteredRows(d);
+  if(!rows.length) return emptyState('check','No rows match','Try clearing filters to see more rows.','');
+  const cap=Math.min(rows.length,120); // perf: cap DOM rows (CLAUDE.md §10)
+  let body='';
+  for(let i=0;i<cap;i++){ const r=rows[i];
+    body+='<tr data-action="open-row" data-id="'+r.id+'"><td class="mono muted">'+escapeHtml(r.id)+'</td>'
+      +'<td class="cell-wide"><div class="truncate">'+escapeHtml(truncate(r.instruction||'—',60))+'</div></td>'
+      +'<td class="cell-wide"><div class="truncate secondary">'+escapeHtml(truncate(r.output||'—',60))+'</div></td>'
+      +'<td><span class="pill pill-'+pillColorForScore(r.qualityScore)+'">'+r.qualityScore+'</span></td>'
+      +'<td>'+(r.flags.length?'<span class="pill pill-muted">'+r.flags.length+' '+ICON.flag+'</span>':'<span class="muted">—</span>')+'</td>'
+      +'<td>'+escapeHtml(LANG_LABEL[r.language]||r.language)+'</td>'
+      +'<td>'+statusPill(r.reviewStatus)+'</td></tr>';
+  }
+  const more = rows.length>cap ? '<tr><td colspan="7" class="muted" style="text-align:center;padding:12px">Showing first '+cap+' of '+rows.length+' rows (filter to narrow)</td></tr>' : '';
+  return '<table class="tbl"><thead><tr><th>#</th><th>Instruction</th><th>Response</th><th>Score</th><th>Flags</th><th>Lang</th><th>Status</th></tr></thead><tbody>'+body+more+'</tbody></table>';
+}
+function panelRow(rowId){
+  const found=findRow(rowId); if(!found){ log.warn('[row] not found',rowId); return; }
+  const {row,dataset}=found; if(!assertTenant(dataset)) return;
+  appState.panel={kind:'row',id:rowId};
+  const bd=scoreBreakdown(row);
+  const bdHtml=[['Clarity',bd.clarity],['Completeness',bd.completeness],['Relevance',bd.relevance]].map(x=>
+    '<div class="mt8"><div class="row-between" style="font-size:12px"><span class="secondary">'+x[0]+'</span><span>'+x[1]+'</span></div>'+meter(x[1],'var(--pink)')+'</div>').join('');
+  const flags=row.flags.length? row.flags.map(f=>'<div class="mt8">'+flagPill(f)+'<div class="muted mt4" style="font-size:12px">'+escapeHtml(flagExplain(f,row))+'</div></div>').join('') : '<span class="muted">No flags detected.</span>';
+  const diff = row.originalOutput ? '<div class="section-h mt16">Edit diff</div><div class="card" style="padding:12px"><div class="muted" style="font-size:11px">ORIGINAL</div><div class="mono" style="font-size:12px;color:var(--red);text-decoration:line-through;opacity:.7">'+escapeHtml(row.originalOutput)+'</div><div class="muted mt8" style="font-size:11px">EDITED</div><div class="mono" style="font-size:12px;color:var(--green)">'+escapeHtml(row.output)+'</div></div>' : '';
+  const actions = can('Annotation') ? '<div class="flex gap8 mt16 wrap"><button class="btn btn-green btn-sm" data-action="review-row" data-id="'+row.id+'" data-do="approve">'+ICON.check+'Approve</button>'
+    +'<button class="btn btn-red btn-sm" data-action="review-row" data-id="'+row.id+'" data-do="reject">'+ICON.x+'Reject</button>'
+    +'<button class="btn btn-ghost btn-sm" data-action="edit-row" data-id="'+row.id+'">'+ICON.pencil+'Edit</button></div>' : '<div class="muted mt16">You do not have annotation permission.</div>';
+  const html='<div class="flex gap8"><span class="pill pill-'+pillColorForScore(row.qualityScore)+'">Score '+row.qualityScore+'</span>'+langPill(row.language)+statusPill(row.reviewStatus)+'</div>'
+    +'<div class="section-h mt16">Instruction</div><div class="card" style="padding:12px">'+escapeHtml(row.instruction||'—')+'</div>'
+    +(row.input?'<div class="section-h mt16">Input</div><div class="card" style="padding:12px">'+escapeHtml(row.input)+'</div>':'')
+    +'<div class="section-h mt16">Output</div><div class="card" style="padding:12px" id="row-output">'+escapeHtml(row.output||'—')+'</div>'
+    +'<div class="section-h mt16">Score breakdown</div>'+bdHtml
+    +'<div class="section-h mt16">Flags</div>'+flags+diff+actions;
+  openPanel(html, dataset.name+' · '+row.id);
+}
+function flagExplain(f,row){
+  switch(f){ case 'duplicate':return 'Exact duplicate of another row in this dataset.';
+    case 'near-duplicate':return 'High token overlap (Jaccard > 0.7) with a similar row.';
+    case 'short-response':return 'Output is '+(row.output||'').length+' chars — below the 20-char minimum.';
+    case 'format-violation':return 'Missing instruction or output does not match the requested format/schema.';
+    case 'pii-detected':return 'Matches a PII pattern (phone / email / Aadhaar / PAN).';
+    case 'toxic':return 'Contains toxic or biased language from the moderation list.';
+    case 'low-clarity':return 'Response is short and low in informational content.'; default:return ''; }
+}
+
+/* ---- Review Queue ---- */
+function reviewQueue(){
+  const rows=[]; getDatasets().forEach(d=>d.rows.forEach(r=>{ if(r.reviewStatus==='pending') rows.push({row:r,dataset:d}); }));
+  rows.sort((a,b)=>a.row.qualityScore-b.row.qualityScore);
+  return rows;
+}
+function screenReview(){
+  const q=reviewQueue();
+  const head='<div class="row-between"><div><h1 class="page-h">Review Queue</h1><p class="page-sub">Worst-scoring rows first · '+q.length+' pending</p></div>'
+    +(currentUser.role==='Reviewer'?'<button class="btn btn-ghost" data-action="review-batch">'+ICON.check+'Batch approval</button>':'')+'</div>';
+  if(!q.length) return head+'<div class="mt24">'+emptyState('check','You\'re all caught up','No rows pending review. ✅','')+'</div>';
+  if(appState.reviewIndex>=q.length) appState.reviewIndex=0;
+  const cur=q[appState.reviewIndex]; const r=cur.row;
+  const reviewed = q.length; // remaining
+  const total = getDatasets().reduce((a,d)=>a+d.rows.length,0);
+  const progressDone = getDatasets().reduce((a,d)=>a+d.rows.filter(x=>x.reviewStatus!=='pending').length,0);
+  const flags = r.flags.length ? r.flags.map(f=>flagPill(f)).join(' ') : '<span class="muted">No flags</span>';
+  const left='<div class="card"><div class="flex gap8">'+langPill(r.language)+'<span class="pill pill-'+pillColorForScore(r.qualityScore)+'">Score '+r.qualityScore+'</span><span class="badge-fmt">'+escapeHtml(cur.dataset.name)+'</span></div>'
+    +'<div class="section-h mt16">Instruction</div><div style="font-size:15px;line-height:1.6">'+escapeHtml(r.instruction||'—')+'</div>'
+    +(r.input?'<div class="section-h mt16">Input</div><div class="secondary">'+escapeHtml(r.input)+'</div>':'')
+    +'<div class="section-h mt16">Output</div><div id="rev-output" style="font-size:15px;line-height:1.7;font-family:var(--font-mono);font-size:13px">'+escapeHtml(r.output||'—')+'</div>'
+    +'<div class="section-h mt16">Flags</div><div class="flex wrap gap6">'+flags+'</div>'
+    +'<div class="flex gap8 mt24 wrap"><button class="btn btn-green" data-action="review-row" data-id="'+r.id+'" data-do="approve" data-queue="1">'+ICON.check+'Approve <span class="kbd">A</span></button>'
+    +'<button class="btn btn-red" data-action="review-row" data-id="'+r.id+'" data-do="reject" data-queue="1">'+ICON.x+'Reject <span class="kbd">R</span></button>'
+    +'<button class="btn btn-ghost" data-action="edit-review" data-id="'+r.id+'">'+ICON.pencil+'Edit <span class="kbd">E</span></button>'
+    +'<button class="btn btn-ghost" data-action="skip-review">'+ICON.skip+'Skip <span class="kbd">S</span></button></div></div>';
+  let qlist=''; q.forEach((item,i)=>{ const rr=item.row; qlist+='<button class="dropdown-item '+(i===appState.reviewIndex?'is-active':'')+'" data-action="goto-review" data-idx="'+i+'" style="justify-content:space-between">'
+    +'<span class="truncate" style="max-width:180px">'+escapeHtml(truncate(rr.instruction||rr.output,40))+'</span><span class="pill pill-'+pillColorForScore(rr.qualityScore)+'">'+rr.qualityScore+'</span></button>'; });
+  const right='<div class="card" style="padding:8px"><div class="row-between" style="padding:8px 10px"><span class="section-h" style="margin:0">Queue</span><span class="muted" style="font-size:12px">'+progressDone+' of '+total+' done</span></div>'
+    +'<div style="padding:0 10px 8px">'+meter(Math.round(progressDone/total*100),'var(--gradient-brand)')+'</div>'
+    +'<div style="max-height:52vh;overflow:auto">'+qlist+'</div></div>';
+  return head+'<div class="mt24" style="display:grid;grid-template-columns:1.5fr 1fr;gap:20px;align-items:start">'+left+right+'</div>';
+}
+
+/* ---- Eval Harness ---- */
+function screenEval(){
+  const runs=getEvalRuns(); const rel=activeRelease();
+  const head='<div class="row-between"><div><h1 class="page-h">Eval Harness</h1><p class="page-sub">Compare checkpoints across a weighted rubric</p></div></div>';
+  const result = appState.evalResult || runs.filter(e=>e.status==='completed').slice(-1)[0] || null;
+  // config card
+  let dims=''; RUBRIC_DEFAULT.forEach((d,i)=>{ dims+='<div class="row-between mt8"><span class="secondary" style="width:150px">'+d+'</span>'
+    +'<input type="range" min="0" max="40" value="20" data-rubric="'+i+'" style="flex:1;accent-color:var(--coral)"><span class="mono" style="width:42px;text-align:right" id="rw'+i+'">20%</span></div>'; });
+  const cfg='<div class="card"><div class="section-h">Run configuration</div>'
+    +'<div class="grid-2"><div><label class="field-label">Release</label><div class="input" style="background:var(--bg-elevated)">'+escapeHtml(rel?rel.name:'—')+'</div></div>'
+    +'<div class="flex gap8" style="align-items:flex-end"><div style="flex:1"><label class="field-label">Checkpoint A</label><div class="input" style="background:var(--bg-elevated)">ckpt-base</div></div>'
+    +'<div style="flex:1"><label class="field-label">Checkpoint B</label><div class="input" style="background:var(--bg-elevated)">ckpt-candidate</div></div></div></div>'
+    +'<div class="section-h mt16">Rubric weights <span class="muted" id="rubric-total">(total 100%)</span></div>'+dims
+    +'<div class="flex gap8 mt16"><button class="btn btn-ghost btn-sm" data-action="add-dimension">'+ICON.plus+'Add Custom Dimension</button>'
+    +'<div style="flex:1"></div><button class="btn btn-primary" data-action="run-eval" data-rel="'+(rel?rel.id:'')+'">'+ICON.bolt+'Run Eval</button></div></div>';
+  const resultHtml = result ? evalResultView(result) : '<div class="mt16">'+emptyState('bolt','No eval run yet','Run your first eval to compare checkpoints.','<button class="btn btn-primary" data-action="run-eval" data-rel="'+(rel?rel.id:'')+'">'+ICON.bolt+'Run Eval</button>')+'</div>';
+  // history
+  let hist=''; runs.forEach(e=>{ hist+='<button class="dropdown-item" data-action="load-eval" data-id="'+e.id+'" style="justify-content:space-between"><span>'+escapeHtml(e.runAt)+' · '+escapeHtml(e.checkpointB)+'</span>'+(e.results?'<span class="pill pill-'+pillColorForScore(e.results.B.Overall)+'">'+e.results.B.Overall+'</span>':statusPill(e.status))+'</button>'; });
+  return head+'<div class="mt24" id="eval-body">'+cfg+resultHtml+'</div>'
+    +'<div class="section-h mt24">History</div><div class="card" style="padding:8px">'+(hist||'<span class="muted" style="padding:8px">No past runs</span>')+'</div>';
+}
+function evalResultView(e){
+  if(!e.results) return '';
+  const r=e.results; const dims=e.rubric.map(d=>d.dimension);
+  let rowsHtml='';
+  dims.concat(['Overall']).forEach(dim=>{ const a=r.A[dim], b=r.B[dim]; const delta=+(b-a).toFixed(1);
+    rowsHtml+='<tr'+(dim==='Overall'?' style="font-weight:600;background:var(--bg-hover)"':'')+'><td>'+escapeHtml(dim)+'</td><td class="mono">'+a.toFixed(1)+'</td><td class="mono">'+b.toFixed(1)+'</td>'
+      +'<td class="mono '+(delta>=0?'delta-up':'delta-down')+'">'+(delta>=0?'+':'')+delta+' '+(delta>=0?'▲':'▼')+'</td></tr>'; });
+  const table='<table class="tbl"><thead><tr><th>Dimension</th><th>Checkpoint A</th><th>Checkpoint B</th><th>Delta</th></tr></thead><tbody>'+rowsHtml+'</tbody></table>';
+  const radar='<canvas data-radar="1" data-dims=\''+escapeAttr(JSON.stringify(dims))+'\' data-a=\''+escapeAttr(JSON.stringify(r.A))+'\' data-b=\''+escapeAttr(JSON.stringify(r.B))+'\'></canvas>'
+    +'<div class="flex gap16 mt8" style="justify-content:center;font-size:12px"><span class="flex gap6"><span style="width:11px;height:11px;background:var(--coral);border-radius:3px"></span>Checkpoint A</span><span class="flex gap6"><span style="width:11px;height:11px;background:var(--pink);border-radius:3px"></span>Checkpoint B</span></div>';
+  const hq = (e.humanReviewQueue||[]).length;
+  const cost='<div class="card"><div class="section-h">Cost tracker</div><div class="secondary">This eval run consumed ~'+fmtNum(e.tokens)+' tokens.</div><div class="bignum" style="font-size:22px;color:var(--pink)">'+fmtMoney(e.cost)+'</div></div>';
+  const human='<div class="card"><div class="section-h">Human review queue</div><div class="secondary">'+hq+' rows had judge confidence &lt; 70% and need human review.</div>'+(hq?'<button class="btn btn-ghost btn-sm mt12" data-action="nav" data-view="review">'+ICON.pencil+'Review flagged rows</button>':'')+'</div>';
+  return '<div class="grid-2 mt16" style="grid-template-columns:1fr 1fr;align-items:start"><div class="card radar-wrap">'+radar+'</div><div class="card" style="padding:0;overflow:hidden">'+table+'</div></div>'
+    +'<div class="grid-2 mt16">'+cost+human+'</div>';
+}
+function escapeAttr(s){ return String(s).replace(/'/g,'&#39;').replace(/"/g,'&quot;'); }
+
+/* ---- Experiments ---- */
+function screenExperiments(){
+  const xs=getExperiments();
+  const head='<div class="row-between"><div><h1 class="page-h">Experiment Tracker</h1><p class="page-sub">Reproducible training runs & their eval outcomes</p></div>'
+    +(can('Experiments')?'<button class="btn btn-primary" data-action="new-experiment">'+ICON.plus+'New Experiment</button>':'')+'</div>';
+  if(!xs.length) return head+'<div class="mt24">'+emptyState('beaker','No experiments yet','Log a training run to start tracking.',(can('Experiments')?'<button class="btn btn-primary" data-action="new-experiment">'+ICON.plus+'New Experiment</button>':''))+'</div>';
+  let tl='';
+  xs.forEach(x=>{ const ds=byId(datasets,x.datasetId); const ev=byId(evalRuns,x.evalRunId);
+    tl+='<div class="tl-node"><div class="card hover" data-action="open-experiment" data-id="'+x.id+'">'
+      +'<div class="row-between"><span class="card-title">'+escapeHtml(x.name)+'</span>'+statusPill(x.status)+'</div>'
+      +'<div class="flex wrap gap8 mt12 mono" style="font-size:12px;color:var(--text-secondary)">'
+      +'<span class="pill pill-blue">'+escapeHtml(x.datasetVersion)+' · score '+(ds?ds.overallScore:'—')+'</span>'+ICON.arrowR
+      +'<span class="pill pill-muted">'+escapeHtml(x.trainingConfig.baseModel)+'</span>'+ICON.arrowR
+      +'<span class="pill pill-pink">'+escapeHtml(x.checkpointId)+'</span>'+ICON.arrowR
+      +'<span class="pill pill-'+(ev&&ev.results?pillColorForScore(ev.results.B.Overall):'muted')+'">eval '+(ev&&ev.results?ev.results.B.Overall:'—')+'</span></div>'
+      +'<div class="row-between mt12" style="font-size:12px"><span class="muted">Cost '+fmtMoney(x.costEstimate)+' · by '+escapeHtml(x.createdBy)+'</span><span class="muted">'+escapeHtml(x.createdAt)+'</span></div></div></div>'; });
+  return head+'<div class="timeline mt24">'+tl+'</div>';
+}
+function panelExperiment(id){
+  const x=byId(getExperiments(),id); if(!x||!assertTenant(x)) return;
+  appState.panel={kind:'experiment',id};
+  const ds=byId(datasets,x.datasetId); const ev=byId(evalRuns,x.evalRunId); const c=x.trainingConfig;
+  const cfg=[['Base model',c.baseModel],['Epochs',c.epochs],['Learning rate',c.learningRate],['Batch size',c.batchSize],['LoRA rank',c.loraRank],['Optimizer',c.optimizer]]
+    .map(r=>'<div class="row-between" style="padding:6px 0;border-bottom:1px solid var(--border)"><span class="secondary">'+r[0]+'</span><span class="mono">'+escapeHtml(String(r[1]))+'</span></div>').join('');
+  const html='<div class="flex gap8">'+statusPill(x.status)+'<span class="pill pill-muted">'+fmtMoney(x.costEstimate)+'</span></div>'
+    +'<div class="section-h mt16">Training config</div>'+cfg
+    +'<div class="section-h mt16">Dataset</div><div class="card" style="padding:12px">'+escapeHtml(ds?ds.name:'—')+' <span class="badge-fmt">'+escapeHtml(x.datasetVersion)+'</span><div class="secondary mt4">Quality score at run time: '+(ds?ds.overallScore:'—')+'</div></div>'
+    +'<div class="section-h mt16">Eval result</div><div class="card" style="padding:12px">'+(ev&&ev.results?('Overall '+ev.results.B.Overall+' (Δ vs A '+(ev.results.B.Overall-ev.results.A.Overall>=0?'+':'')+(ev.results.B.Overall-ev.results.A.Overall).toFixed(1)+')'):'Not evaluated')+'</div>'
+    +'<div class="section-h mt16">Notes</div><div class="secondary">'+escapeHtml(x.notes)+'</div>'
+    +'<div class="section-h mt16">Reproducibility</div><div class="card mono" style="padding:12px;font-size:12px;color:var(--text-secondary)">To recreate: dataset snapshot '+escapeHtml(x.datasetVersion)+' + '+escapeHtml(c.baseModel)+', epochs='+c.epochs+', lr='+c.learningRate+', rank='+c.loraRank+'</div>'
+    +'<button class="btn btn-ghost mt16" data-action="clone-experiment" data-id="'+x.id+'">'+ICON.clone+'Clone Experiment</button>';
+  openPanel(html, x.name);
+}
+
+/* ---- Releases ---- */
+const PIPELINE=['draft','in-review','approved','training','deployed'];
+function screenReleases(){
+  const rels=getReleases();
+  const head='<div class="row-between"><div><h1 class="page-h">Releases</h1><p class="page-sub">Pipeline from draft to deployment</p></div></div>';
+  if(!rels.length) return head+'<div class="mt24">'+emptyState('rocket','No releases yet','Create a release to manage the pipeline.','')+'</div>';
+  let cols='';
+  PIPELINE.forEach(stage=>{ const items=rels.filter(r=>r.status===stage);
+    let cards=''; items.forEach(r=>{ const ds=datasetForRelease(r.id); const ev=byId(evalRuns,r.evalRunId); const blocking=releaseGates(r).filter(g=>!g.ok).length;
+      cards+='<div class="card hover" data-action="open-release" data-id="'+r.id+'" style="padding:12px"><div class="card-title" style="font-size:13px">'+escapeHtml(r.name)+'</div>'
+        +'<div class="flex gap8 mt8" style="font-size:11px"><span class="'+(ds?scoreClass(ds.overallScore):'')+'">DS '+(ds?ds.overallScore:'—')+'</span><span class="secondary">Eval '+(ev&&ev.results?ev.results.B.Overall:'—')+'</span></div>'
+        +(blocking?'<div class="pill pill-red mt8">'+ICON.warn+blocking+' blocking</div>':'<div class="pill pill-green mt8">'+ICON.check+'clear</div>')+'</div>'; });
+    cols+='<div style="min-width:0"><div class="section-h flex gap6" style="justify-content:space-between">'+stage.replace('-',' ')+'<span class="muted">'+items.length+'</span></div><div class="stack gap8">'+(cards||'<div class="muted" style="font-size:12px;padding:8px">—</div>')+'</div></div>'; });
+  return head+'<div class="mt24" style="display:grid;grid-template-columns:repeat(5,1fr);gap:14px;align-items:start">'+cols+'</div>';
+}
+function releaseGates(r){
+  const ds=datasetForRelease(r.id); const ev=byId(evalRuns,r.evalRunId);
+  const pend=ds?ds.rows.filter(x=>x.reviewStatus==='pending').length:0;
+  return [
+    {label:'Dataset uploaded', ok:!!ds},
+    {label:'Curation score > 70', ok:ds&&ds.overallScore>70},
+    {label:'Human review 100% complete', ok:pend===0, note:pend?(pend+' rows pending'):''},
+    {label:'Eval run completed', ok:!!(ev&&ev.results)},
+    {label:'Architect approval', ok:['approved','training','deployed'].includes(r.status)},
+    {label:'PM sign-off', ok:['approved','training','deployed'].includes(r.status)},
+  ];
+}
+function openReleaseDetail(id){
+  const r=byId(getReleases(),id); if(!r||!assertTenant(r)) return;
+  const ds=datasetForRelease(r.id); const gates=releaseGates(r);
+  let gh=''; gates.forEach(g=>{ gh+='<div class="flex gap8" style="padding:8px 0;border-bottom:1px solid var(--border)">'
+    +(g.ok?'<span style="color:var(--green)">'+ICON.check+'</span>':'<span style="color:var(--red)">'+ICON.x+'</span>')
+    +'<span>'+escapeHtml(g.label)+'</span>'+(g.note?'<span class="pill pill-yellow" style="margin-left:auto">'+escapeHtml(g.note)+'</span>':'')+'</div>'; });
+  const canApprove = can('Releases');
+  const actions = canApprove ? '<div class="flex gap8 mt16"><button class="btn btn-primary" data-action="approve-release" data-id="'+r.id+'"'+(gates.some(g=>!g.ok)?' disabled':'')+'>'+ICON.check+'Approve Release</button><button class="btn btn-ghost" data-action="request-changes" data-id="'+r.id+'">Request Changes</button></div>' : '<div class="muted mt16">Approval requires Architect / PM / Admin role.</div>';
+  const html='<div class="flex gap8">'+statusPill(r.status)+'<span class="secondary">'+escapeHtml(r.createdAt)+'</span></div>'
+    +'<div class="section-h mt16">Dataset</div><div class="card" style="padding:12px">'+escapeHtml(ds?ds.name:'—')+' · score '+(ds?ds.overallScore:'—')+'</div>'
+    +'<div class="section-h mt16">Release gates</div>'+gh+actions;
+  openPanel(html, r.name);
+}
+
+/* ---- Settings (Admin) ---- */
+function screenSettings(){
+  if(!can('Org')) return emptyState('gear','Restricted','Settings are available to Admins only.','');
+  const tab=appState.settingsTab||'org';
+  const tabs=['org','users','roles','integrations'];
+  const labels={org:'Organisation',users:'Users',roles:'Roles & Permissions',integrations:'Integrations'};
+  let tabBar='<div class="flex gap8 mt16">'+tabs.map(t=>'<button class="chip '+(tab===t?'is-on':'')+'" data-action="settings-tab" data-tab="'+t+'">'+labels[t]+'</button>').join('')+'</div>';
+  let body='';
+  if(tab==='org') body=settingsOrg();
+  else if(tab==='users') body=settingsUsers();
+  else if(tab==='roles') body=settingsRoles();
+  else body='<div class="card mt16">'+emptyState('sliders','Integrations','Connect Axolotl, LLaMA-Factory, W&B and storage buckets here.','<button class="btn btn-ghost" data-action="toast" data-msg="Integrations are mocked in this prototype">'+ICON.plus+'Add Integration</button>')+'</div>';
+  return '<h1 class="page-h">Settings</h1><p class="page-sub">'+escapeHtml(currentTenant.name)+' · '+currentTenant.plan+' plan</p>'+tabBar+'<div id="settings-body">'+body+'</div>';
+}
+function settingsOrg(){
+  const t=currentTenant; const rows=t.usage.rowsThisMonth, lim=t.planLimits;
+  function meterRow(label,used,limit){ const pct=limit===Infinity?0:Math.round(used/limit*100); const lvl=usageLevel(pct);
+    const col= lvl==='red'?'var(--red)':lvl==='orange'?'var(--coral)':lvl==='yellow'?'var(--yellow)':'var(--green)';
+    const warnIc = pct>=70?' <span style="color:'+col+'">'+ICON.warn+'</span>':'';
+    return '<div class="mt12"><div class="row-between" style="font-size:12px"><span class="secondary">'+label+'</span><span class="mono">'+fmtNum(used)+' / '+fmtNum(limit)+'  '+(limit===Infinity?'':pct+'%')+warnIc+'</span></div>'+meter(pct,col)+'</div>'; }
+  const banner = usagePct(t)>=70?usageBanner(t):'';
+  const sov = lim.sovereignDeployment ? '<span class="pill pill-green">'+ICON.check+'Enabled</span>' : '<span class="secondary">Not available on '+t.plan+' — <button class="btn btn-sm btn-ghost" data-action="toast" data-msg="Upgrade flow is mocked">Upgrade to Enterprise</button></span>';
+  return '<div class="card mt16">'+banner+'<div class="section-h">Plan usage this month</div>'
+    +meterRow('Rows', rows, lim.rowsPerMonth)
+    +meterRow('Eval runs', t.usage.evalRunsThisMonth, lim.evalRunsPerMonth)
+    +meterRow('Active users', t.usage.activeUsers, lim.maxUsers)
+    +meterRow('Projects', t.usage.activeProjects, lim.maxProjects)
+    +'<div class="row-between mt16" style="padding-top:12px;border-top:1px solid var(--border)"><span class="secondary">Sovereign deployment</span>'+sov+'</div></div>';
+}
+function settingsUsers(){
+  const us=getUsers();
+  let rows=''; us.forEach(u=>{ rows+='<tr><td><div class="flex gap8"><span class="dock-avatar" style="width:28px;height:28px;font-size:11px">'+initials(u.name)+'</span>'+escapeHtml(u.name)+'</div></td>'
+    +'<td class="mono muted">'+escapeHtml(u.email)+'</td><td>'+ROLE_LABEL[u.role]+'</td><td class="secondary">'+escapeHtml(u.lastActive)+'</td><td>'+u.projects+'</td>'
+    +'<td><button class="btn btn-sm btn-ghost" data-action="toast" data-msg="Edit role is mocked">Edit Role</button></td></tr>'; });
+  return '<div class="card mt16" style="padding:0;overflow:hidden"><div class="row-between" style="padding:14px 16px"><span class="section-h" style="margin:0">Users ('+us.length+')</span><button class="btn btn-primary btn-sm" data-action="toast" data-msg="Invite flow is mocked">'+ICON.plus+'Invite User</button></div>'
+    +'<table class="tbl"><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Last active</th><th>Projects</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+}
+function settingsRoles(){
+  const roles=['Admin','ProjectManager','Architect','MLEngineer','Reviewer','Annotator'];
+  const groups=Object.keys(PERMISSIONS);
+  let head='<tr><th>Permission</th>'+roles.map(r=>'<th style="text-align:center">'+ROLE_LABEL[r]+'</th>').join('')+'</tr>';
+  let body=''; groups.forEach(g=>{ body+='<tr><td>'+g+'</td>'+roles.map(r=>{ const on = r==='Admin'||PERMISSIONS[g].includes(r);
+    return '<td style="text-align:center"><button class="chip '+(on?'is-on':'')+'" data-action="toggle-perm" data-group="'+g+'" data-role="'+r+'" style="padding:3px 8px" aria-pressed="'+on+'">'+(on?'On':'Off')+'</button></td>'; }).join('')+'</tr>'; });
+  return '<div class="card mt16" style="padding:0;overflow:auto"><table class="tbl" style="min-width:760px"><thead>'+head+'</thead><tbody>'+body+'</tbody></table></div>'
+    +'<div class="flex gap8 mt16"><button class="btn btn-ghost" data-action="toast" data-msg="Custom role builder is mocked">'+ICON.plus+'Create Custom Role</button><button class="btn btn-primary" data-action="toast" data-msg="Permissions saved (mock)">Save Changes</button></div>';
+}
+
+/* ---- SUPER ADMIN SCREENS ---- */
+function alertsList(){
+  const out=[];
+  tenants.forEach(t=>{ const pct=usagePct(t);
+    if(pct>=70) out.push({sev:pct>95?'red':pct>85?'orange':'yellow', text:t.name+' at '+pct+'% row limit — consider upgrade', t});
+    const ep = t.planLimits.evalRunsPerMonth; if(ep!==Infinity){ const epct=Math.round(t.usage.evalRunsThisMonth/ep*100); if(epct>=60) out.push({sev:epct>90?'orange':'blue', text:t.name+' eval runs at '+epct+'% ('+t.usage.evalRunsThisMonth+'/'+ep+')', t}); }
+  });
+  const order={red:0,orange:1,yellow:2,blue:3}; return out.sort((a,b)=>order[a.sev]-order[b.sev]);
+}
+function tenantProjects(t){ return projects.filter(p=>p.tenantId===t.id); }
+function screenTenants(){
+  const head='<div class="row-between"><div><h1 class="page-h">Tenants</h1><p class="page-sub">All organisations on the Cueval platform</p></div><button class="btn btn-primary" data-action="new-tenant">'+ICON.plus+'Create New Tenant</button></div>';
+  let rows='';
+  tenants.forEach(t=>{ const pct=usagePct(t); const warn=pct>=85; const rl=t.planLimits.rowsPerMonth;
+    rows+='<tr><td><strong>'+escapeHtml(t.name)+'</strong></td><td>'+statusPill(t.plan.toLowerCase()==='enterprise'?'deployed':t.plan.toLowerCase()==='pro'?'training':'draft').replace(/>.*?</,'>'+t.plan+'<')+'</td>'
+      +'<td>'+t.usage.activeUsers+'</td><td>'+t.usage.activeProjects+'</td>'
+      +'<td class="mono">'+fmtK(t.usage.rowsThisMonth)+' / '+fmtK(rl)+'</td>'
+      +'<td class="mono">'+t.usage.evalRunsThisMonth+' / '+fmtK(t.planLimits.evalRunsPerMonth)+'</td>'
+      +'<td>'+(warn?'<span class="pill pill-yellow">'+ICON.warn+'Limit</span>':'<span class="pill pill-green">Active</span>')+'</td>'
+      +'<td><div class="flex gap6"><button class="btn btn-sm btn-ghost" data-action="view-tenant" data-id="'+t.id+'">View</button><button class="btn btn-sm btn-ghost" data-action="impersonate" data-id="'+t.id+'">Manage</button></div></td></tr>'; });
+  return head+'<div class="card mt24" style="padding:0;overflow:auto"><table class="tbl" style="min-width:820px"><thead><tr><th>Tenant</th><th>Plan</th><th>Users</th><th>Projects</th><th>Rows/mo</th><th>Eval Runs</th><th>Status</th><th>Actions</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+}
+function screenPlatform(){
+  const totalRows=tenants.reduce((a,t)=>a+t.usage.rowsThisMonth,0);
+  const totalEvals=tenants.reduce((a,t)=>a+t.usage.evalRunsThisMonth,0);
+  const mrr=tenants.reduce((a,t)=>a+t.fee,0);
+  const strip=[['Total Tenants',tenants.length,'coral'],['Active This Month',tenants.filter(t=>t.status==='active').length,'green'],['Total Rows',fmtK(totalRows),'blue'],['Total Eval Runs',totalEvals,'pink'],['MRR',fmtMoney(mrr),'coral'],['Churn','0','green']];
+  let cards='<div class="grid-3" style="grid-template-columns:repeat(6,1fr)">';
+  strip.forEach(s=>cards+='<div class="card"><div class="section-h">'+s[0]+'</div><div class="bignum" style="font-size:24px;color:var(--'+s[2]+')">'+s[1]+'</div></div>');
+  cards+='</div>';
+  // ingestion bar chart (per tenant)
+  const maxR=Math.max(...tenants.map(t=>t.usage.rowsThisMonth));
+  let bars=''; tenants.forEach(t=>{ const h=Math.round(t.usage.rowsThisMonth/maxR*130)+6;
+    bars+='<div class="stack" style="flex:1;align-items:center;gap:6px"><span class="mono" style="font-size:11px">'+fmtK(t.usage.rowsThisMonth)+'</span><div style="width:60%;height:'+h+'px;background:var(--gradient-brand);border-radius:6px 6px 0 0"></div><span class="muted" style="font-size:11px;text-align:center">'+escapeHtml(truncate(t.name,14))+'</span></div>'; });
+  const plans={Enterprise:0,Pro:0,Starter:0}; tenants.forEach(t=>plans[t.plan]++);
+  return '<h1 class="page-h">Platform Usage</h1><p class="page-sub">Cross-tenant aggregate metrics</p><div class="mt24">'+cards+'</div>'
+    +'<div class="grid-2 mt16" style="align-items:start"><div class="card"><div class="section-h">Monthly row ingestion by tenant</div><div class="flex gap12" style="align-items:flex-end;height:170px;margin-top:12px">'+bars+'</div></div>'
+    +'<div class="card"><div class="section-h">Plan distribution</div><div class="mt16">'+planDonut(plans)+'</div></div></div>';
+}
+function planDonut(plans){
+  const total=Object.values(plans).reduce((a,b)=>a+b,0)||1; let acc=0; const colors={Enterprise:TOKENS.coral,Pro:TOKENS.pink,Starter:TOKENS.blue};
+  const segs=Object.entries(plans).map(([p,n])=>{ const from=acc/total*360; acc+=n; const to=acc/total*360; return colors[p]+' '+from+'deg '+to+'deg'; }).join(',');
+  return '<div class="flex gap24" style="align-items:center;gap:24px"><div style="width:130px;height:130px;border-radius:50%;background:conic-gradient('+segs+');mask:radial-gradient(circle 44px at center,transparent 98%,#000 100%);-webkit-mask:radial-gradient(circle 44px at center,transparent 98%,#000 100%)"></div>'
+    +'<div class="stack gap8">'+Object.entries(plans).map(([p,n])=>'<div class="flex gap8"><span style="width:12px;height:12px;border-radius:3px;background:'+colors[p]+'"></span>'+p+' <span class="muted">'+n+'</span></div>').join('')+'</div></div>';
+}
+function screenBilling(){
+  let rows='';
+  tenants.forEach(t=>{ rows+='<tr><td><strong>'+escapeHtml(t.name)+'</strong></td><td>'+t.plan+'</td><td class="mono">'+fmtMoney(t.fee)+'/mo</td><td class="secondary">renews '+nextRenewal(t)+'</td><td><span class="pill pill-green">Paid</span></td>'
+    +'<td><div class="flex gap6"><button class="btn btn-sm btn-ghost" data-action="toast" data-msg="Change plan is mocked">Change Plan</button><button class="btn btn-sm btn-ghost" data-action="toast" data-msg="Suspend is mocked">Suspend</button><button class="btn btn-sm btn-ghost" data-action="toast" data-msg="Invoice sent (mock)">Invoice</button></div></td></tr>'; });
+  return '<h1 class="page-h">Billing</h1><p class="page-sub">Plans & payment status per tenant</p><div class="card mt24" style="padding:0;overflow:auto"><table class="tbl" style="min-width:760px"><thead><tr><th>Tenant</th><th>Plan</th><th>Monthly fee</th><th>Next renewal</th><th>Payment</th><th>Actions</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+}
+function nextRenewal(t){ const d=t.createdAt.slice(8); return d+' Aug 2025'; }
+function screenAlerts(){
+  const alerts=alertsList();
+  const head='<h1 class="page-h">Alerts</h1><p class="page-sub">'+alerts.length+' active alerts across all tenants</p>';
+  if(!alerts.length) return head+'<div class="mt24">'+emptyState('check','No alerts','All tenants are within healthy limits.','')+'</div>';
+  let list=''; alerts.forEach(a=>{ const cls=a.sev==='red'?'warn-red':a.sev==='orange'?'warn-orange':a.sev==='yellow'?'warn-yellow':'warn-yellow';
+    list+='<div class="warn-banner '+cls+'" style="margin-bottom:10px">'+ICON.warn+'<span>'+escapeHtml(a.text)+'</span><div style="flex:1"></div><button class="btn btn-sm btn-ghost" data-action="view-tenant" data-id="'+a.t.id+'">View tenant</button></div>'; });
+  return head+'<div class="mt24">'+list+'</div>';
+}
+function screenConfig(){
+  const flags=[['Sovereign deployment','Enterprise'],['Custom roles','Pro'],['Advanced eval rubrics','Pro'],['API access','Starter']];
+  let ff=''; flags.forEach((f,i)=>ff+='<div class="row-between" style="padding:10px 0;border-bottom:1px solid var(--border)"><div><div>'+f[0]+'</div><div class="muted" style="font-size:12px">Min plan: '+f[1]+'</div></div><button class="chip is-on" data-action="toast" data-msg="Feature flag toggled (mock)">On</button></div>');
+  let plans=''; tenants.forEach(t=>{});
+  const planDefs=[['Starter',50000,10,5,3],['Pro',500000,50,20,10],['Enterprise','∞','∞','∞','∞']];
+  let pd='<table class="tbl"><thead><tr><th>Plan</th><th>Rows/mo</th><th>Eval runs</th><th>Seats</th><th>Projects</th></tr></thead><tbody>';
+  planDefs.forEach(p=>pd+='<tr><td><strong>'+p[0]+'</strong></td><td class="mono">'+(typeof p[1]==='number'?fmtNum(p[1]):p[1])+'</td><td class="mono">'+p[2]+'</td><td class="mono">'+p[3]+'</td><td class="mono">'+p[4]+'</td></tr>');
+  pd+='</tbody></table>';
+  return '<h1 class="page-h">Platform Config</h1><p class="page-sub">Feature flags & plan definitions</p>'
+    +'<div class="grid-2 mt24" style="align-items:start"><div class="card"><div class="section-h">Feature flags</div>'+ff+'</div>'
+    +'<div class="card"><div class="section-h">Plan definitions</div>'+pd+'<button class="btn btn-ghost btn-sm mt16" data-action="toast" data-msg="Plan editor is mocked">'+ICON.pencil+'Edit Plans</button></div></div>';
+}
+function viewTenantDetail(id){
+  const t=byId(tenants,id); if(!t) return;
+  const ps=tenantProjects(t); const us=users.filter(u=>u.tenantId===t.id);
+  let projRows=ps.map(p=>'<div class="row-between" style="padding:8px 0;border-bottom:1px solid var(--border)"><span>'+escapeHtml(p.name)+'</span><span class="muted">'+p.members.length+' members</span></div>').join('');
+  let userRows=us.map(u=>'<div class="row-between" style="padding:8px 0;border-bottom:1px solid var(--border)"><span>'+escapeHtml(u.name)+'</span><span class="muted">'+ROLE_LABEL[u.role]+'</span></div>').join('');
+  const html='<div class="warn-banner warn-orange">'+ICON.eye+'Super Admin View — Read Only</div>'
+    +'<div class="section-h">Plan & usage</div><div class="card" style="padding:12px">'+t.plan+' · '+fmtNum(t.usage.rowsThisMonth)+' rows · '+t.usage.activeUsers+' users</div>'
+    +'<div class="section-h mt16">Projects ('+ps.length+')</div>'+projRows
+    +'<div class="section-h mt16">Users ('+us.length+')</div>'+userRows
+    +'<button class="btn btn-primary mt16" data-action="impersonate" data-id="'+t.id+'">'+ICON.eye+'Impersonate Admin</button>';
+  openPanel(html, t.name);
+}
+
+/* ============================================================
+   SECTION J — AUTH, DROPDOWNS, PALETTE, MODALS
+   ============================================================ */
+function doLogin(email, pass){
+  const u=users.find(x=>x.email.toLowerCase()===email.toLowerCase());
+  const err=el('login-err');
+  if(!u || pass!==PASSWORD){ if(err){ err.classList.remove('hidden'); err.innerHTML=ICON.warn+'Invalid email or password. Try a demo account below.'; } log.warn('[auth] failed login', email); return; }
+  currentUser=u; impersonating=false; superReturn=null;
+  currentTenant = u.tenantId ? byId(tenants,u.tenantId) : null;
+  currentView = (u.role==='SuperAdmin') ? 'tenants' : 'dashboard';
+  if(currentTenant){ const p=getProjects()[0]; appState.projectId=p?p.id:null; const r=p?projectReleases(p.id)[0]:null; appState.releaseId=r?r.id:null; }
+  document.body.classList.remove('impersonating');
+  log.event('login',{user:u.email, role:u.role, tenant:currentTenant?currentTenant.id:'platform'});
+  renderShell();
+  showToast('Signed in as '+u.name+' · '+ROLE_LABEL[u.role],'ok');
+}
+function doLogout(){ log.event('logout',{user:currentUser&&currentUser.email}); currentUser=null; currentTenant=null; impersonating=false; const b=el('imp-banner'); if(b) b.remove(); closeModal(); closeAllDropdowns(); renderLogin(); }
+
+function enterImpersonation(tid){
+  const t=byId(tenants,tid); if(!t) return;
+  superReturn={ user:currentUser, view:currentView };
+  const admin=users.find(u=>u.tenantId===tid && u.role==='Admin');
+  impersonating=true; currentTenant=t; currentUser=admin||currentUser; currentView='dashboard';
+  const p=getProjects()[0]; appState.projectId=p?p.id:null; const r=p?projectReleases(p.id)[0]:null; appState.releaseId=r?r.id:null;
+  document.body.classList.add('impersonating');
+  renderImpersonationBanner();
+  log.event('impersonate:enter',{tenant:tid});
+  renderShell();
+}
+function exitImpersonation(){
+  impersonating=false; currentUser=superReturn?superReturn.user:users.find(u=>u.role==='SuperAdmin');
+  currentTenant=null; currentView=superReturn?superReturn.view:'tenants'; superReturn=null;
+  document.body.classList.remove('impersonating');
+  const b=el('imp-banner'); if(b) b.remove();
+  log.event('impersonate:exit',{});
+  renderShell();
+}
+function renderImpersonationBanner(){
+  let b=el('imp-banner'); if(!b){ b=document.createElement('div'); b.id='imp-banner'; b.className='imp-banner'; document.body.prepend(b); }
+  b.innerHTML='<span>'+ICON.eye+' Impersonating '+escapeHtml(currentTenant.name)+' — read-only operator session</span><button class="btn btn-sm" style="background:rgba(0,0,0,.25);color:#fff" data-action="exit-impersonation">Exit Impersonation</button>';
+}
+
+/* Dropdowns */
+function closeAllDropdowns(){ document.querySelectorAll('.dropdown').forEach(d=>d.remove()); }
+function attachDropdown(anchor, html, right){
+  const existing=document.querySelector('.dropdown'); closeAllDropdowns(); if(existing) return;
+  if(!anchor) return;
+  const dd=document.createElement('div'); dd.className='dropdown'+(right?' right':''); dd.innerHTML=html;
+  anchor.style.position='relative'; anchor.appendChild(dd);
+}
+function projectDropdown(){ let h='<div class="dropdown-head">Switch project</div>';
+  getProjects().forEach(p=>h+='<button class="dropdown-item '+(p.id===appState.projectId?'is-active':'')+'" data-action="switch-project" data-id="'+p.id+'">'+ICON.folder+escapeHtml(p.name)+'</button>');
+  attachDropdown(el('proj-select'), h, false); }
+function releaseDropdown(){ let h='<div class="dropdown-head">Switch release</div>';
+  projectReleases(appState.projectId).forEach(r=>h+='<button class="dropdown-item '+(r.id===appState.releaseId?'is-active':'')+'" data-action="switch-release" data-id="'+r.id+'">'+statusDot(r.status)+escapeHtml(r.name)+'</button>');
+  attachDropdown(el('rel-select'), h, false); }
+function notifDropdown(){ const ns=getNotifications().slice(0,10);
+  let h='<div class="row-between" style="padding:8px 10px"><span class="dropdown-head" style="padding:0">Notifications</span><button class="btn btn-sm" style="color:var(--coral)" data-action="mark-read">Mark all read</button></div>';
+  if(!ns.length) h+='<div class="muted" style="padding:12px">No notifications</div>';
+  ns.forEach(n=>h+='<div class="dropdown-item" style="align-items:flex-start;'+(n.read?'opacity:.6':'')+'"><span style="color:var(--coral);flex-shrink:0">'+(ICON[n.icon]||ICON.info)+'</span><div><div style="font-size:13px">'+escapeHtml(n.text)+'</div><div class="muted" style="font-size:11px">'+escapeHtml(n.time)+'</div></div></div>');
+  const btn=document.querySelector('[data-action="toggle-notif"]'); attachDropdown(btn?btn.parentElement:null, h, true); }
+function userMenu(){ const h='<div class="dropdown-head">'+escapeHtml(currentUser.name)+' · '+ROLE_LABEL[currentUser.role]+'</div>'
+    +'<div class="dropdown-item"><span class="muted mono" style="font-size:12px">'+escapeHtml(currentUser.email)+'</span></div><div class="dropdown-sep"></div>'
+    +'<button class="dropdown-item" data-action="logout">'+ICON.logout+'Sign out</button>';
+  const btn=document.querySelector('[data-action="user-menu"]'); attachDropdown(btn?btn.parentElement:null, h, true); }
+
+/* Command palette */
+function openPalette(){ appState.paletteOpen=true; appState.paletteQuery=''; appState.paletteSel=0; renderPalette(); }
+function closePalette(){ appState.paletteOpen=false; el('overlays').innerHTML=''; }
+function paletteItems(q){ q=(q||'').toLowerCase(); const items=[];
+  const add=(group,icon,label,action,data)=>items.push({group,icon,label,action,data});
+  getProjects().forEach(p=>add('Projects','folder',p.name,'open-project',{id:p.id}));
+  getDatasets().forEach(d=>add('Datasets','database',d.name,'goto-dataset',{id:d.id}));
+  getEvalRuns().forEach(e=>add('Eval Runs','bolt',e.checkpointB+' — '+e.runAt,'load-eval',{id:e.id}));
+  getExperiments().forEach(x=>add('Experiments','beaker',x.name,'open-experiment',{id:x.id}));
+  let rc=0; if(q) getDatasets().forEach(d=>d.rows.forEach(r=>{ if(rc<40 && (r.instruction||'').toLowerCase().includes(q)){ add('Rows','pencil',truncate(r.instruction,50),'open-row',{id:r.id}); rc++; } }));
+  [['Upload dataset','upload-dataset',null],['Run eval','nav','eval'],['New project','new-project',null],['New experiment','new-experiment',null]].forEach(a=>add('Actions','plus',a[0],a[1],a[2]?{view:a[2]}:{}));
+  const filtered = q ? items.filter(i=>i.label.toLowerCase().includes(q)||i.group.toLowerCase().includes(q)) : items.slice(0,12);
+  return filtered.slice(0,40);
+}
+function renderPalette(){ const items=paletteItems(appState.paletteQuery);
+  if(appState.paletteSel>=items.length) appState.paletteSel=Math.max(0,items.length-1);
+  let groups={}; items.forEach((it,i)=>{ (groups[it.group]=groups[it.group]||[]).push({it,i}); });
+  let res=''; Object.entries(groups).forEach(([g,arr])=>{ res+='<div class="palette-group">'+g+'</div>';
+    arr.forEach(({it,i})=>res+='<div class="palette-item '+(i===appState.paletteSel?'is-active':'')+'" data-action="palette-run" data-idx="'+i+'"><span class="pi-ic">'+ICON[it.icon]+'</span><span>'+escapeHtml(it.label)+'</span><span class="palette-hint">'+it.group+'</span></div>'); });
+  if(!items.length) res='<div class="muted" style="padding:20px;text-align:center">No results</div>';
+  el('overlays').innerHTML='<div class="palette-scrim" data-action="close-palette"><div class="palette" data-stop="1"><input class="palette-input" id="palette-input" placeholder="Search projects, datasets, rows, runs…" value="'+escapeAttr(appState.paletteQuery)+'"><div class="palette-results">'+res+'</div></div></div>';
+  const inp=el('palette-input'); inp.focus(); inp.setSelectionRange(inp.value.length,inp.value.length);
+  inp.oninput=()=>{ appState.paletteQuery=inp.value; appState.paletteSel=0; renderPalette(); };
+  window._paletteItems=items;
+}
+function runPaletteItem(i){ const items=window._paletteItems||[]; const it=items[i]; if(!it) return; closePalette(); dispatch(it.action, it.data||{}); }
+
+/* ============================================================
+   SECTION K — DISPATCH, MODALS, EVENTS, INIT
+   ============================================================ */
+function dispatch(action, d){
+  try{
+  switch(action){
+    case 'nav': setView(d.view); break;
+    case 'open-palette': openPalette(); break;
+    case 'close-palette': closePalette(); break;
+    case 'close-panel': closePanel(); break;
+    case 'close-modal': closeModal(); break;
+    case 'user-menu': userMenu(); break;
+    case 'toggle-proj': projectDropdown(); break;
+    case 'toggle-rel': releaseDropdown(); break;
+    case 'toggle-notif': notifDropdown(); break;
+    case 'logout': doLogout(); break;
+    case 'switch-project': { appState.projectId=d.id; const r=projectReleases(d.id)[0]; appState.releaseId=r?r.id:null; activeDatasetId=null; closeAllDropdowns(); renderShell(); break; }
+    case 'switch-release': { appState.releaseId=d.id; activeDatasetId=null; closeAllDropdowns(); renderShell(); break; }
+    case 'mark-read': notifications.forEach(n=>{ if(!currentTenant||n.tenantId===currentTenant.id) n.read=true; }); closeAllDropdowns(); renderShell(); showToast('All notifications marked read','ok'); break;
+    case 'open-project': setView('projects'); appState.projectId=d.id; { const r=projectReleases(d.id)[0]; appState.releaseId=r?r.id:null; } openProjectDetail(d.id); break;
+    case 'new-project': newProjectModal(); break;
+    case 'upload-dataset': uploadModal(); break;
+    case 'select-dataset': activeDatasetId=d.id; mount('ds-detail', datasetDetail(currentDataset())); afterRender(); break;
+    case 'goto-dataset': setView('datasets'); activeDatasetId=d.id; break;
+    case 'ds-filter': appState.dsFilters[d.key]=d.val; mount('ds-detail', datasetDetail(currentDataset())); afterRender(); break;
+    case 'export-dataset': exportDataset(d.id); break;
+    case 'open-row': panelRow(d.id); break;
+    case 'review-row': reviewRow(d.id, d.do, d.queue==='1'); break;
+    case 'edit-row': editRowModal(d.id, false); break;
+    case 'edit-review': editRowModal(d.id, true); break;
+    case 'skip-review': appState.reviewIndex++; renderView(); break;
+    case 'goto-review': appState.reviewIndex=+d.idx; renderView(); break;
+    case 'review-batch': showToast('Batch approved — 18 approved, 5 rejected','ok'); pushNotif('Reviewer approved a batch of 23 rows','check'); break;
+    case 'run-eval': runEvalFlow(d.rel); break;
+    case 'add-dimension': showToast('Custom dimension added (mock) — adjust weights to total 100%','info'); break;
+    case 'load-eval': { const e=byId(getEvalRuns(),d.id); if(e){ if(!e.results&&e.status==='completed') computeEval(e); appState.evalResult=e; setView('eval'); } break; }
+    case 'new-experiment': newExperimentModal(); break;
+    case 'open-experiment': panelExperiment(d.id); break;
+    case 'clone-experiment': { const x=byId(getExperiments(),d.id); closePanel(); newExperimentModal(x); break; }
+    case 'open-release': openReleaseDetail(d.id); break;
+    case 'approve-release': approveRelease(d.id); break;
+    case 'request-changes': showToast('Change request sent to the release owner','info'); closePanel(); break;
+    case 'settings-tab': appState.settingsTab=d.tab; renderView(); break;
+    case 'toggle-perm': togglePerm(d.group, d.role); break;
+    case 'new-tenant': showToast('Tenant provisioning is mocked in this prototype','info'); break;
+    case 'view-tenant': viewTenantDetail(d.id); break;
+    case 'impersonate': closePanel(); enterImpersonation(d.id); break;
+    case 'exit-impersonation': exitImpersonation(); break;
+    case 'toast': showToast(d.msg||'Done','info'); break;
+    case 'fill-login': { const e=el('login-email'); if(e){ e.value=d.email; el('login-pass').value='demo123'; } break; }
+    case 'toggle-demo': { const b=el('demo-body'); if(b){ b.classList.toggle('is-open'); const t=document.querySelector('[data-action="toggle-demo"]'); if(t) t.setAttribute('aria-expanded', b.classList.contains('is-open')); } break; }
+    case 'palette-run': runPaletteItem(+d.idx); break;
+    default: log.warn('[dispatch] unhandled', action);
+  }
+  }catch(err){ log.error('[dispatch] '+action+' failed', err); showToast('Action failed — see console','error'); }
+}
+
+function pushNotif(text, icon){ notifications.unshift({id:'n'+Date.now(), tenantId:currentTenant?currentTenant.id:null, text, time:'just now', read:false, icon:icon||'info'}); }
+function pushActivity(text){ activity.unshift({id:'a'+Date.now(), tenantId:currentTenant?currentTenant.id:null, who:currentUser.name, text, time:'just now'}); }
+
+/* ---- Review actions ---- */
+function reviewRow(rowId, action, fromQueue){
+  const found=findRow(rowId); if(!found) return; const {row,dataset}=found;
+  if(!assertTenant(dataset)) return;
+  if(!can('Annotation')){ showToast('You lack annotation permission','error'); return; }
+  row.reviewStatus = action==='approve'?'approved':'rejected';
+  row.reviewedBy = currentUser.name;
+  finaliseDataset(dataset);
+  log.event('row:'+action,{row:rowId, dataset:dataset.id});
+  pushActivity((action==='approve'?'approved':'rejected')+' row '+rowId+' in '+dataset.name);
+  showToast('Row '+rowId+' '+(action==='approve'?'approved':'rejected'),'ok');
+  if(fromQueue){ renderView(); } else { closePanel(); renderView(); }
+}
+function editRowModal(rowId, fromQueue){
+  const found=findRow(rowId); if(!found) return; const {row}=found;
+  openModal('<div class="modal-head"><strong>Edit output · '+escapeHtml(rowId)+'</strong><button class="icon-btn" data-action="close-modal">'+ICON.x+'</button></div>'
+    +'<div class="modal-body"><label class="field-label">Output</label><textarea class="input" id="edit-output">'+escapeHtml(row.output)+'</textarea>'
+    +'<div class="row-between mt8"><span class="muted" id="edit-count" style="font-size:12px">'+row.output.length+' chars</span></div></div>'
+    +'<div class="modal-foot"><button class="btn btn-ghost" data-action="close-modal">Cancel</button><button class="btn btn-primary" id="save-edit">'+ICON.check+'Save Edit</button></div>');
+  const ta=el('edit-output'); ta.oninput=()=>{ el('edit-count').textContent=ta.value.length+' chars'; };
+  el('save-edit').onclick=()=>{ saveRowEdit(rowId, ta.value, fromQueue); };
+}
+function saveRowEdit(rowId, newOutput, fromQueue){
+  const found=findRow(rowId); if(!found) return; const {row,dataset}=found;
+  if(row.originalOutput==null) row.originalOutput=row.output;
+  row.output=newOutput; row.reviewStatus='edited'; row.reviewedBy=currentUser.name;
+  row.flags=deriveFlags(row, dataset.rows.filter(r=>r!==row)); row.qualityScore=scoreRow(row);
+  finaliseDataset(dataset); closeModal();
+  log.event('row:edit',{row:rowId}); pushActivity('edited row '+rowId+' in '+dataset.name);
+  showToast('Edit saved','ok');
+  if(appState.panel&&appState.panel.id===rowId) panelRow(rowId);
+  renderView();
+}
+
+/* ---- Eval run flow ---- */
+function runEvalFlow(relId){
+  if(!can('Eval')){ showToast('You lack eval permission','error'); return; }
+  const rel = byId(getReleases(), relId) || activeRelease(); if(!rel){ showToast('No release selected','error'); return; }
+  openModal('<div class="modal-body" style="text-align:center;padding:36px"><div class="bignum" style="font-size:20px" id="eval-step">Preparing…</div><div class="meter mt16"><div class="meter-fill" id="eval-bar" style="width:0;background:var(--gradient-brand)"></div></div></div>');
+  const steps=['Loading checkpoints…','Sampling eval set…','Scoring with judge model…','Aggregating rubric…','Done'];
+  let i=0; const bar=el('eval-bar'), lbl=el('eval-step');
+  const tick=()=>{ if(!el('eval-step')) return; lbl.textContent=steps[i]; bar.style.width=Math.round((i+1)/steps.length*100)+'%';
+    i++; if(i<steps.length){ setTimeout(tick, 750); } else {
+      let e=byId(evalRuns, rel.evalRunId);
+      if(!e){ e={ id:'e'+Date.now(), projectId:rel.projectId, releaseId:rel.id, tenantId:rel.tenantId, checkpointA:'ckpt-base', checkpointB:'ckpt-candidate', status:'completed', runAt:'2026-07-10', runBy:currentUser.name, rubric:RUBRIC_DEFAULT.map(n=>({dimension:n,weight:20})), _seed:(Date.now()%1000) }; evalRuns.push(e); rel.evalRunId=e.id; }
+      e.status='completed'; computeEval(e); appState.evalResult=e;
+      closeModal(); log.event('eval:complete',{run:e.id, overall:e.results.B.Overall});
+      pushNotif('Eval run completed — Overall '+e.results.B.Overall,'eval'); pushActivity('completed an eval run ('+e.results.B.Overall+' overall)');
+      setView('eval'); showToast('Eval complete — Overall '+e.results.B.Overall,'ok');
+    } };
+  setTimeout(tick, 400);
+}
+
+/* ---- Release approval ---- */
+function approveRelease(id){
+  const r=byId(getReleases(),id); if(!r||!assertTenant(r)) return;
+  if(!can('Releases')){ showToast('Approval requires Architect / PM / Admin','error'); return; }
+  const gates=releaseGates(r); if(gates.some(g=>!g.ok)){ showToast('Cannot approve — gates incomplete','error'); return; }
+  r.status='approved'; log.event('release:approve',{release:id}); pushNotif('Release '+r.name+' approved','release'); pushActivity('approved release '+r.name);
+  closePanel(); renderShell(); showToast(r.name+' approved','ok');
+}
+function togglePerm(group, role){
+  if(role==='Admin'){ showToast('Admin retains all permissions','info'); return; }
+  const arr=PERMISSIONS[group]; const i=arr.indexOf(role);
+  if(i>=0) arr.splice(i,1); else arr.push(role);
+  log.event('perm:toggle',{group,role,on:i<0}); renderView();
+}
+
+/* ---- Modals: project / experiment / upload / project detail ---- */
+function openProjectDetail(id){
+  const p=byId(getProjects(),id); if(!p||!assertTenant(p)) return;
+  let rels=''; projectReleases(p.id).forEach(r=>{ const ds=datasetForRelease(r.id);
+    rels+='<div class="tl-node"><div class="card" style="padding:12px"><div class="row-between"><span class="card-title" style="font-size:13px">'+escapeHtml(r.name)+'</span>'+statusPill(r.status)+'</div><div class="secondary mt4" style="font-size:12px">'+(ds?ds.name+' · score '+ds.overallScore:'No dataset')+'</div></div></div>'; });
+  let mem=''; p.members.forEach(m=>{ const u=byId(users,m.userId); if(u) mem+='<div class="flex gap8" style="padding:6px 0"><span class="dock-avatar" style="width:26px;height:26px;font-size:10px">'+initials(u.name)+'</span>'+escapeHtml(u.name)+' <span class="muted">· '+ROLE_LABEL[m.role]+'</span></div>'; });
+  openPanel('<p class="secondary">'+escapeHtml(p.description)+'</p><div class="flex wrap gap6 mt8">'+p.tags.map(t=>'<span class="badge-fmt">'+escapeHtml(t)+'</span>').join('')+'</div>'
+    +'<div class="section-h mt16">Releases</div><div class="timeline">'+(rels||'<span class="muted">No releases</span>')+'</div>'
+    +'<div class="section-h mt16">Members</div>'+mem, p.name);
+}
+function newProjectModal(){
+  if(!can('Projects')){ showToast('You lack project permission','error'); return; }
+  openModal('<div class="modal-head"><strong>New Project</strong><button class="icon-btn" data-action="close-modal">'+ICON.x+'</button></div>'
+    +'<div class="modal-body"><label class="field-label">Name</label><input class="input" id="np-name" placeholder="e.g. Insurance Claims Bot">'
+    +'<div class="mt12"></div><label class="field-label">Description</label><textarea class="input" id="np-desc" style="font-family:var(--font-body);min-height:60px" placeholder="What is this project for?"></textarea>'
+    +'<div class="mt12"></div><label class="field-label">Tags (comma separated)</label><input class="input" id="np-tags" placeholder="legal, en, hi">'
+    +'<div id="np-err" class="field-err hidden"></div></div>'
+    +'<div class="modal-foot"><button class="btn btn-ghost" data-action="close-modal">Cancel</button><button class="btn btn-primary" id="np-save">'+ICON.check+'Create Project</button></div>');
+  el('np-save').onclick=()=>{ const name=el('np-name').value.trim(); if(!name){ el('np-err').classList.remove('hidden'); el('np-err').innerHTML=ICON.warn+'Name is required'; return; }
+    const id='p'+Date.now(); projects.push({ id, tenantId:currentTenant.id, name, description:el('np-desc').value.trim()||'—', status:'active', tags:el('np-tags').value.split(',').map(s=>s.trim()).filter(Boolean), members:[{userId:currentUser.id,role:currentUser.role}], createdAt:'2026-07-10' });
+    closeModal(); appState.projectId=id; log.event('project:create',{id}); pushActivity('created project '+name); renderShell(); showToast('Project created','ok'); };
+}
+function newExperimentModal(clone){
+  if(!can('Experiments')){ showToast('You lack experiment permission','error'); return; }
+  const c=clone?clone.trainingConfig:{ baseModel:'Llama-3.1-8B', epochs:3, learningRate:0.0002, batchSize:16, loraRank:16, optimizer:'adamw' };
+  const dss=getDatasets(); const opts=dss.map(d=>'<option value="'+d.id+'">'+escapeHtml(d.name)+' (score '+d.overallScore+')</option>').join('');
+  const models=['Llama-3.1-8B','Sarvam-2B','Mistral-7B','Gemma-2-9B'].map(m=>'<option'+(m===c.baseModel?' selected':'')+'>'+m+'</option>').join('');
+  openModal('<div class="modal-head"><strong>'+(clone?'Clone Experiment':'New Experiment')+'</strong><button class="icon-btn" data-action="close-modal">'+ICON.x+'</button></div>'
+    +'<div class="modal-body"><label class="field-label">Name</label><input class="input" id="nx-name" value="'+escapeAttr(clone?clone.name+' (clone)':'')+'" placeholder="Experiment name">'
+    +'<div class="mt12"></div><label class="field-label">Dataset version</label><select class="input" id="nx-ds">'+opts+'</select>'
+    +'<div class="grid-2 mt12"><div><label class="field-label">Base model</label><select class="input" id="nx-model">'+models+'</select></div>'
+    +'<div><label class="field-label">Optimizer</label><input class="input" id="nx-opt" value="'+c.optimizer+'"></div>'
+    +'<div><label class="field-label">Epochs</label><input class="input" id="nx-ep" type="number" value="'+c.epochs+'"></div>'
+    +'<div><label class="field-label">Learning rate</label><input class="input" id="nx-lr" value="'+c.learningRate+'"></div>'
+    +'<div><label class="field-label">Batch size</label><input class="input" id="nx-bs" type="number" value="'+c.batchSize+'"></div>'
+    +'<div><label class="field-label">LoRA rank</label><input class="input" id="nx-rank" type="number" value="'+c.loraRank+'"></div></div>'
+    +'<div class="mt12"></div><label class="field-label">Notes</label><textarea class="input" id="nx-notes" style="font-family:var(--font-body);min-height:50px"></textarea></div>'
+    +'<div class="modal-foot"><button class="btn btn-ghost" data-action="close-modal">Cancel</button><button class="btn btn-primary" id="nx-save">'+ICON.check+'Save Experiment</button></div>');
+  el('nx-save').onclick=()=>{ const name=el('nx-name').value.trim()||'Untitled experiment'; const dsId=el('nx-ds').value; const ds=byId(datasets,dsId);
+    const id='x'+Date.now(); experiments.unshift({ id, projectId:ds?ds.projectId:appState.projectId, releaseId:ds?ds.releaseId:null, tenantId:currentTenant.id, name, datasetId:dsId, datasetVersion:'v'+(experiments.length+1)+'.0', checkpointId:'ckpt-'+id.slice(-4), evalRunId:null, costEstimate:1500+Math.round((+el('nx-ep').value||3)*400), status:'completed', createdBy:currentUser.name, createdAt:'2026-07-10', notes:el('nx-notes').value.trim()||'—', trainingConfig:{ baseModel:el('nx-model').value, epochs:+el('nx-ep').value, learningRate:+el('nx-lr').value, batchSize:+el('nx-bs').value, loraRank:+el('nx-rank').value, optimizer:el('nx-opt').value } });
+    closeModal(); log.event('experiment:create',{id}); pushActivity('logged experiment '+name); renderShell(); showToast('Experiment saved','ok'); };
+}
+function uploadModal(){
+  if(!can('Datasets')){ showToast('You lack dataset permission','error'); return; }
+  if(usagePct(currentTenant)>95){ showToast('Row limit reached — upload blocked. Upgrade your plan.','error'); return; }
+  openModal('<div class="modal-head"><strong>Upload Dataset</strong><button class="icon-btn" data-action="close-modal">'+ICON.x+'</button></div>'
+    +'<div class="modal-body"><div id="up-drop" style="border:2px dashed var(--border-active);border-radius:14px;padding:40px;text-align:center;cursor:pointer">'
+    +ICON.upload+'<div class="mt8">Drop a file or click to browse</div><div class="muted mt4" style="font-size:12px">.jsonl · .csv · .tsv · .parquet · .txt</div>'
+    +'<input type="file" id="up-file" class="hidden" accept=".jsonl,.csv,.tsv,.parquet,.txt"></div>'
+    +'<div id="up-progress" class="hidden mt16"></div></div>');
+  const drop=el('up-drop'), file=el('up-file');
+  drop.onclick=()=>file.click();
+  drop.ondragover=e=>{ e.preventDefault(); drop.style.borderColor='var(--coral)'; };
+  drop.ondragleave=()=>{ drop.style.borderColor='var(--border-active)'; };
+  drop.ondrop=e=>{ e.preventDefault(); if(e.dataTransfer.files[0]) handleUpload(e.dataTransfer.files[0]); };
+  file.onchange=()=>{ if(file.files[0]) handleUpload(file.files[0]); };
+}
+function handleUpload(file){
+  const ext=(file.name.split('.').pop()||'').toLowerCase();
+  const allowed=['jsonl','csv','tsv','parquet','txt'];
+  if(!allowed.includes(ext)){ showToast('Unsupported format .'+ext,'error'); log.warn('[upload] rejected ext', ext); return; }
+  const prog=el('up-progress'); prog.classList.remove('hidden');
+  const steps=['Parsing '+escapeHtml(file.name)+'…','Detecting language…','Scoring rows…','Flagging issues…','Done'];
+  let i=0;
+  const reader=new FileReader();
+  reader.onerror=()=>{ log.error('[upload] read failed'); showToast('Could not read file','error'); };
+  reader.onload=()=>{ log.info('[upload] read '+file.name+' ('+(reader.result||'').length+' bytes)'); runCuration(); };
+  try{ reader.readAsText(file.slice(0, 200000)); }catch(err){ log.error('[upload] slice failed',err); runCuration(); }
+  function runCuration(){
+    const tick=()=>{ if(!el('up-progress')) return;
+      prog.innerHTML='<div class="flex gap8">'+(i<steps.length-1?'<div class="pill pill-blue">'+ (i+1)+'/'+steps.length+'</div>':ICON.check)+'<span>'+steps[i]+'</span></div><div class="meter mt8"><div class="meter-fill" style="width:'+Math.round((i+1)/steps.length*100)+'%;background:var(--gradient-brand)"></div></div>';
+      i++; if(i<steps.length){ setTimeout(tick, 650); } else { finishUpload(file, ext); } };
+    tick();
+  }
+}
+function finishUpload(file, ext){
+  const rel=activeRelease();
+  const seed=(file.name.length*131+ext.length)>>>0;
+  const d={ id:'d'+Date.now(), projectId:appState.projectId, releaseId:rel?rel.id:null, tenantId:currentTenant.id, name:file.name, format:ext, uploadedBy:currentUser.name, uploadedAt:'2026-07-10', _seed:seed, _count:52 };
+  d.rows=buildRows(seed, 52); finaliseDataset(d); datasets.push(d); activeDatasetId=d.id;
+  currentTenant.usage.rowsThisMonth += d.totalRows;
+  log.event('dataset:upload',{id:d.id, rows:d.totalRows, score:d.overallScore});
+  pushNotif('Dataset '+file.name+' curated — score '+d.overallScore,'database'); pushActivity('uploaded '+file.name+' ('+d.totalRows+' rows)');
+  closeModal(); setView('datasets');
+  showToast('Curation complete — '+d.totalRows+' rows, score '+d.overallScore,'ok');
+  // summary panel
+  openPanel('<div class="section-h">Curation summary</div><div class="card"><div class="row-between"><span>Rows parsed</span><strong>'+d.totalRows+'</strong></div>'
+    +'<div class="row-between mt8"><span>Flagged</span><strong>'+d.flaggedRows+'</strong></div>'
+    +'<div class="row-between mt8"><span>Overall score</span><strong class="'+scoreClass(d.overallScore)+'">'+d.overallScore+'</strong></div></div>'
+    +'<div class="section-h mt16">Languages</div>'+langBar(d.languages), 'Upload complete');
+}
+function exportDataset(id){
+  const d=byId(getDatasets(),id); if(!d||!assertTenant(d)) return;
+  const approved=d.rows.filter(r=>r.reviewStatus==='approved'||r.reviewStatus==='edited');
+  if(!approved.length){ showToast('No approved rows to export yet','info'); }
+  const jsonl=approved.map(r=>JSON.stringify({instruction:r.instruction, input:r.input||'', output:r.output})).join('\n');
+  const blob=new Blob([jsonl||''], {type:'application/jsonl'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a'); a.href=url; a.download=(d.name.replace(/\.[^.]+$/,''))+'_cleaned.jsonl'; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 1000);
+  log.event('dataset:export',{id, rows:approved.length});
+  showToast('Exported '+approved.length+' approved rows','ok');
+}
+
+/* ---- Global events ---- */
+document.addEventListener('click', e=>{
+  const stop=e.target.closest('[data-stop]');
+  const t=e.target.closest('[data-action]');
+  // close dropdowns when clicking outside
+  if(!e.target.closest('.dropdown') && !e.target.closest('[data-action="toggle-proj"],[data-action="toggle-rel"],[data-action="toggle-notif"],[data-action="user-menu"]')) closeAllDropdowns();
+  if(!t) return;
+  const action=t.dataset.action;
+  // scrim/modal background clicks
+  if((action==='close-modal'||action==='close-palette'||action==='close-panel') && stop && stop!==t && e.target!==t && t.contains(stop)) { /* clicked inside */ }
+  e.stopPropagation();
+  dispatch(action, {...t.dataset, do:t.dataset.do});
+});
+// modal/palette scrim: only close when clicking the backdrop itself
+document.addEventListener('mousedown', e=>{
+  if(e.target.classList && e.target.classList.contains('modal-scrim')) closeModal();
+  if(e.target.classList && e.target.classList.contains('palette-scrim')) closePalette();
+});
+
+document.addEventListener('keydown', e=>{
+  const mod=e.metaKey||e.ctrlKey;
+  if(mod && e.key.toLowerCase()==='k'){ e.preventDefault(); if(appState.paletteOpen) closePalette(); else if(currentUser) openPalette(); return; }
+  if(e.key==='Escape'){ if(appState.paletteOpen){ closePalette(); return; } if(el('overlays').innerHTML){ closeModal(); return; } if(el('panel')&&el('panel').classList.contains('is-open')){ closePanel(); return; } closeAllDropdowns(); return; }
+  if(appState.paletteOpen){
+    const items=window._paletteItems||[];
+    if(e.key==='ArrowDown'){ e.preventDefault(); appState.paletteSel=Math.min(items.length-1, appState.paletteSel+1); renderPalette(); }
+    else if(e.key==='ArrowUp'){ e.preventDefault(); appState.paletteSel=Math.max(0, appState.paletteSel-1); renderPalette(); }
+    else if(e.key==='Enter'){ e.preventDefault(); runPaletteItem(appState.paletteSel); }
+    return;
+  }
+  // review queue keyboard shortcuts
+  if(currentUser && currentView==='review' && !el('overlays').innerHTML){
+    const q=reviewQueue(); const cur=q[appState.reviewIndex]; if(!cur) return;
+    const k=e.key.toLowerCase();
+    if(k==='a'){ reviewRow(cur.row.id,'approve',true); }
+    else if(k==='r'){ reviewRow(cur.row.id,'reject',true); }
+    else if(k==='e'){ editRowModal(cur.row.id,true); }
+    else if(k==='s'){ appState.reviewIndex++; renderView(); }
+  }
+});
+
+// Global error nets (CLAUDE.md §7)
+window.addEventListener('error', e=>{ log.error('[uncaught]', e.error||e.message); showToast('Unexpected error — see console','error'); });
+window.addEventListener('unhandledrejection', e=>{ log.error('[promise]', e.reason); showToast('Unexpected error — see console','error'); });
+
+/* ---- Boot ---- */
+function initMockData(){
+  // Materialise dataset rows + rollups now that all mock logic (Section E) is defined.
+  datasets.forEach(d=>{ d.rows = buildRows(d._seed, d._count); finaliseDataset(d); });
+  // Attach rubric + precompute completed eval results.
+  evalRuns.forEach(e=>{ e.rubric = RUBRIC_DEFAULT.map(n=>({dimension:n, weight:20})); if(e.status==='completed') computeEval(e); });
+  log.info('[boot] mock data ready — '+datasets.length+' datasets, '+datasets.reduce((a,d)=>a+d.totalRows,0)+' rows');
+}
+function boot(){ log.info('[boot] Cueval prototype starting'); initMockData(); renderLogin(); }
+boot();
+</script>
+</body>
+</html>
