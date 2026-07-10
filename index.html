@@ -49,7 +49,7 @@ a{color:inherit;text-decoration:none}
    3. LAYOUT PRIMITIVES  (shell, dock, topbar, canvas, panel)
    ============================================================ */
 #app{height:100vh;width:100vw;position:relative}
-.shell{display:grid;grid-template-columns:var(--dock-w) 1fr;height:100vh}
+.shell{display:grid;grid-template-columns:var(--dock-w) 1fr;height:100vh;position:relative}
 .shell-main{display:grid;grid-template-rows:var(--topbar-h) 1fr;min-width:0;position:relative}
 .canvas{overflow:hidden;position:relative;min-height:0}
 .canvas-scroll{position:absolute;inset:0;overflow-y:auto;padding:28px 32px 48px}
@@ -57,33 +57,39 @@ a{color:inherit;text-decoration:none}
 @keyframes viewIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 
 /* Orbital dock */
-.dock{
-  background:rgba(17,17,24,0.72);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
-  border-right:1px solid var(--border);display:flex;flex-direction:column;align-items:center;
-  padding:12px 0;gap:6px;z-index:40;
-}
-.dock-logo{width:38px;height:38px;border-radius:11px;background:var(--gradient-brand);
+/* Orbital dock — icon rail at rest (64px), expands on hover to reveal group labels + item labels */
+.dock{position:absolute;top:0;left:0;bottom:0;width:var(--dock-w);
+  background:rgba(17,17,24,0.82);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  border-right:1px solid var(--border);display:flex;flex-direction:column;
+  padding:12px 9px;gap:3px;z-index:40;overflow:hidden;transition:width var(--t-med) ease}
+.dock:hover,.dock:focus-within{width:230px;box-shadow:12px 0 46px rgba(0,0,0,.42)}
+.dock-logo{width:40px;height:40px;border-radius:12px;background:var(--gradient-brand);
   display:grid;place-items:center;font-family:var(--font-display);font-weight:700;color:#fff;
-  font-size:19px;margin-bottom:10px;box-shadow:0 4px 18px var(--coral-glow)}
-.dock-item{position:relative;width:44px;height:44px;border-radius:13px;display:grid;place-items:center;
-  color:var(--text-secondary);transition:transform var(--t-fast),background var(--t-fast),color var(--t-fast)}
-.dock-item svg{width:21px;height:21px}
-.dock-item:hover{transform:scale(1.12);background:var(--bg-hover);color:var(--text-primary)}
-.dock-item.is-active{color:var(--coral);background:var(--coral-glow)}
-.dock-item.is-active::before{content:"";position:absolute;inset:-3px;border-radius:15px;
-  border:2px solid var(--coral);box-shadow:0 0 14px var(--coral-glow)}
-.dock-badge{position:absolute;top:-2px;right:-2px;min-width:17px;height:17px;padding:0 4px;border-radius:9px;
+  font-size:20px;margin:0 0 8px 2px;box-shadow:0 4px 18px var(--coral-glow);flex-shrink:0}
+.dock-group{display:flex;flex-direction:column;gap:2px}
+.dock-group+.dock-group{margin-top:5px;padding-top:6px;border-top:1px solid var(--border)}
+.dock-glabel{font-family:var(--font-mono);font-size:9px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--text-muted);padding:1px 8px 3px;white-space:nowrap;opacity:0;transition:opacity var(--t-fast)}
+.dock:hover .dock-glabel,.dock:focus-within .dock-glabel{opacity:1}
+.dock-item{position:relative;display:flex;align-items:center;gap:10px;border-radius:13px;padding:0;height:44px;
+  color:var(--text-secondary);transition:background var(--t-fast),color var(--t-fast);width:100%;text-align:left}
+.dock-ic{position:relative;width:44px;min-width:44px;height:44px;border-radius:13px;display:grid;place-items:center;transition:transform var(--t-fast)}
+.dock-ic svg{width:21px;height:21px}
+.dock-item:hover{background:var(--bg-hover);color:var(--text-primary)}
+.dock-item:hover .dock-ic{transform:scale(1.08)}
+.dock-item.is-active{color:var(--coral)}
+.dock-item.is-active .dock-ic{background:var(--coral-glow);box-shadow:inset 0 0 0 2px var(--coral),0 0 14px var(--coral-glow)}
+.dock-label{white-space:nowrap;font-size:13px;font-weight:500;opacity:0;transition:opacity var(--t-fast)}
+.dock:hover .dock-label,.dock:focus-within .dock-label{opacity:1}
+.dock-badge{position:absolute;top:-1px;right:-1px;min-width:17px;height:17px;padding:0 4px;border-radius:9px;
   background:var(--coral);color:#fff;font-size:10px;font-weight:600;display:grid;place-items:center;
   border:2px solid var(--bg-base)}
 .dock-badge.pulse{animation:pulse 2s ease-in-out infinite}
 @keyframes pulse{0%,100%{box-shadow:0 0 0 0 var(--coral-glow)}50%{box-shadow:0 0 0 6px transparent}}
 .dock-spacer{flex:1}
-.dock-tip{position:absolute;left:56px;top:50%;transform:translateY(-50%);white-space:nowrap;
-  background:var(--bg-elevated);border:1px solid var(--border);padding:5px 10px;border-radius:8px;
-  font-size:12px;pointer-events:none;opacity:0;transition:opacity var(--t-fast);z-index:60;box-shadow:0 6px 20px rgba(0,0,0,.4)}
-.dock-item:hover .dock-tip{opacity:1}
 .dock-avatar{width:38px;height:38px;border-radius:50%;background:var(--gradient-brand);display:grid;place-items:center;
   font-weight:600;color:#fff;font-size:14px}
+@media (prefers-reduced-motion:reduce){.dock,.dock-ic{transition:none}}
 
 /* Top bar */
 .topbar{display:flex;align-items:center;gap:12px;padding:0 18px;border-bottom:1px solid var(--border);
@@ -972,19 +978,31 @@ const ICON = {
 /* ============================================================
    SECTION H — COMPONENTS
    ============================================================ */
-const TENANT_DOCK = [
-  {view:'dashboard', icon:'home', label:'Dashboard'},
-  {view:'projects', icon:'folder', label:'Projects'},
-  {view:'datasets', icon:'database', label:'Datasets'},
-  {view:'documents', icon:'doc', label:'Documents'},
-  {view:'review', icon:'pencil', label:'Review Queue'},
-  {view:'eval', icon:'bolt', label:'Eval Harness'},
-  {view:'monitor', icon:'radar', label:'Monitor'},
-  {view:'agents', icon:'robot', label:'Agents'},
-  {view:'experiments', icon:'beaker', label:'Experiments'},
-  {view:'releases', icon:'rocket', label:'Releases'},
-  {view:'settings', icon:'gear', label:'Settings', admin:true},
+// Dock grouped by workflow stage; each item is role-filtered (UX redesign phase 1).
+const DOCK_GROUPS = [
+  { label:'',           items:[['dashboard','home','Dashboard']] },
+  { label:'Data',       items:[['datasets','database','Datasets'],['documents','doc','Documents']] },
+  { label:'Annotate',   items:[['review','pencil','Review Queue']] },
+  { label:'Model',      items:[['experiments','beaker','Experiments'],['eval','bolt','Eval Harness']] },
+  { label:'Production',  items:[['monitor','radar','Monitor'],['agents','robot','Agents']] },
+  { label:'Ship',       items:[['releases','rocket','Releases']] },
+  { label:'Manage',     items:[['projects','folder','Projects'],['settings','gear','Settings']] },
 ];
+// Which roles see each destination in their rail (Admin sees all; hidden items still reachable via ⌘K).
+const DOCK_VIS = {
+  dashboard:null, // everyone
+  datasets:['Admin','ProjectManager','Architect','MLEngineer','Reviewer'],
+  documents:['Admin','ProjectManager','Architect','MLEngineer'],
+  review:['Admin','ProjectManager','Reviewer','Annotator'],
+  experiments:['Admin','ProjectManager','Architect','MLEngineer'],
+  eval:['Admin','ProjectManager','Architect','MLEngineer'],
+  monitor:['Admin','ProjectManager','Architect','MLEngineer'],
+  agents:['Admin','ProjectManager','Architect','MLEngineer'],
+  releases:['Admin','ProjectManager','Architect','MLEngineer'],
+  projects:['Admin','ProjectManager','Architect','MLEngineer'],
+  settings:['Admin'],
+};
+function canSeeDockItem(view){ const v=DOCK_VIS[view]; if(!v) return true; return v.includes(currentUser.role); }
 const SUPER_DOCK = [
   {view:'tenants', icon:'building', label:'Tenants'},
   {view:'platform', icon:'chart', label:'Platform Usage'},
@@ -1000,24 +1018,37 @@ function videoPendingCount(){ return getVideoFrames().filter(f=>f.status==='pend
 function pendingCount(){ return datasetPendingCount()+ocrPendingCount()+audioPendingCount()+videoPendingCount()+prefPendingCount(); } // combined for dock badge (spec §27, §34)
 function evalRunning(){ return getEvalRuns().some(e=>e.status==='running'); }
 
+function dockItem(view, icon, label, badge, iconHtml){
+  return '<button class="dock-item '+(currentView===view?'is-active':'')+'" data-action="nav" data-view="'+view+'" aria-label="'+escapeAttr(label)+'" aria-current="'+(currentView===view)+'">'
+    +'<span class="dock-ic">'+(iconHtml||ICON[icon])+(badge||'')+'</span><span class="dock-label">'+escapeHtml(label)+'</span></button>';
+}
 function renderDock(){
   const isSuper = currentUser.role==='SuperAdmin' && !impersonating;
-  const items = isSuper ? SUPER_DOCK : TENANT_DOCK;
   const pend = isSuper?0:pendingCount();
   const running = isSuper?false:evalRunning();
   let html = '<div class="dock-logo" aria-hidden="true">C</div>';
-  items.forEach(it=>{
-    if(it.admin && !can('Org')) return;
-    let badge='';
-    if(it.view==='review' && pend>0) badge='<span class="dock-badge">'+pend+'</span>';
-    if(it.view==='eval' && running) badge='<span class="dock-badge pulse">•</span>';
-    if(it.view==='alerts') badge='<span class="dock-badge">'+alertsList().length+'</span>';
-    html+='<button class="dock-item '+(currentView===it.view?'is-active':'')+'" data-action="nav" data-view="'+it.view+'" aria-label="'+it.label+'" aria-current="'+(currentView===it.view)+'">'+ICON[it.icon]+badge+'<span class="dock-tip">'+it.label+'</span></button>';
-  });
-  html+='<div class="dock-spacer"></div>';
-  html+='<button class="dock-item '+(currentView==='guide'?'is-active':'')+'" data-action="nav" data-view="guide" aria-label="Platform guide & FAQ" aria-current="'+(currentView==='guide')+'">'+ICON.help+'<span class="dock-tip">Guide &amp; FAQ</span></button>';
-  html+='<button class="dock-item" data-action="open-palette" aria-label="Command palette">'+ICON.cmd+'<span class="dock-tip">Search &nbsp;<span class="kbd">⌘K</span></span></button>';
-  html+='<button class="dock-item" data-action="user-menu" aria-label="Account menu"><span class="dock-avatar">'+initials(currentUser.name)+'</span><span class="dock-tip">'+escapeHtml(currentUser.name)+' · '+ROLE_LABEL[currentUser.role]+'</span></button>';
+  if(isSuper){
+    html+='<div class="dock-group"><div class="dock-glabel">Platform</div>';
+    SUPER_DOCK.forEach(it=>{ const badge = it.view==='alerts' ? '<span class="dock-badge">'+alertsList().length+'</span>' : ''; html+=dockItem(it.view, it.icon, it.label, badge); });
+    html+='</div>';
+  } else {
+    DOCK_GROUPS.forEach(g=>{
+      const items=g.items.filter(it=>canSeeDockItem(it[0]));
+      if(!items.length) return;
+      html+='<div class="dock-group">'+(g.label?'<div class="dock-glabel">'+g.label+'</div>':'');
+      items.forEach(it=>{ let badge='';
+        if(it[0]==='review' && pend>0) badge='<span class="dock-badge">'+pend+'</span>';
+        if(it[0]==='eval' && running) badge='<span class="dock-badge pulse">•</span>';
+        html+=dockItem(it[0], it[1], it[2], badge);
+      });
+      html+='</div>';
+    });
+  }
+  html+='<div class="dock-spacer"></div><div class="dock-group">';
+  html+=dockItem('guide','help','Guide & FAQ','');
+  html+='<button class="dock-item" data-action="open-palette" aria-label="Search — command palette"><span class="dock-ic">'+ICON.cmd+'</span><span class="dock-label">Search <span class="kbd">⌘K</span></span></button>';
+  html+='<button class="dock-item" data-action="user-menu" aria-label="Account menu"><span class="dock-ic"><span class="dock-avatar">'+initials(currentUser.name)+'</span></span><span class="dock-label">'+escapeHtml(currentUser.name)+' · '+ROLE_LABEL[currentUser.role]+'</span></button>';
+  html+='</div>';
   return '<nav class="dock" aria-label="Primary">'+html+'</nav>';
 }
 
@@ -3296,7 +3327,11 @@ function doLogin(email, pass){
   if(!u || pass!==PASSWORD){ if(err){ err.classList.remove('hidden'); err.innerHTML=ICON.warn+'Invalid email or password. Try a demo account below.'; } log.warn('[auth] failed login', email); return; }
   currentUser=u; impersonating=false; superReturn=null;
   currentTenant = u.tenantId ? byId(tenants,u.tenantId) : null;
-  currentView = (u.role==='SuperAdmin') ? 'tenants' : 'dashboard';
+  // Land each persona on its natural first destination (UX redesign phase 1).
+  currentView = (u.role==='SuperAdmin') ? 'tenants'
+    : (u.role==='Annotator' || u.role==='Reviewer') ? 'review'
+    : 'dashboard';
+  appState.reviewTab = 'datasets';
   if(currentTenant){ const p=getProjects()[0]; appState.projectId=p?p.id:null; const r=p?projectReleases(p.id)[0]:null; appState.releaseId=r?r.id:null; }
   document.body.classList.remove('impersonating');
   log.event('login',{user:u.email, role:u.role, tenant:currentTenant?currentTenant.id:'platform'});
