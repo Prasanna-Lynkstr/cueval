@@ -590,16 +590,16 @@ function buildNbfcRows(kind){
     pii.forEach(p=>rows.push(nbfcRow({id:p[0],instruction:p[1],originalOutput:p[2],output:p[3],qualityScore:p[4],flags:['pii-detected'],piiType:p[5],reviewStatus:'edited',reviewNote:'PII ('+p[5]+') redacted on review',language:p[0]==='row_028'?'hi':'en'})));
     // 8 short/low-quality rows (edited — expanded)
     const sh=[
-      ['row_031','Can I get a loan if I\'m self-employed?','Yes.','Yes, self-employed individuals are eligible for loans. You will need 2 years of ITR, business bank statements for 12 months, and proof of business vintage of at least 2 years.',26],
-      ['row_032','What happens if I miss an EMI?','Please call us.','Missing an EMI attracts a late fee of ₹500 or 2% of the EMI amount, whichever is higher, and impacts your CIBIL score. Contact us immediately if you anticipate a delay.',24],
-      ['row_033','Is a co-applicant mandatory?','No.','A co-applicant is not mandatory for most personal loans, but adding one with a strong credit profile can improve eligibility and the sanctioned amount.',28],
-      ['row_034','Do you offer top-up loans?','Yes we do.','Yes, existing customers with a clean 12-month repayment record can apply for a top-up loan, subject to eligibility and current outstanding.',30],
-      ['row_035','What is foreclosure?','Closing loan early.','Foreclosure is repaying your entire outstanding loan before the end of tenure. Applicable foreclosure charges depend on the loan type and how many EMIs are paid.',31],
-      ['row_036','Can I change my loan tenure?','Maybe.','Loan tenure can be restructured in specific cases, subject to approval and a revised EMI. Please raise a request through the app or your branch.',29],
-      ['row_037','How to download my NOC?','From app.','After full repayment, your No-Objection Certificate is available in the app under Documents, and a copy is emailed to your registered address.',33],
-      ['row_038','Is insurance required for a loan?','Sometimes.','Loan-protection insurance is optional for personal loans but may be required for secured loans like home and car loans. Terms are shared at sanction.',30],
+      ['row_031','Can I get a loan if I\'m self-employed?','Yes.','Yes, self-employed individuals are eligible for loans. You will need 2 years of ITR, business bank statements for 12 months, and proof of business vintage of at least 2 years.',26,'Yes, self-employed applicants are eligible. You will need to submit income proof and business documents.'],
+      ['row_032','What happens if I miss an EMI?','Please call us.','Missing an EMI attracts a late fee of ₹500 or 2% of the EMI amount, whichever is higher, and impacts your CIBIL score. Contact us immediately if you anticipate a delay.',24,'Missing an EMI incurs a late fee and can affect your credit score. Please contact us if a payment will be delayed.'],
+      ['row_033','Is a co-applicant mandatory?','No.','A co-applicant is not mandatory for most personal loans, but adding one with a strong credit profile can improve eligibility and the sanctioned amount.',28,'A co-applicant is not mandatory, but adding one can help your application.'],
+      ['row_034','Do you offer top-up loans?','Yes we do.','Yes, existing customers with a clean 12-month repayment record can apply for a top-up loan, subject to eligibility and current outstanding.',30,'Yes, top-up loans are available to eligible existing customers.'],
+      ['row_035','What is foreclosure?','Closing loan early.','Foreclosure is repaying your entire outstanding loan before the end of tenure. Applicable foreclosure charges depend on the loan type and how many EMIs are paid.',31,'Foreclosure means repaying the full outstanding loan before the tenure ends. Charges may apply.'],
+      ['row_036','Can I change my loan tenure?','Maybe.','Loan tenure can be restructured in specific cases, subject to approval and a revised EMI. Please raise a request through the app or your branch.',29,'Tenure changes are possible in some cases, subject to approval and a revised EMI.'],
+      ['row_037','How to download my NOC?','From app.','After full repayment, your No-Objection Certificate is available in the app under Documents, and a copy is emailed to your registered address.',33,'Once your loan is fully repaid, the NOC is available in the app under Documents.'],
+      ['row_038','Is insurance required for a loan?','Sometimes.','Loan-protection insurance is optional for personal loans but may be required for secured loans like home and car loans. Terms are shared at sanction.',30,'Insurance is optional for personal loans but may be required for secured loans such as home or car loans.'],
     ];
-    sh.forEach(s=>rows.push(nbfcRow({id:s[0],instruction:s[1],originalOutput:s[2],output:s[3],qualityScore:s[4],flags:['short-response'],reviewStatus:'edited',reviewNote:'Expanded from a too-short response'})));
+    sh.forEach(s=>rows.push(nbfcRow({id:s[0],instruction:s[1],originalOutput:s[2],output:s[3],qualityScore:s[4],flags:['short-response'],reviewStatus:'edited',reviewNote:'Expanded from a too-short response',aiSuggestion:s[5]})));
     // 6 hallucination rows (pending — wrong interest rates; triggered the v1.1 fix)
     const hl=[
       ['row_041','What is the current home loan interest rate?','Our home loan interest rate is 6.5% p.a. onwards.',35,'Rate cited (6.5%) not present in product documents. Actual rate: 8.5% p.a.'],
@@ -675,19 +675,23 @@ const datasets = [
   { id:'ds_nbfc_v1', projectId:'proj_nbfc_chatbot', releaseId:'rel_v1_0', tenantId:'tenant_nbfc', name:'NBFC Support Dataset v1.0', format:'mixed', uploadedBy:'Arjun Mehta', uploadedAt:'2025-04-01', _nbfc:'v1',
     totalRows:2800, flaggedRows:490, overallScore:71, languages:[{code:'en',pct:78},{code:'hi',pct:22}],
     sources:[{label:'Chat logs (JSONL)',fmt:'jsonl',rows:2000},{label:'Product PDFs (15 docs)',fmt:'pdf',rows:300},{label:'Label Studio export (CSV)',fmt:'csv',rows:500}],
-    curationSummary:{ autoApproved:2310, flaggedForReview:490, breakdown:{'Near-duplicates':142,'PII detected':89,'Low quality':201,'Format violations':58}, afterReview:{approved:2118,rejected:182,edited:156} } },
+    curationSummary:{ autoApproved:2310, flaggedForReview:490, breakdown:{'Near-duplicates':142,'PII detected':89,'Low quality':201,'Format violations':58}, afterReview:{approved:2118,rejected:182,edited:156} },
+    diversityScore:{ score:68, clusters:[{label:'EMI / repayment queries',pct:42,flag:'over'},{label:'Eligibility queries',pct:18,flag:null},{label:'KYC / documentation',pct:12,flag:null},{label:'Interest rate queries',pct:9,flag:'under'},{label:'Loan closure / prepay',pct:7,flag:null},{label:'Other',pct:12,flag:null}], insight:'Interest rate queries under-represented (9%) — this gap matches 23 production failures detected in Stage 07 Monitor.', gapLink:true } },
   { id:'ds_nbfc_v1_1', projectId:'proj_nbfc_chatbot', releaseId:'rel_v1_1', tenantId:'tenant_nbfc', name:'NBFC Support Dataset v1.1', format:'mixed', uploadedBy:'Arjun Mehta', uploadedAt:'2025-04-23', _nbfc:'v11',
     totalRows:2398, flaggedRows:96, overallScore:84, languages:[{code:'en',pct:76},{code:'hi',pct:24}],
     sources:[{label:'Chat logs (JSONL)',fmt:'jsonl',rows:2000},{label:'Re-ingested PDFs (structural chunking)',fmt:'pdf',rows:398}],
-    note:'Re-ingested 15 product PDFs with structural chunking. +280 interest-rate rows.' },
+    note:'Re-ingested 15 product PDFs with structural chunking. +280 interest-rate rows.',
+    diversityScore:{ score:79, clusters:[{label:'EMI / repayment queries',pct:34,flag:'over'},{label:'Interest rate queries',pct:19,flag:null},{label:'Eligibility queries',pct:16,flag:null},{label:'KYC / documentation',pct:12,flag:null},{label:'Loan closure / prepay',pct:9,flag:null},{label:'Other',pct:10,flag:null}], insight:'Interest rate coverage raised 9% → 19% after the v1.1 re-ingestion.', gapLink:false } },
   { id:'ds_nbfc_v1_2', projectId:'proj_nbfc_chatbot', releaseId:'rel_v1_2', tenantId:'tenant_nbfc', name:'NBFC Support Dataset v1.2', format:'mixed', uploadedBy:'Arjun Mehta', uploadedAt:'2025-06-10', _nbfc:'v12',
     totalRows:2450, flaggedRows:38, overallScore:93, languages:[{code:'en',pct:75},{code:'hi',pct:25}],
     sources:[{label:'Updated rate PDFs (Q2 2025)',fmt:'pdf',rows:450},{label:'Chat logs (JSONL)',fmt:'jsonl',rows:2000}],
-    note:'Rate PDFs re-ingested with corrected Q2 2025 interest rates (sprint #7).' },
+    note:'Rate PDFs re-ingested with corrected Q2 2025 interest rates (sprint #7).',
+    diversityScore:{ score:84, clusters:[{label:'EMI / repayment queries',pct:28,flag:null},{label:'Interest rate queries',pct:22,flag:null},{label:'Eligibility queries',pct:17,flag:null},{label:'KYC / documentation',pct:13,flag:null},{label:'Loan closure / prepay',pct:11,flag:null},{label:'Other',pct:9,flag:null}], insight:'Balanced distribution — no cluster over-represented.', gapLink:false } },
 ];
 // NOTE: rows are materialised in initMockData() (called from boot) — AFTER Section E
 // defines scoreRow/deriveFlags/PII_PATTERNS, to avoid a temporal-dead-zone reference.
 function finaliseDataset(d){
+  if(d._nbfc) return; // NBFC keeps fixed narrative rollups (spec §39) — don't recompute from the sample rows
   d.totalRows = d.rows.length;
   d.flaggedRows = d.rows.filter(r=>r.flags.length).length;
   d.overallScore = Math.round(d.rows.reduce((a,r)=>a+r.qualityScore,0)/d.rows.length);
@@ -705,13 +709,13 @@ const evalRuns = [
   { id:'e7', projectId:'p7', releaseId:'rel10', tenantId:'tenant_healthbot', checkpointA:'ckpt-base', checkpointB:'ckpt-triage', status:'completed', runAt:'2025-06-16', runBy:'Meera Pillai', _seed:17 },
   // NBFC case study eval runs (spec §39) — explicit rubric + results so the demo shows exact scores. Local judge, ₹0.
   { id:'eval_v1_0', projectId:'proj_nbfc_chatbot', releaseId:'rel_v1_0', tenantId:'tenant_nbfc', checkpointA:'ckpt_v1_0', checkpointB:'ckpt_v1_0', status:'completed', runAt:'2025-04-09', runBy:'Arjun Mehta',
-    judgeMode:'local', judgeModel:'mistral-7b-int8', referenceGrounded:true, calibration:{status:'calibrated',kappa:0.74},
+    judgeMode:'local', judgeModel:'mistral-7b-int8', referenceGrounded:true, calibration:{status:'calibrated',kappa:0.74}, swapAugmented:true,
     rubric:[{dimension:'Factuality',weight:40},{dimension:'Task Completion',weight:30},{dimension:'Tone',weight:20},{dimension:'Refusal Behaviour',weight:10}],
     results:{ A:{Factuality:71,'Task Completion':78,Tone:88,'Refusal Behaviour':82,Overall:74.2}, B:{Factuality:71,'Task Completion':78,Tone:88,'Refusal Behaviour':82,Overall:74.2} },
     variance:{ A:{Factuality:8,'Task Completion':4,Tone:3,'Refusal Behaviour':4,Overall:5.1}, B:{Factuality:8,'Task Completion':4,Tone:3,'Refusal Behaviour':4,Overall:5.1} },
     tokens:0, cost:0, costLabel:'₹0 (local judge)', heldOutRows:200, humanReviewQueue:new Array(12).fill('nbfc_v1_r041'), singlePolygon:true },
   { id:'eval_v1_1', projectId:'proj_nbfc_chatbot', releaseId:'rel_v1_1', tenantId:'tenant_nbfc', checkpointA:'ckpt_v1_0', checkpointB:'ckpt_v1_1', status:'completed', runAt:'2025-04-24', runBy:'Arjun Mehta',
-    judgeMode:'local', judgeModel:'mistral-7b-int8', referenceGrounded:true, calibration:{status:'calibrated',kappa:0.74},
+    judgeMode:'local', judgeModel:'mistral-7b-int8', referenceGrounded:true, calibration:{status:'calibrated',kappa:0.74}, swapAugmented:true,
     rubric:[{dimension:'Factuality',weight:40},{dimension:'Task Completion',weight:30},{dimension:'Tone',weight:20},{dimension:'Refusal Behaviour',weight:10}],
     results:{ A:{Factuality:71,'Task Completion':78,Tone:88,'Refusal Behaviour':82,Overall:74.2}, B:{Factuality:79,'Task Completion':83,Tone:89,'Refusal Behaviour':84,Overall:81.6} },
     variance:{ A:{Factuality:8,'Task Completion':4,Tone:3,'Refusal Behaviour':4,Overall:5.1}, B:{Factuality:5,'Task Completion':3,Tone:3,'Refusal Behaviour':4,Overall:3.8} },
@@ -1354,6 +1358,7 @@ const GLOSSARY={
   corpus:'<b>Corpus</b> — your set of approved responses. It\'s the reference the semantic-drift signal compares new responses against.',
   checkpoint:'<b>Checkpoint</b> — a saved snapshot of model weights from a training run, compared against another in the Eval Harness.',
   qualityscore:'<b>Quality score</b> — a 0–100 heuristic per row (length, duplication, PII, format, toxicity). Green ≥70, yellow 45–69, red below 45.',
+  diversity:'<b>Diversity score</b> — how evenly the dataset spreads across instruction types. Homogeneous data (one topic asked many ways) generalises poorly even at scale (LIMA, 2023). Over-represented clusters (>30%) and gaps (<5% where production traffic exists) are flagged.',
 };
 function infoTip(term){ const t=GLOSSARY[term]; if(!t) return ''; return '<span class="info" tabindex="0" role="button" aria-label="What this means">i<span class="info-pop">'+t+'</span></span>'; }
 // Consistent compact empty / loading states for inline regions (UX redesign phase 3).
@@ -1555,7 +1560,7 @@ function roleBoard(role){
     let pipe='<div class="flex gap8 mt16" style="flex-wrap:wrap">'+['draft','in-review','approved','training','deployed'].map(s=>'<div class="card" style="padding:10px 12px;flex:1;min-width:90px;text-align:center"><div class="bignum" style="font-size:18px">'+byStage(s)+'</div><div class="muted" style="font-size:10px;text-transform:capitalize">'+s.replace('-',' ')+'</div></div>').join('')+'</div>';
     const hero=heroCard('rocket',blocked+' release'+(blocked!==1?'s':'')+' blocked','Gates outstanding before sign-off.',
       pri('Open releases','nav','releases'),pipe);
-    return '<div>'+hero+'<div class="grid-3 mt16" style="grid-template-columns:1fr 1fr;gap:8px">'+statTile('Rows awaiting review',pendingCount(),'yellow')+statTile('Plan usage',usagePct(currentTenant)+'%',(usagePct(currentTenant)>=85?'red':usagePct(currentTenant)>=70?'yellow':'green'))+'</div></div>';
+    return '<div>'+hero+'<div class="grid-3 mt16" style="grid-template-columns:1fr 1fr 1fr;gap:8px">'+statTile('Rows awaiting review',pendingCount(),'yellow')+statTile('Plan usage',usagePct(currentTenant)+'%',(usagePct(currentTenant)>=85?'red':usagePct(currentTenant)>=70?'yellow':'green'))+statTile('AI suggestions used/edited',suggestionAdoption()+'%','green')+'</div></div>';
   }
   if(role==='Admin'){
     const us=getUsers();
@@ -1730,7 +1735,24 @@ function datasetDetail(d){
     +'<div class="flex gap8"><select class="input" style="width:auto" data-action="ds-filter-sel" data-key="status"><option value="all"'+(f.status==='all'?' selected':'')+'>All status</option><option value="pending"'+(f.status==='pending'?' selected':'')+'>Pending</option><option value="approved"'+(f.status==='approved'?' selected':'')+'>Approved</option><option value="rejected"'+(f.status==='rejected'?' selected':'')+'>Rejected</option></select>'
     +'<select class="input" style="width:auto" data-action="ds-filter-sel" data-key="sort"><option value="score-asc"'+(f.sort==='score-asc'?' selected':'')+'>Score ↑</option><option value="score-desc"'+(f.sort==='score-desc'?' selected':'')+'>Score ↓</option><option value="flags"'+(f.sort==='flags'?' selected':'')+'>Most flags</option></select>'
     +(can('Datasets')?'<button class="btn btn-ghost btn-sm" data-action="export-dataset" data-id="'+d.id+'">'+ICON.download+'Export</button>':'')+'</div></div></div>';
-  return hdr+curationCard(d)+filterBar+'<div class="card mt16" style="padding:0;overflow:hidden"><div style="max-height:46vh;overflow:auto">'+rowTable(d)+'</div></div>';
+  return hdr+diversityPanel(d)+curationCard(d)+filterBar+'<div class="card mt16" style="padding:0;overflow:hidden"><div style="max-height:46vh;overflow:auto">'+rowTable(d)+'</div></div>';
+}
+// Dataset diversity: quality alone isn't enough — homogeneous data generalises poorly (LIMA 2023). Spec §41 Change 7.
+function diversityBand(s){ return s>75?'green':s>=60?'yellow':'red'; }
+function diversityPanel(d){
+  const dv=d.diversityScore; if(!dv) return '';
+  const qCol=scoreClass(d.overallScore), dCol=diversityBand(dv.score);
+  const gauge=(label,val,colClass,tip)=>'<div class="card" style="flex:1;text-align:center;padding:14px"><div class="muted" style="font-size:11px">'+label+(tip?infoTip('diversity'):'')+'</div><div class="bignum '+colClass+'" style="font-size:30px">'+val+'</div><div class="secondary" style="font-size:11px">'+(label.indexOf('Diversity')>=0?(dv.score>75?'Balanced':dv.score>=60?'Moderate':'Low — enrich'):(d.overallScore>=70?'Good':'Needs work'))+'</div></div>';
+  const maxPct=Math.max.apply(null,dv.clusters.map(c=>c.pct));
+  const bars=dv.clusters.map(c=>{ const w=Math.round(c.pct/maxPct*100); const col=c.flag==='over'?'var(--yellow)':c.flag==='under'?'var(--red)':'var(--pink)';
+    return '<div class="flex gap8" style="align-items:center;font-size:12px;padding:3px 0"><span style="width:170px;flex-shrink:0" class="secondary">'+escapeHtml(c.label)+'</span>'
+      +'<div style="flex:1;background:var(--bg-elevated);border-radius:4px;height:12px;overflow:hidden"><div style="width:'+w+'%;height:100%;background:'+col+'"></div></div>'
+      +'<span class="mono" style="width:38px;text-align:right">'+c.pct+'%</span>'
+      +(c.flag==='over'?'<span class="pill pill-yellow" style="font-size:9px">over</span>':c.flag==='under'?'<span class="pill pill-red" style="font-size:9px">gap</span>':'<span style="width:34px"></span>')+'</div>'; });
+  const insight = dv.insight ? '<div class="warn-banner '+(dv.gapLink?'warn-yellow':'')+' mt12" style="margin:0;font-size:12px'+(dv.gapLink?'':';background:var(--bg-hover);border:1px solid var(--border);color:var(--text-secondary)')+'">'+ICON.info+'<span>'+escapeHtml(dv.insight)+(dv.gapLink?' <button class="btn btn-ghost btn-sm" style="padding:1px 8px;font-size:11px" data-action="demo-goto" data-view="monitor">View Monitor findings '+ICON.arrowR+'</button>':'')+'</span></div>' : '';
+  return '<div class="card mt16"><div class="row-between"><div class="section-h" style="margin:0">Quality & diversity</div></div>'
+    +'<div class="flex gap12 mt8">'+gauge('Quality score',d.overallScore,qCol,false)+gauge('Diversity score',dv.score,dCol==='green'?'score-good':dCol==='yellow'?'score-mid':'score-bad',true)+'</div>'
+    +'<div class="section-h mt16">Instruction type distribution</div>'+bars.join('')+insight+'</div>';
 }
 // Curation summary panel (spec §39) — the pipeline-scale rollup for the case study dataset.
 function curationCard(d){
@@ -1786,10 +1808,29 @@ function panelRow(rowId){
     +'<div class="section-h mt16">Instruction</div><div class="card" style="padding:12px">'+escapeHtml(row.instruction||'—')+'</div>'
     +(row.input?'<div class="section-h mt16">Input</div><div class="card" style="padding:12px">'+escapeHtml(row.input)+'</div>':'')
     +'<div class="section-h mt16">Output</div><div class="card" style="padding:12px" id="row-output">'+escapeHtml(row.output||'—')+'</div>'
+    +suggestedEditPanel(row)
     +'<div class="section-h mt16">Score breakdown</div>'+bdHtml
     +'<div class="section-h mt16">Flags</div>'+flags+diff+actions;
   openPanel(html, dataset.name+' · '+row.id);
 }
+// AI-suggested edits (spec §41 Change 5): auto-correction beats auto-rejection (CLEAR, 2024).
+// Shown only for short-response / low-quality rows — never PII/toxic (too risky to auto-suggest).
+const SUGGESTIBLE_FLAGS=['short-response','low-clarity'];
+let suggestionStats={ used:0, edited:0, own:0 };
+function suggestedEditPanel(row){
+  if(!row.aiSuggestion || !row.flags.some(f=>SUGGESTIBLE_FLAGS.includes(f))) return '';
+  return '<details class="faq mt16"><summary>💡 Suggested edit available (AI-generated)<span class="faq-chev">'+ICON.chevR+'</span></summary><div class="faq-body">'
+    +'<div class="muted" style="font-size:11px">ORIGINAL</div><div class="card mono" style="padding:8px;font-size:12px;opacity:.7">'+escapeHtml(row.originalOutput||row.output||'—')+'</div>'
+    +'<div class="muted mt8" style="font-size:11px">SUGGESTED</div><div class="card" style="padding:8px;font-size:13px;line-height:1.6;border-color:var(--border-active)">'+escapeHtml(row.aiSuggestion)+'</div>'
+    +(can('Annotation')?'<div class="flex gap8 mt12 wrap"><button class="btn btn-primary btn-sm" data-action="use-suggestion" data-id="'+row.id+'">'+ICON.check+'Use Suggestion</button>'
+      +'<button class="btn btn-ghost btn-sm" data-action="edit-suggestion" data-id="'+row.id+'">'+ICON.pencil+'Edit Suggestion</button>'
+      +'<button class="btn btn-ghost btn-sm" data-action="write-own" data-id="'+row.id+'">Write My Own</button></div>':'')
+    +'</div></details>';
+}
+// Suggestion adoption for the PM board — seeded baseline blended with live actions (spec Change 5 tracking).
+function suggestionAdoption(){ const base={used:130,edited:52,own:70}; const s=suggestionStats;
+  const used=base.used+s.used, edited=base.edited+s.edited, own=base.own+s.own; const total=used+edited+own||1;
+  return Math.round((used+edited)/total*100); }
 function flagExplain(f,row){
   switch(f){ case 'duplicate':return 'Exact duplicate of another row in this dataset.';
     case 'near-duplicate':return 'High token overlap (Jaccard > 0.7) with a similar row.';
@@ -3344,28 +3385,40 @@ const PREF_SEED=[
 let PREF_UID=0;
 function initPrefPairs(){
   prefPairs=[];
-  const perTenant={ tenant_pravartak:'p1', tenant_legalai:'p4', tenant_healthbot:'p7' };
+  const perTenant={ tenant_pravartak:'p1', tenant_legalai:'p4', tenant_healthbot:'p7', tenant_nbfc:'proj_nbfc_chatbot' };
   tenants.forEach(t=>{ const rand=mkRand(t.id.length*331+3); const pid=perTenant[t.id];
     for(let i=0;i<150;i++){ const base=PREF_SEED[i%PREF_SEED.length]; const r=rand();
       let chosen=null, status='pending';
       // pre-complete a portion so agreement/exports have data
       if(i<40){ status='done'; chosen = r<0.6?'B':r<0.85?'A':(r<0.93?'tie':'both_bad'); }
-      const kind = r<0.60?'clear':r<0.85?'close':'bad';
+      const kind = r<0.70?'clear':r<0.90?'close':'bad';
+      // RLTHF routing (spec §41 Change 6): pre-score both responses; obvious winners are auto-labelled, close pairs go to humans.
+      const scoreDiff = +(kind==='clear'?(1.5+rand()*2.5):kind==='close'?(0.5+rand()):(rand()*0.5)).toFixed(2);
+      const autoLabelled = status==='pending' && scoreDiff>1.5;
+      const contested = status==='pending' && scoreDiff<0.5;
+      if(autoLabelled) chosen = base.confA>=base.confB?'A':'B'; // obvious winner — human never sees this pair
       prefPairs.push({ id:'pref_'+(++PREF_UID), tenantId:t.id, projectId:pid, datasetName:'RLHF Dataset v1',
         instruction:base.instruction, ctx:base.ctx, respA:base.a, respB:base.b, confA:base.confA, confB:base.confB,
-        chosen, reasoning: chosen==='B'?'B is clearer and avoids unnecessary legal jargon':'', kind, status,
+        chosen, reasoning: chosen==='B'?'B is clearer and avoids unnecessary legal jargon':'', kind, status, scoreDiff, autoLabelled, contested,
         dims:{clarity:null,accuracy:null,completeness:null,tone:null},
         votes: kind==='clear'?['B','B','B']:kind==='close'?['B','A','B']:['both_bad','A','both_bad'] }); } });
   log.info('[boot] preference pairs ready — '+prefPairs.length);
 }
-function prefQueue(){ return getPrefPairs().filter(p=>p.status==='pending'); }
+function prefQueue(){ return getPrefPairs().filter(p=>p.status==='pending' && !p.autoLabelled); } // needs-review only (RLTHF)
+function prefAutoLabelled(){ return getPrefPairs().filter(p=>p.status==='pending' && p.autoLabelled); }
 function prefAgreement(votes){ const counts={}; votes.forEach(v=>counts[v]=(counts[v]||0)+1); const max=Math.max(...Object.values(counts));
   if(max===votes.length) return {level:'high',label:'✅ High confidence — all agree'};
   if(max>=Math.ceil(votes.length*2/3)) return {level:'mid',label:'⚠️ Review recommended — '+max+'/'+votes.length+' agree'};
   return {level:'low',label:'🔴 Ambiguous — escalate to architect'}; }
 function reviewPrefPane(){
-  const q=prefQueue();
-  if(!q.length) return emptyState('check','No preference pairs pending','All RLHF pairs have been ranked. ✅','');
+  const q=prefQueue(); const auto=prefAutoLabelled();
+  // RLTHF two-section header: auto-labelled pairs are collapsed with an audit option (spec §41 Change 6).
+  const routing='<div class="card mt8" style="padding:12px"><div class="secondary" style="font-size:13px">'+ICON.route+' <b>'+(q.length+auto.length)+'</b> pairs total — <b>'+auto.length+'</b> auto-labelled by pre-score, <b>'+q.length+'</b> sent to reviewers.</div>'
+    +(auto.length?'<details class="faq mt8"><summary>Auto-labelled ('+auto.length+') — obvious winners, human never sees these<span class="faq-chev">'+ICON.chevR+'</span></summary><div class="faq-body">'
+      +'<div class="muted" style="font-size:12px;margin-bottom:6px">Audit a sample to confirm the pre-score routing is sound:</div>'
+      +auto.slice(0,5).map(a=>'<div class="row-between" style="padding:5px 0;border-bottom:1px solid var(--border);font-size:12px"><span class="truncate" style="max-width:340px">'+escapeHtml(truncate(a.instruction,52))+'</span><span class="flex gap6"><span class="pill pill-muted" style="font-size:10px">Auto</span><span class="pill pill-green" style="font-size:10px">'+a.chosen+' · Δ'+a.scoreDiff+'</span></span></div>').join('')
+      +'</div></details>':'')+'</div>';
+  if(!q.length) return routing+emptyState('check','No pairs need review','All pairs needing a human were ranked; the rest were auto-labelled. ✅','');
   if(appState.prefIndex>=q.length) appState.prefIndex=0;
   const p=q[appState.prefIndex]; const total=getPrefPairs().length;
   const opts=[['A','Response A is better'],['B','Response B is better'],['tie','Both are equally good'],['both_bad','Both are bad — neither acceptable']];
@@ -3374,8 +3427,9 @@ function reviewPrefPane(){
   const dims=['clarity','accuracy','completeness','tone'].map(dm=>'<div class="flex gap8" style="align-items:center;font-size:12px"><span class="secondary" style="width:96px;text-transform:capitalize">'+dm+'</span>'
     +'<button class="chip'+(p.dims[dm]==='A'?' is-on':'')+'" data-action="pref-dim" data-id="'+p.id+'" data-dim="'+dm+'" data-v="A">A</button><button class="chip'+(p.dims[dm]==='B'?' is-on':'')+'" data-action="pref-dim" data-id="'+p.id+'" data-dim="'+dm+'" data-v="B">B</button></div>').join('');
   const card=(label,text,conf,side)=>'<div class="card" style="border-color:'+(p.chosen===side?'var(--coral)':'var(--border)')+'"><div class="row-between"><strong>'+label+'</strong>'+mediaConfPill(conf)+'</div><div class="mt8" style="line-height:1.7;font-size:14px">'+escapeHtml(text)+'</div></div>';
+  const contestedBadge = p.contested ? '<div class="warn-banner warn-red mt8" style="margin:0;font-size:12px">'+ICON.warn+'<span><b>Contested pair</b> — pre-scores are within 0.5. Take extra care; this pair needs 2 reviewers.</span></div>' : '';
   const hdr='<div class="row-between"><div class="secondary">'+escapeHtml(p.datasetName)+' · '+escapeHtml(LANG_LABEL.en)+' · agreement: '+agr.label+'</div><div class="flex gap6"><button class="btn btn-sm btn-ghost" data-action="pref-prev">◄</button><span class="muted">Pair '+(appState.prefIndex+1)+' of '+q.length+'</span><button class="btn btn-sm btn-ghost" data-action="pref-skip">►</button></div></div>';
-  return hdr
+  return routing+contestedBadge+hdr
     +'<div class="card mt16"><div class="section-h">Instruction</div><div style="font-size:15px">'+escapeHtml(p.instruction)+'</div><div class="muted mt4" style="font-size:12px">Context: '+escapeHtml(p.ctx)+'</div></div>'
     +'<div class="grid-2 mt16" style="align-items:start">'+card('Response A',p.respA,p.confA,'A')+card('Response B',p.respB,p.confB,'B')+'</div>'
     +'<div class="card mt16"><div class="section-h">Which response is better?</div>'+choiceRows
@@ -3836,6 +3890,10 @@ function dispatch(action, d){
     case 'open-row': panelRow(d.id); break;
     case 'review-row': reviewRow(d.id, d.do, d.queue==='1'); break;
     case 'edit-row': editRowModal(d.id, false); break;
+    // --- AI-suggested edits (spec §41 Change 5) ---
+    case 'use-suggestion': { const f=findRow(d.id); if(f&&f.row.aiSuggestion){ suggestionStats.used++; log.event('suggestion:used',{row:d.id}); saveRowEdit(d.id, f.row.aiSuggestion, false); } break; }
+    case 'edit-suggestion': { const f=findRow(d.id); if(f&&f.row.aiSuggestion){ suggestionStats.edited++; log.event('suggestion:edited',{row:d.id}); editRowModal(d.id, false, f.row.aiSuggestion); } break; }
+    case 'write-own': suggestionStats.own++; log.event('suggestion:own',{row:d.id}); editRowModal(d.id, false, ''); break;
     case 'edit-review': editRowModal(d.id, true); break;
     case 'skip-review': appState.reviewIndex++; renderView(); break;
     case 'goto-review': appState.reviewIndex=+d.idx; renderView(); break;
@@ -3898,11 +3956,12 @@ function reviewRow(rowId, action, fromQueue){
   showToast('Row '+rowId+' '+(action==='approve'?'approved':'rejected'),'ok');
   if(fromQueue){ renderView(); } else { closePanel(); renderView(); }
 }
-function editRowModal(rowId, fromQueue){
+function editRowModal(rowId, fromQueue, prefill){
   const found=findRow(rowId); if(!found) return; const {row}=found;
+  const val = prefill!=null ? prefill : row.output;
   openModal('<div class="modal-head"><strong>Edit output · '+escapeHtml(rowId)+'</strong><button class="icon-btn" data-action="close-modal">'+ICON.x+'</button></div>'
-    +'<div class="modal-body"><label class="field-label">Output</label><textarea class="input" id="edit-output">'+escapeHtml(row.output)+'</textarea>'
-    +'<div class="row-between mt8"><span class="muted" id="edit-count" style="font-size:12px">'+row.output.length+' chars</span></div></div>'
+    +'<div class="modal-body">'+(prefill!=null&&prefill!==''?'<div class="muted" style="font-size:11px;margin-bottom:6px">💡 Pre-filled with the AI suggestion — edit as needed</div>':'')+'<label class="field-label">Output</label><textarea class="input" id="edit-output">'+escapeHtml(val)+'</textarea>'
+    +'<div class="row-between mt8"><span class="muted" id="edit-count" style="font-size:12px">'+val.length+' chars</span></div></div>'
     +'<div class="modal-foot"><button class="btn btn-ghost" data-action="close-modal">Cancel</button><button class="btn btn-primary" id="save-edit">'+ICON.check+'Save Edit</button></div>');
   const ta=el('edit-output'); ta.oninput=()=>{ el('edit-count').textContent=ta.value.length+' chars'; };
   el('save-edit').onclick=()=>{ saveRowEdit(rowId, ta.value, fromQueue); };
@@ -3927,9 +3986,10 @@ function runEvalFlow(relId){
   const rel = byId(getReleases(), relId) || activeRelease(); if(!rel){ showToast('No release selected','error'); return; }
   const mode = ec ? ec.judgeMode : 'local';
   if(mode==='human'){ humanEvalFlow(rel); return; } // manual human scoring, not auto-score
-  const scoreStep = mode==='cloud' ? 'Transmitting rows to external API (Claude / GPT-4)…' : 'Scoring on-prem (Mistral 7B INT8)…';
-  openModal('<div class="modal-body" style="text-align:center;padding:36px"><div class="bignum" style="font-size:20px" id="eval-step">Preparing…</div><div class="meter mt16"><div class="meter-fill" id="eval-bar" style="width:0;background:var(--gradient-brand)"></div></div><div class="muted mt12" style="font-size:12px">'+(mode==='cloud'?'Cloud API judge':'Local sovereign judge')+'</div></div>');
-  const steps=['Loading checkpoints…','Sampling 200-row eval set…',scoreStep,'Aggregating rubric…','Done'];
+  const where = mode==='cloud' ? ' via external API' : ' on-prem (Mistral 7B INT8)';
+  openModal('<div class="modal-body" style="text-align:center;padding:36px"><div class="bignum" style="font-size:20px" id="eval-step">Preparing…</div><div class="meter mt16"><div class="meter-fill" id="eval-bar" style="width:0;background:var(--gradient-brand)"></div></div><div class="muted mt12" style="font-size:12px">'+(mode==='cloud'?'Cloud API judge':'Local sovereign judge')+' · swap-augmented</div></div>');
+  // Two-pass swap-augmented evaluation reduces position bias (spec §41 Change 1).
+  const steps=['Loading checkpoints…','Pass 1 of 2 — scoring responses'+where+'…','Pass 2 of 2 — positions swapped'+where+'…','Aggregating + confidence intervals…','Done'];
   let i=0; const bar=el('eval-bar'), lbl=el('eval-step');
   const tick=()=>{ if(!el('eval-step')) return; lbl.textContent=steps[i]; bar.style.width=Math.round((i+1)/steps.length*100)+'%';
     i++; if(i<steps.length){ setTimeout(tick, 750); } else {
@@ -3945,7 +4005,7 @@ function runEvalFlow(relId){
 }
 // Record which judge produced this run + a mode-specific cost (spec §40): Local ₹0 sovereign, Cloud a real per-token ₹ bill.
 function stampJudge(e, mode, ec){
-  e.judgeMode=mode; e.referenceGrounded=ec?ec.referenceGrounded:true;
+  e.judgeMode=mode; e.referenceGrounded=ec?ec.referenceGrounded:true; e.swapAugmented=true; // LLM-judge pairwise runs are swap-augmented
   if(mode==='cloud'){ const rows=(e.results?200:200); e.tokens=rows*(320+ (e.tokens%80)); e.cost=+(e.tokens/1000*0.6).toFixed(2);
     e.costLabel='₹'+e.cost.toFixed(2)+' · Cloud API ('+fmtNum(e.tokens)+' tokens sent externally)'; }
   else { e.tokens=0; e.cost=0; e.costLabel='₹0 · Local judge (on-prem, nothing left your network)'; }

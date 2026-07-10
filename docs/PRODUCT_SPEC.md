@@ -3976,3 +3976,21 @@ All user-facing agreement metrics renamed from Cohen's/Fleiss' κ to **Krippendo
 Hallucinations are classified: **Contradiction** (amber — conflicts with a source doc), **Fabrication** (red — not in any document), **Conflation** (purple — merges two chunks). `halTypeBadge` renders a coloured pill in the dataset row panel, the monitor inference panel, and the live-feed flags column. NBFC: the 6 wrong-rate dataset rows and the 23-row monitor cluster are Contradictions; a standalone "Q2 2025 rate revision" monitor inference is a Fabrication.
 
 Priority 2 (AI-suggested edits, RLTHF preference routing, dataset diversity, swap-augmented animation) and Priority 3 (claim-level hallucination, fatigue detection, model-change warning, bulk diversity alert) to follow.
+
+---
+
+## §41 — Research-Backed Quality Improvements (Priority 2)
+
+### 41.4 Swap-augmented evaluation (Change 1 / Patch 1)
+LLM-judge pairwise runs are now two-pass: the run animation shows "Pass 1 of 2 — scoring responses…" then "Pass 2 of 2 — positions swapped…" then "Aggregating + confidence intervals…". Runs are stamped `swapAugmented` and the result header shows a **✓ Swap-augmented** badge (tooltip cites the ~30%→~8% position-bias reduction, Wang et al. 2024). NBFC seeded evals carry the flag.
+
+### 41.5 Dataset diversity score (Change 7 / Patch 3)
+Dataset detail gains a **Quality & diversity** panel: two gauges (quality + diversity, colour-banded >75 green / 60–75 amber / <60 red) plus an instruction-type distribution bar chart. Over-represented clusters (>30%) are flagged amber, gaps (<5% with production traffic) red. NBFC v1.0 scores 68 with an **interest-rate gap (9%)** that links to the Monitor findings (`View Monitor findings →`); v1.1 rises to 79, v1.2 to 84 as the gap closes. Diversity glossary entry added.
+
+### 41.6 AI-suggested edits (Change 5 / Patch 2)
+For rows flagged **short-response / low-clarity only** (never PII/toxic), the row panel shows a collapsible "💡 Suggested edit available" with the original, an AI suggestion (deliberately good-but-not-perfect), and **Use Suggestion / Edit Suggestion / Write My Own**. Actions are tracked (`suggestionStats`) and the PM board shows an **AI-suggestions used/edited** adoption stat. NBFC short-response rows carry seeded suggestions. `finaliseDataset` now preserves NBFC fixed rollups so edits don't clobber the narrative counts.
+
+### 41.7 RLTHF preference routing (Change 6 / Patch 2)
+Preference pairs are pre-scored and routed: score-diff > 1.5 → **auto-labelled** (obvious winner, human never sees it); 0.5–1.5 → needs review; < 0.5 → **contested** (needs 2 reviewers). The Preference Ranking pane shows a routing summary ("N total — M auto-labelled, K sent to reviewers"), a collapsed **Auto-labelled** section with an audit sample, and a red **Contested pair** banner on close pairs. Auto-label rate ~74%. NBFC now has preference pairs; `prefQueue` excludes auto-labelled so counts reflect human work only.
+
+Priority 3 (claim-level hallucination highlighting, annotator fatigue detection, model-change warning, bulk diversity alert) remains.
