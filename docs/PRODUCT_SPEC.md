@@ -3861,3 +3861,47 @@ Document types to include:
 94. [Notify me →] button: shows toast "Thanks — we'll be in touch when this is ready." No form, no email capture. Static interaction.
 95. Bulk ingestion audio/video rows: render with 🔒 icon and "Coming soon" label. cursor: not-allowed. No click handler.
 96. Remove all audio/video references from dashboard CTAs across all roles and tenants.
+
+---
+
+## §38 — Eval Harness Updates (Judge Configuration, Calibration, DLP)
+
+### 38.1 Judge configuration panel
+The Eval Harness screen leads with a **Judge configuration** panel. The eval judge is selectable between three modes (radio):
+- **Local (Mistral 7B INT8)** — on-prem/in-tenant judge, no data leaves the tenant boundary. Default for privacy-sensitive tenants.
+- **Cloud API** — hosted frontier judge. Selecting Cloud immediately opens the DLP acknowledgement modal (§38.4); the selection does **not** change to Cloud until the modal is confirmed.
+- **Human eval** — routes rows to human reviewers; hides the reference-grounded toggle.
+
+### 38.2 Calibration status
+Each tenant has its own eval configuration (per-tenant isolation). The calibration panel shows the human↔judge agreement (Cohen's κ):
+- Overall κ is color-coded: **green** > 0.70, **yellow** 0.60–0.70, **red** < 0.60 (`kappaColor`).
+- A **Calibrated / Not calibrated** badge, who calibrated it, and when.
+- The weakest dimension is surfaced with a "focus calibration here" CTA.
+- Per-dimension κ is expandable (`kappaOpen` toggle → per-dimension table: Factuality, Instruction Following, etc.).
+- Seed data: Pravartak calibrated (κ=0.74, weakest Factuality 0.61); Legal AI calibrated (κ=0.79, by Compliance Officer); HealthBot **uncalibrated**.
+
+### 38.3 Reference-grounded toggle
+For LLM-judge modes, a toggle chooses what factuality is checked against:
+- **Ingested corpus** (reference-grounded) — claims verified against the tenant's ingested documents.
+- **Model knowledge** — judge uses its own parametric knowledge.
+HealthBot defaults to model-knowledge (referenceGrounded:false). Hidden entirely in Human eval mode.
+
+### 38.4 DLP acknowledgement modal
+Switching the judge to **Cloud API** triggers a mandatory Data-Privacy (DLP) acknowledgement modal:
+- Full-screen scrim; **not dismissable** by outside click or Escape — only Cancel or Confirm.
+- The **Confirm** button is disabled until the acknowledgement checkbox is ticked.
+- **Cancel** reverts the judge to its prior value (stays Local).
+- **Confirm** enables the Cloud judge, sets `dlpConfirmed=true`, writes an audit event (`cloud_judge_dlp_confirmed` with user_id/project_id), pushes an activity + notification, and shows a success toast.
+
+### 38.5 Run gating (`evalRunnable`)
+Run Eval is blocked when:
+- The tenant is **uncalibrated** (must run calibration first — "Start Calibration Run" CTA shown), or
+- Cloud judge is selected but DLP has not been confirmed.
+When blocked, the Run Eval button is disabled with an explanatory tooltip, and `runEvalFlow` refuses (guards even palette/keyboard triggers) with the reason toast.
+
+### Implementation notes
+104. Per-tenant `evalConfigs` keyed by tenantId; `getEvalConfig()` scoped to current tenant; SuperAdmin has none (panel renders empty). Isolation: each tenant's judge mode / calibration / DLP state is independent.
+105. `kappaColor(k)`: >0.7 green, ≥0.6 yellow, else (incl null) red.
+106. Switching to Cloud immediately triggers the DLP modal — do not change the selection until the modal is confirmed. Judge stays on the prior mode meanwhile.
+107. DLP modal is Escape-locked via the global keydown handler (`if(el('dlp-modal')) return;` before `closeModal()`).
+108. Reference-grounded state persists on the eval config and reflects in the eval result view (`refGroundNote`).

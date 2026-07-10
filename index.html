@@ -641,6 +641,7 @@ const appState = {
   annotationJobId:null,                    // annotation project view
   bulkConfig:null,                         // wizard config in progress
   prefIndex:0, // §24 (entity labelling removed §34; audio/video removed §36)
+  dlpChecked:false, // eval cloud-judge DLP acknowledgement (§38)
   expTab:'timeline', lineageRowQuery:'', // experiment lineage (§26)
   monitorView:'dashboard', monitorDraft:null, // monitor config (§29)
   igTab:'sdk', igDisclaimers:true, igVisited:false, // integration guide (§32)
@@ -943,6 +944,7 @@ const ICON = {
   robot:S+'<rect x="4" y="8" width="16" height="11" rx="2"/><path d="M12 8V4M9 4h6"/><circle cx="9" cy="13" r="1" fill="currentColor"/><circle cx="15" cy="13" r="1" fill="currentColor"/><path d="M9.5 16h5"/></svg>',
   tag:S+'<path d="M3 11l8-8 10 10-8 8z"/><circle cx="8" cy="8" r="1.4" fill="currentColor"/></svg>',
   scale:S+'<path d="M12 3v18M7 21h10M6 7l-3 6h6zM18 7l-3 6h6zM6 7l6-2 6 2"/></svg>',
+  shield:S+'<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg>',
 };
 
 /* ============================================================
@@ -1658,6 +1660,69 @@ function screenReview(){
 }
 
 /* ---- Eval Harness ---- */
+// Judge configuration panel (spec §38) — judge mode, calibration, reference-grounding.
+function judgePanel(ec){
+  if(!ec) return '';
+  const jmode=(key,title,tag,tagCls)=>{ const on=ec.judgeMode===key;
+    return '<label class="flex gap8" style="padding:8px 0;cursor:pointer;align-items:flex-start" data-action="eval-judge" data-mode="'+key+'">'
+      +'<span style="width:16px;height:16px;border-radius:50%;border:2px solid '+(on?'var(--coral)':'var(--border-active)')+';flex-shrink:0;margin-top:2px;'+(on?'background:var(--coral);box-shadow:inset 0 0 0 3px var(--bg-surface)':'')+'"></span>'
+      +'<span style="flex:1"><span style="font-weight:500">'+escapeHtml(title)+'</span> <span class="pill '+tagCls+'" style="font-size:10px;margin-left:6px">'+tag+'</span></span></label>'; };
+  const modes=jmode('local','Local (Mistral 7B INT8)','🔒 Sovereign — recommended','pill-green')
+    +jmode('cloud','Cloud API (Claude / GPT-4)','Data leaves network','pill-yellow')
+    +jmode('human','Human eval','Manual — for calibration','pill-muted');
+  // reference-grounded toggle (hidden for Human eval)
+  let refground='';
+  if(ec.judgeMode!=='hidden' && ec.judgeMode!=='human'){
+    const hasDocs=getDocuments().length>0;
+    const opt=(on,label,sub)=>'<label class="flex gap8" style="padding:6px 0;cursor:pointer;align-items:flex-start" data-action="eval-refground" data-val="'+(on?'corpus':'knowledge')+'">'
+      +'<span style="width:15px;height:15px;border-radius:50%;border:2px solid '+((ec.referenceGrounded===on)?'var(--coral)':'var(--border-active)')+';flex-shrink:0;margin-top:2px;'+((ec.referenceGrounded===on)?'background:var(--coral);box-shadow:inset 0 0 0 3px var(--bg-surface)':'')+'"></span>'
+      +'<span><span style="font-size:13px">'+escapeHtml(label)+'</span>'+(sub?'<span class="muted" style="display:block;font-size:11px">'+escapeHtml(sub)+'</span>':'')+'</span></label>';
+    refground='<div class="section-h mt16">Factuality check against</div>'
+      +opt(false,'Judge general knowledge', hasDocs?'':'Default — this project has no ingested documents')
+      +opt(true,'Ingested corpus'+(hasDocs?' (recommended for regulated industries)':' — no documents ingested yet'), hasDocs?'Uses the same document chunks ingested during ingestion':'');
+  }
+  return '<div class="card"><div class="section-h flex gap6">'+ICON.shield+'Eval judge</div>'+modes+calibrationPanel(ec)+refground+'</div>';
+}
+function calibrationPanel(ec){
+  const c=ec.calibration;
+  if(c.status!=='calibrated'){
+    return '<div class="warn-banner warn-red mt12" style="margin:0;flex-wrap:wrap"><span>🔴 <strong>Not calibrated</strong> — judge accuracy is 45–60% only. Complete a calibration run before relying on eval scores.</span><div style="flex:1"></div><button class="btn btn-sm btn-primary" data-action="eval-calibrate">Start Calibration Run '+ICON.arrowR+'</button></div>';
+  }
+  const col=kappaColor(c.overallKappa); const cls=col==='green'?'warn-yellow':col==='yellow'?'warn-yellow':'warn-red';
+  // find weakest dimension
+  const dims=Object.entries(c.dimensionKappa||{}); const weakest=dims.slice().sort((a,b)=>a[1]-b[1])[0];
+  const weakLine = weakest && weakest[1]<0.7 ? ' · Weakest: '+escapeHtml(weakest[0])+' κ='+weakest[1].toFixed(2)+' <button class="btn btn-sm btn-ghost" style="padding:2px 8px;font-size:11px" data-action="eval-add-cal-rows">Add calibration rows '+ICON.arrowR+'</button>' : '';
+  const band = '<div class="warn-banner '+(col==='green'?'warn-yellow':cls)+' mt12" style="margin:0;background:'+(col==='green'?'var(--good-bg,rgba(34,197,94,.1))':'')+';flex-wrap:wrap">'
+    +'<span>'+(col==='green'?'✅':'⚠️')+' <strong>Calibrated</strong> · '+escapeHtml(c.calibratedBy)+' · '+escapeHtml(c.calibratedAt)+' · '+c.rowsUsed+' rows · human-judge agreement κ = '+c.overallKappa.toFixed(2)+' ('+(c.overallKappa>0.7?'good':'fair')+')'+weakLine+'</span></div>';
+  let kappaTable='';
+  if(ec.kappaOpen && c.dimensionKappa){
+    kappaTable='<div class="card mt8" style="padding:0;overflow:hidden"><table class="tbl"><thead><tr><th>Dimension</th><th>κ</th></tr></thead><tbody>'
+      +dims.map(d=>'<tr><td>'+escapeHtml(d[0])+'</td><td class="mono '+scoreClass(d[1]*100)+'">'+d[1].toFixed(2)+'</td></tr>').join('')+'</tbody></table></div>';
+  }
+  const toggle = c.dimensionKappa ? '<button class="btn btn-ghost btn-sm mt8" data-action="eval-kappa-toggle">'+(ec.kappaOpen?ICON.chevD:ICON.chevR)+'View per-dimension agreement</button>' : '';
+  return band+toggle+kappaTable;
+}
+// DLP acknowledgement modal (spec §38) — locked: only the two buttons dismiss it.
+function dlpModal(){
+  const checked=appState.dlpChecked;
+  el('overlays').innerHTML='<div class="ig-scrim" id="dlp-scrim" style="z-index:270;align-items:center"><div class="modal" data-stop="1" id="dlp-modal" style="width:min(560px,94vw)">'
+    +'<div class="modal-head"><strong class="flex gap6">'+ICON.warn+'Data privacy acknowledgement</strong></div>'
+    +'<div class="modal-body"><p class="secondary" style="font-size:13px;line-height:1.7">Using a cloud judge will send the following to an external API (Claude / GPT-4):</p>'
+    +'<div class="mt12" style="font-size:13px;line-height:2">'
+    +'<div><span class="score-good">✓</span> Eval dataset rows (instruction + model response)</div>'
+    +'<div><span class="score-good">✓</span> Source document chunks (reference-grounded eval)</div>'
+    +'<div><span class="score-bad">✗</span> Customer PII (stripped during the curation pipeline)</div></div>'
+    +'<div class="warn-banner warn-yellow mt16" style="margin:0;font-size:12px">'+ICON.info+'<span>For regulated industries — NBFC, banking, healthcare, government — verify this is permitted under your data-governance and DLP policies before proceeding.</span></div>'
+    +'<label class="flex gap8 mt16" style="cursor:pointer;align-items:flex-start" data-action="dlp-check"><span style="width:17px;height:17px;border-radius:5px;border:2px solid '+(checked?'var(--coral)':'var(--border-active)')+';flex-shrink:0;margin-top:1px;display:grid;place-items:center;'+(checked?'background:var(--coral)':'')+'">'+(checked?'<span style="color:#fff;font-size:11px">✓</span>':'')+'</span><span style="font-size:13px">I confirm this eval dataset has DLP clearance for external API transmission.</span></label></div>'
+    +'<div class="modal-foot"><button class="btn btn-ghost" data-action="dlp-cancel">'+ICON.chevR+' Use local judge</button><button class="btn btn-primary" data-action="dlp-confirm"'+(checked?'':' disabled')+'>Confirm — use cloud judge</button></div>'
+    +'</div></div>';
+}
+function refGroundNote(){
+  const ec=getEvalConfig(); if(!ec) return '';
+  return ec.referenceGrounded
+    ? '<div class="muted mt12" style="font-size:12px">'+ICON.info+' Factuality scored against the ingested corpus — not judge general knowledge.</div>'
+    : '<div class="warn-banner warn-yellow mt12" style="margin:0;font-size:12px">'+ICON.warn+'<span>Factuality scored against judge training knowledge — not recommended for domain-specific applications.</span></div>';
+}
 function screenEval(){
   const runs=getEvalRuns(); const rel=activeRelease();
   const head='<div class="row-between"><div><h1 class="page-h">Eval Harness</h1><p class="page-sub">Compare checkpoints across a weighted rubric</p></div></div>';
@@ -1665,14 +1730,17 @@ function screenEval(){
   // config card
   let dims=''; RUBRIC_DEFAULT.forEach((d,i)=>{ dims+='<div class="row-between mt8"><span class="secondary" style="width:150px">'+d+'</span>'
     +'<input type="range" min="0" max="40" value="20" data-rubric="'+i+'" style="flex:1;accent-color:var(--coral)"><span class="mono" style="width:42px;text-align:right" id="rw'+i+'">20%</span></div>'; });
-  const cfg='<div class="card"><div class="section-h">Run configuration</div>'
+  const ec=getEvalConfig(); const run=evalRunnable(ec);
+  const runBtn='<button class="btn btn-primary" data-action="run-eval" data-rel="'+(rel?rel.id:'')+'"'+(run.ok?'':' disabled title="'+escapeAttr(run.why)+'"')+'>'+ICON.bolt+'Run Eval</button>';
+  const cfg=judgePanel(ec)
+    +'<div class="card mt16"><div class="section-h">Run configuration</div>'
     +'<div class="grid-2"><div><label class="field-label">Release</label><div class="input" style="background:var(--bg-elevated)">'+escapeHtml(rel?rel.name:'—')+'</div></div>'
     +'<div class="flex gap8" style="align-items:flex-end"><div style="flex:1"><label class="field-label">Checkpoint A</label><div class="input" style="background:var(--bg-elevated)">ckpt-base</div></div>'
     +'<div style="flex:1"><label class="field-label">Checkpoint B</label><div class="input" style="background:var(--bg-elevated)">ckpt-candidate</div></div></div></div>'
     +'<div class="section-h mt16">Rubric weights'+infoTip('rubric')+' <span class="muted" id="rubric-total">(total 100%)</span></div>'+dims
     +'<div class="flex gap8 mt16"><button class="btn btn-ghost btn-sm" data-action="add-dimension">'+ICON.plus+'Add Custom Dimension</button>'
-    +'<div style="flex:1"></div><button class="btn btn-primary" data-action="run-eval" data-rel="'+(rel?rel.id:'')+'">'+ICON.bolt+'Run Eval</button></div></div>';
-  const resultHtml = result ? evalResultView(result) : '<div class="mt16">'+emptyState('bolt','No eval run yet','Run your first eval to compare checkpoints.','<button class="btn btn-primary" data-action="run-eval" data-rel="'+(rel?rel.id:'')+'">'+ICON.bolt+'Run Eval</button>')+'</div>';
+    +'<div style="flex:1"></div>'+runBtn+'</div></div>';
+  const resultHtml = result ? evalResultView(result) : '<div class="mt16">'+emptyState('bolt','No eval run yet','Run your first eval to compare checkpoints.',run.ok?runBtn:'')+'</div>';
   // history
   let hist=''; runs.forEach(e=>{ hist+='<button class="dropdown-item" data-action="load-eval" data-id="'+e.id+'" style="justify-content:space-between"><span>'+escapeHtml(e.runAt)+' · '+escapeHtml(e.checkpointB)+'</span>'+(e.results?'<span class="pill pill-'+pillColorForScore(e.results.B.Overall)+'">'+e.results.B.Overall+'</span>':statusPill(e.status))+'</button>'; });
   return head+'<div class="mt24" id="eval-body">'+cfg+resultHtml+'</div>'
@@ -1692,6 +1760,7 @@ function evalResultView(e){
   const cost='<div class="card"><div class="section-h">Cost tracker</div><div class="secondary">This eval run consumed ~'+fmtNum(e.tokens)+' tokens.</div><div class="bignum" style="font-size:22px;color:var(--pink)">'+fmtMoney(e.cost)+'</div></div>';
   const human='<div class="card"><div class="section-h">Human review queue</div><div class="secondary">'+hq+' rows had judge confidence &lt; 70% and need human review.</div>'+(hq?'<button class="btn btn-ghost btn-sm mt12" data-action="nav" data-view="review">'+ICON.pencil+'Review flagged rows</button>':'')+'</div>';
   return '<div class="grid-2 mt16" style="grid-template-columns:1fr 1fr;align-items:start"><div class="card radar-wrap">'+radar+'</div><div class="card" style="padding:0;overflow:hidden">'+table+'</div></div>'
+    +refGroundNote()
     +'<div class="grid-2 mt16">'+cost+human+'</div>';
 }
 function escapeAttr(s){ return String(s).replace(/'/g,'&#39;').replace(/"/g,'&quot;'); }
@@ -2574,6 +2643,29 @@ let monitorConfigs={};
 function defaultSignals(preset){ const w=MONITOR_PRESETS[preset]||MONITOR_PRESETS['Legal / Compliance'];
   return SIGNAL_DEFS.map(s=>({ key:s.key, label:s.label, unavailable:!!s.unavailable,
     enabled: s.unavailable?false:true, sample: s.key==='policy'||s.key==='feedback'?100:10, weight: s.unavailable?0:(w[s.key]||0) })); }
+// Eval judge configuration + calibration per tenant (spec §38)
+let evalConfigs={};
+function initEvalConfigs(){
+  evalConfigs={
+    tenant_pravartak:{ judgeMode:'local', judgeModel:'Mistral 7B INT8', sovereign:true, referenceGrounded:true, dlpConfirmed:false, kappaOpen:false,
+      calibration:{ status:'calibrated', calibratedBy:'Dr. Anand Krishnan (Domain Expert)', calibratedAt:'14 Jun 2025', rowsUsed:50, overallKappa:0.74,
+        dimensionKappa:{ Factuality:0.61, 'Instruction Following':0.78, Tone:0.82, 'Task Completion':0.75, 'Refusal Behaviour':0.79 } } },
+    tenant_legalai:{ judgeMode:'local', judgeModel:'Mistral 7B INT8', sovereign:false, referenceGrounded:true, dlpConfirmed:false, kappaOpen:false,
+      calibration:{ status:'calibrated', calibratedBy:'Compliance Officer', calibratedAt:'22 May 2025', rowsUsed:75, overallKappa:0.79,
+        dimensionKappa:{ Factuality:0.71, 'Instruction Following':0.82, Tone:0.85, 'Task Completion':0.78, 'Refusal Behaviour':0.81 } } },
+    tenant_healthbot:{ judgeMode:'local', judgeModel:'Mistral 7B INT8', sovereign:false, referenceGrounded:false, dlpConfirmed:false, kappaOpen:false,
+      calibration:{ status:'uncalibrated', calibratedBy:null, calibratedAt:null, rowsUsed:0, overallKappa:null, dimensionKappa:null } },
+  };
+  log.info('[boot] eval configs ready');
+}
+function getEvalConfig(){ return currentTenant ? evalConfigs[currentTenant.id] : null; }
+function kappaColor(k){ if(k==null) return 'red'; return k>0.7?'green':k>=0.6?'yellow':'red'; }
+function evalRunnable(cfg){
+  if(!cfg) return {ok:true, why:''};
+  if(cfg.calibration.status!=='calibrated') return {ok:false, why:'Complete calibration run before running eval. Uncalibrated judge accuracy is 45–60% only.'};
+  if(cfg.judgeMode==='cloud' && !cfg.dlpConfirmed) return {ok:false, why:'Confirm the data-privacy acknowledgement for the cloud judge first.'};
+  return {ok:true, why:''};
+}
 function initMonitorConfigs(){
   monitorConfigs={
     tenant_pravartak:{ tenantId:'tenant_pravartak', appName:'Audit QA', mode:'safety', preset:'Government / Audit', tier2:100, cadence:'realtime', digest:'mlengineer@cueval.ai', channel:'inapp', signals:defaultSignals('Government / Audit'), apps:[{name:'Legal AI Assistant',sdk:'v1.2.1',rate:8420},{name:'Audit QA Bot',sdk:'v1.1.0',rate:1240}] },
@@ -3444,6 +3536,20 @@ function dispatch(action, d){
     case 'review-batch': showToast('Batch approved — 18 approved, 5 rejected','ok'); pushNotif('Reviewer approved a batch of 23 rows','check'); break;
     case 'run-eval': runEvalFlow(d.rel); break;
     case 'add-dimension': showToast('Custom dimension added (mock) — adjust weights to total 100%','info'); break;
+    // --- Eval judge config + DLP (spec §38) ---
+    case 'eval-judge': { const ec=getEvalConfig(); if(!ec) break;
+      if(d.mode==='cloud' && !ec.dlpConfirmed){ appState.dlpChecked=false; dlpModal(); }
+      else { ec.judgeMode=d.mode; renderView(); } break; }
+    case 'eval-refground': { const ec=getEvalConfig(); if(ec){ ec.referenceGrounded=(d.val==='corpus'); renderView(); } break; }
+    case 'eval-kappa-toggle': { const ec=getEvalConfig(); if(ec){ ec.kappaOpen=!ec.kappaOpen; renderView(); } break; }
+    case 'eval-calibrate': showToast('Calibration run started — label 50 rows to establish human-judge agreement (mocked).','info'); break;
+    case 'eval-add-cal-rows': showToast('Add calibration rows flow is mocked','info'); break;
+    case 'dlp-check': appState.dlpChecked=!appState.dlpChecked; dlpModal(); break;
+    case 'dlp-cancel': closeModal(); appState.dlpChecked=false; renderView(); break;
+    case 'dlp-confirm': { if(!appState.dlpChecked) break; const ec=getEvalConfig(); if(ec){ ec.judgeMode='cloud'; ec.dlpConfirmed=true; }
+      log.event('cloud_judge_dlp_confirmed',{ user_id:currentUser.id, project_id:activeProject()?activeProject().id:null, ts:'now' });
+      pushActivity('🛡 confirmed cloud-judge DLP clearance for eval'); pushNotif('🛡 Cloud-judge DLP clearance confirmed','check');
+      closeModal(); appState.dlpChecked=false; showToast('Cloud judge enabled — DLP clearance confirmed','ok'); renderView(); break; }
     case 'load-eval': { const e=byId(getEvalRuns(),d.id); if(e){ if(!e.results&&e.status==='completed') computeEval(e); appState.evalResult=e; setView('eval'); } break; }
     case 'new-experiment': newExperimentModal(); break;
     case 'open-experiment': panelExperiment(d.id); break;
@@ -3506,6 +3612,7 @@ function saveRowEdit(rowId, newOutput, fromQueue){
 /* ---- Eval run flow ---- */
 function runEvalFlow(relId){
   if(!can('Eval')){ showToast('You lack eval permission','error'); return; }
+  const run=evalRunnable(getEvalConfig()); if(!run.ok){ showToast(run.why,'error'); return; } // §38 calibration / DLP gate
   const rel = byId(getReleases(), relId) || activeRelease(); if(!rel){ showToast('No release selected','error'); return; }
   openModal('<div class="modal-body" style="text-align:center;padding:36px"><div class="bignum" style="font-size:20px" id="eval-step">Preparing…</div><div class="meter mt16"><div class="meter-fill" id="eval-bar" style="width:0;background:var(--gradient-brand)"></div></div></div>');
   const steps=['Loading checkpoints…','Sampling eval set…','Scoring with judge model…','Aggregating rubric…','Done'];
@@ -3878,7 +3985,7 @@ document.addEventListener('input', e=>{
 document.addEventListener('keydown', e=>{
   const mod=e.metaKey||e.ctrlKey;
   if(mod && e.key.toLowerCase()==='k'){ e.preventDefault(); if(appState.paletteOpen) closePalette(); else if(currentUser) openPalette(); return; }
-  if(e.key==='Escape'){ if(appState.paletteOpen){ closePalette(); return; } if(el('overlays').innerHTML){ closeModal(); return; } if(el('panel')&&el('panel').classList.contains('is-open')){ closePanel(); return; } closeAllDropdowns(); return; }
+  if(e.key==='Escape'){ if(appState.paletteOpen){ closePalette(); return; } if(el('dlp-modal')){ return; } /* DLP modal is not Esc-dismissable (§38) */ if(el('overlays').innerHTML){ closeModal(); return; } if(el('panel')&&el('panel').classList.contains('is-open')){ closePanel(); return; } closeAllDropdowns(); return; }
   if(appState.paletteOpen){
     const items=window._paletteItems||[];
     if(e.key==='ArrowDown'){ e.preventDefault(); appState.paletteSel=Math.min(items.length-1, appState.paletteSel+1); renderPalette(); }
@@ -3922,6 +4029,7 @@ function initMockData(){
   initBulkJobs();  // bulk ingestion mock data (spec §20)
   initInferences();// inference monitor mock data (spec §23)
   initMonitorConfigs();// monitor configuration per tenant (spec §29)
+  initEvalConfigs(); // eval judge + calibration per tenant (spec §38)
   initColdStart(); // cold-start monitor + corpus seeds (spec §31)
   initAgents();    // agentic layer (spec §33)
   initPrefPairs(); // RLHF preference pairs (spec §24)
