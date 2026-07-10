@@ -602,6 +602,9 @@ let inferences = [];
 let prefPairs = [];
 let entityProjects = [];
 let entityDocs = [];
+// Cold-start monitor + corpus seeding (spec §31)
+let coldStartProjects = [];
+let corpusSeeds = [];
 
 // Live-timer registry — every setInterval/timeout that drives an on-screen
 // animation is registered here and cleared on any view change (CLAUDE.md §10:
@@ -651,6 +654,11 @@ function getEntityDocs(){ return scoped(entityDocs); }
 function prefPendingCount(){ return getPrefPairs().filter(p=>p.status==='pending').length; }
 function entityPendingCount(){ return getEntityDocs().filter(d=>d.status==='pending').length; }
 function findInference(id){ return byId(inferences,id) || null; }
+function getColdStart(){ return scoped(coldStartProjects)[0] || null; }
+function getCorpusSeeds(){ return scoped(corpusSeeds); }
+// Corpus Seeds is an approval decision, not a review task (note 67/68) — ML/Architect/Admin only.
+function canSeeCorpusSeeds(){ return ['MLEngineer','Architect','Admin','SuperAdmin'].includes(currentUser.role) && getCorpusSeeds().length>=50; }
+function isSovereign(){ return !!(currentTenant && currentTenant.planLimits.sovereignDeployment); }
 function regionsForDoc(docId){ return getOcrRegions().filter(r=>r.documentId===docId); }
 function chunksForDoc(docId){ return getChunks().filter(c=>c.documentId===docId).sort((a,b)=>a.chunkIndex-b.chunkIndex); }
 function findRegion(id){ return byId(ocrRegions, id) || null; }
@@ -1395,10 +1403,12 @@ function reviewQueue(){
 function screenReview(){
   const q=reviewQueue(); const tab=appState.reviewTab;
   const badge=n=>n?' <span class="pill pill-coral" style="padding:1px 6px">'+n+'</span>':'';
-  // Final 6-tab structure (spec §27)
+  // Final 6-tab structure (spec §27) + Corpus Seeds (spec §31, role-gated, not a badge task)
   const TABS=[['datasets','Text Review',q.length],['ocr','OCR Corrections',ocrPendingCount()],['audio','Audio Corrections',audioPendingCount()],['video','Video Corrections',videoPendingCount()],['pref','Preference Ranking',prefPendingCount()],['entity','Entity Labelling',entityPendingCount()]];
+  if(canSeeCorpusSeeds()) TABS.push(['seeds','Corpus Seeds',0]);
   const tabBar='<div class="flex wrap gap8 mt16">'+TABS.map(t=>'<button class="chip '+(tab===t[0]?'is-on':'')+'" data-action="review-tab" data-tab="'+t[0]+'">'+t[1]+badge(t[2])+'</button>').join('')+'</div>';
-  const subs={datasets:'Instruction-pair approval · worst-scoring first',ocr:'Low-confidence OCR regions · lowest first',audio:'Low-confidence audio segments · lowest first',video:'Flagged video frames · lowest first',pref:'RLHF — pick the better response',entity:'NER span annotation'};
+  const subs={datasets:'Instruction-pair approval · worst-scoring first',ocr:'Low-confidence OCR regions · lowest first',audio:'Low-confidence audio segments · lowest first',video:'Flagged video frames · lowest first',pref:'RLHF — pick the better response',entity:'NER span annotation',seeds:'Corpus seeds from 👍 feedback · approve embeddings to activate drift'};
+  if(tab==='seeds' && !canSeeCorpusSeeds()){ appState.reviewTab='datasets'; return screenReview(); }
   const title='<div class="row-between"><div><h1 class="page-h">Review Queue</h1><p class="page-sub">'+subs[tab]+'</p></div>'
     +(currentUser.role==='Reviewer'&&tab==='datasets'?'<button class="btn btn-ghost" data-action="review-batch">'+ICON.check+'Batch approval</button>':'')+'</div>'+tabBar;
   if(tab==='ocr'){
@@ -1411,6 +1421,7 @@ function screenReview(){
   if(tab==='video') return title+'<div class="mt24">'+reviewVideoPane()+'</div>';
   if(tab==='pref') return title+'<div class="mt24">'+reviewPrefPane()+'</div>';
   if(tab==='entity') return title+'<div class="mt24">'+reviewEntityPane()+'</div>';
+  if(tab==='seeds') return title+'<div class="mt24">'+reviewSeedsPane()+'</div>';
   if(!q.length) return title+'<div class="mt24">'+emptyState('check','You\'re all caught up','No rows pending review. ✅','')+'</div>';
   const head=title;
   if(appState.reviewIndex>=q.length) appState.reviewIndex=0;
@@ -2549,6 +2560,23 @@ function initMonitorConfigs(){
 }
 function getMonitorConfig(){ return currentTenant ? monitorConfigs[currentTenant.id] : null; }
 function signalWeightTotal(signals){ return signals.filter(s=>!s.unavailable).reduce((a,s)=>a+s.weight,0); }
+// Cold-start project + corpus seeds mock (spec §31)
+const CORPUS_SEED_TYPES=['Contract clause query','Section lookup','Summarisation request','Entity extraction','Policy question','Definition request'];
+function initColdStart(){
+  coldStartProjects=[{ id:'cold1', tenantId:'tenant_pravartak', name:'Prison Welfare AI (New)', connectedDaysAgo:4,
+    corpusEmbeddings:47, dailyRate:38, driftActivation:'12 days',
+    signals:{ policy:{active:true,flagsToday:3}, feedback:{active:true,negToday:7},
+      factuality:{active:true,mode:'rag_only',flagsToday:2}, hallucination:{active:true,mode:'rag_only',flagsToday:0},
+      drift:{active:false,reason:'warming',progress:47,target:500}, confidence:{active:false,reason:'no_logprobs'} } }];
+  // Corpus seeds — 53 positively-rated inference embeddings ready for review (≥50 triggers notification)
+  corpusSeeds=[]; const rand=mkRand(731);
+  for(let i=0;i<53;i++){ corpusSeeds.push({ id:'seed'+(i+1), tenantId:'tenant_pravartak',
+    instrType:CORPUS_SEED_TYPES[Math.floor(rand()*CORPUS_SEED_TYPES.length)], feedback:1+Math.floor(rand()*3),
+    policyScore:85+Math.floor(rand()*13), status:'proposed' }); }
+  // seed availability notification (note 68 — in bell dropdown, not the dock badge)
+  notifications.unshift({ id:'nseed', tenantId:'tenant_pravartak', text:'💡 Corpus Seed Available — 53 positively-rated inferences ready for review', time:'1h ago', read:false, icon:'sparkles' });
+  log.info('[boot] cold-start + corpus seeds ready — '+corpusSeeds.length+' seeds');
+}
 const FAILURE_BREAKDOWN=[{label:'Hallucination',value:34},{label:'Wrong citation',value:22},{label:'Policy violation',value:18},{label:'Low confidence',value:15},{label:'Incomplete answer',value:11}];
 const MODEL_COMPARE=[
   ['Flag rate','11.2%','8.3%','-2.9%',true],['Avg quality score','77.1','81.4','+4.3',true],
@@ -2609,7 +2637,11 @@ function screenMonitor(){
     +'<div class="section-h mt12">Negative feedback clusters</div>'
     +['Wrong section cited|34','Incomplete answer|22','Hallucinated figure|18'].map(c=>{ const [t,n]=c.split('|'); return '<div class="row-between" style="padding:5px 0"><span>"'+t+'" → '+n+' instances</span><button class="btn btn-sm btn-ghost" data-action="fb-to-review" data-cluster="'+escapeAttr(t)+'">Send to Review Queue</button></div>'; }).join('')
     +'</div></details>';
-  return '<div class="row-between"><div><h1 class="page-h">Inference Monitor</h1><p class="page-sub">Live production monitoring · every inference makes the next model smarter</p></div><div class="flex gap8"><span class="pill pill-green">'+ICON.radar+' Live</span>'+(can('Eval')?'<button class="btn btn-ghost btn-sm" data-action="configure-monitor">'+ICON.sliders+'Configure Monitor</button>':'')+'</div></div>'
+  const sov = isSovereign()?'<span class="pill pill-blue" title="All scoring runs on your infrastructure. No content leaves your network.">🔒 Sovereign</span>':'';
+  const cs = getColdStart();
+  return '<div class="row-between"><div><h1 class="page-h">Inference Monitor</h1><p class="page-sub">Live production monitoring · every inference makes the next model smarter</p></div><div class="flex gap8">'+sov+'<span class="pill pill-green">'+ICON.radar+' Live</span>'+(can('Eval')?'<button class="btn btn-ghost btn-sm" data-action="configure-monitor">'+ICON.sliders+'Configure Monitor</button>':'')+'</div></div>'
+    +'<div class="warn-banner mt16" style="background:var(--bg-hover);border:1px solid var(--border);color:var(--text-secondary);font-size:12px">'+ICON.info+'<span>Cueval receives embeddings and quality signals only — raw instruction &amp; response text stays on your infrastructure unless a flagged item is explicitly transferred for review.</span></div>'
+    +(cs?coldStartPanel(cs):'')
     +'<div class="mt24">'+stripHtml+'</div>'
     +'<div class="grid-2 mt16" style="align-items:start">'+chart+donut+'</div>'
     +'<div class="mt16">'+feed+'</div>'
@@ -2622,6 +2654,40 @@ function monFeedRows(list){
       +'<td class="truncate" style="max-width:220px">'+escapeHtml(truncate(x.instruction,40))+'</td><td>'+mediaConfPill(x.score)+'</td>'
       +'<td>'+(x.flags.length?'<span class="score-'+(scoreCol==='red'?'bad':'mid')+'">'+escapeHtml(flagTxt)+'</span>':'<span class="muted">None</span>')+'</td>'
       +'<td>'+(x.flags.length?'<span class="pill pill-muted">Review</span>':'✅')+'</td></tr>'; }).join('');
+}
+
+/* ---- Cold-start "Building" panel (spec §31) ---- */
+function coldStartPanel(cs){
+  const s=cs.signals; const pct=Math.round(s.drift.progress/s.drift.target*100);
+  const daysLeft=Math.ceil((s.drift.target-s.drift.progress)/cs.dailyRate);
+  const row=(label,status,detail,extra)=>'<tr><td>'+escapeHtml(label)+'</td><td>'+status+'</td><td class="secondary">'+detail+(extra||'')+'</td></tr>';
+  const sig='<table class="tbl"><thead><tr><th>Signal</th><th>Status</th><th>Detail</th></tr></thead><tbody>'
+    +row('Policy Compliance','<span class="score-good">✅ Active</span>','12 rules configured')
+    +row('User Feedback','<span class="score-good">✅ Active</span>','Collecting')
+    +row('Factuality (RAG)','<span class="score-good">✅ Active</span>','Context docs at inference')
+    +row('Hallucination (RAG)','<span class="score-good">✅ Active</span>','Context docs at inference')
+    +row('Semantic Drift','<span class="score-mid">⏳ Warming</span>', s.drift.progress+' / '+s.drift.target+' embeddings',
+        '<div class="mt4" style="max-width:220px">'+meter(pct,'var(--yellow)')+'<span class="muted" style="font-size:11px">~'+daysLeft+' days to activate</span></div>')
+    +row('Confidence Calib.','<span class="score-bad">❌ Inactive</span>','Logprobs unavailable')
+    +'</tbody></table>';
+  const catching='<div class="section-h mt16">Already catching issues</div><div class="stack gap8">'
+    +issueRow('Policy failures today', s.policy.flagsToday, 'datasets')
+    +issueRow('User 👎 received', s.feedback.negToday, 'datasets')
+    +issueRow('RAG hallucinations flagged', s.factuality.flagsToday, 'datasets')+'</div>';
+  return '<div class="card mt16" style="border-color:var(--border-active)"><div class="row-between"><div class="flex gap8"><span class="pill pill-yellow">'+ICON.radar+' Monitor: Building</span><span class="card-title">'+escapeHtml(cs.name)+'</span></div><span class="muted" style="font-size:12px">Connected '+cs.connectedDaysAgo+' days ago</span></div>'
+    +'<div class="mt12" style="overflow:auto">'+sig+'</div>'+catching
+    +'<div class="muted mt16" style="font-size:12px;line-height:1.7">Semantic drift active in ~'+daysLeft+' days at current pace ('+cs.dailyRate+' embeddings/day). Non-RAG factuality activates after '+s.drift.target+' corpus entries. RAG factuality &amp; hallucination work from day one — they check responses against inference-time context, not Cueval\'s stored corpus.</div></div>';
+}
+function issueRow(label, n, tab){ return '<div class="row-between" style="padding:6px 0;border-bottom:1px solid var(--border)"><span>'+escapeHtml(label)+'</span><span class="flex gap8"><strong class="'+(n?'score-mid':'')+'">'+n+'</strong><button class="btn btn-sm btn-ghost" data-action="cold-review" data-tab="'+tab+'">Review →</button></span></div>'; }
+/* ---- Corpus Seeds review pane (spec §31) ---- */
+function reviewSeedsPane(){
+  const seeds=getCorpusSeeds();
+  if(!seeds.length) return emptyState('check','No corpus seeds pending','Positively-rated inferences will appear here once 50+ accumulate.','');
+  let rows=seeds.slice(0,20).map((s,i)=>'<tr><td class="mono muted">'+String(i+1).padStart(3,'0')+'</td><td>'+escapeHtml(s.instrType)+'</td><td>👍 ×'+s.feedback+'</td><td>'+mediaConfPill(s.policyScore)+'</td></tr>').join('');
+  return '<div class="card"><div class="row-between"><div><div class="card-title">Corpus Seeds · '+seeds.length+' proposed entries · Batch #1</div><div class="secondary mt4" style="font-size:12px">Source: User 👍 feedback (inference embeddings only)</div></div></div>'
+    +'<div class="card mt12" style="padding:0;overflow:auto;max-height:38vh"><table class="tbl"><thead><tr><th>#</th><th>Instruction type</th><th>Feedback</th><th>Policy score</th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+    +'<div class="warn-banner warn-yellow mt16" style="margin:0">'+ICON.warn+'<span>You are approving <strong>embeddings, not response content</strong>. These entries will anchor the semantic-drift cluster. Review the instruction types — ensure they represent typical production usage before approving. (Type labels are derived from embedding clustering, not raw text — no content transferred.)</span></div>'
+    +'<div class="flex gap8 mt16 wrap"><button class="btn btn-primary" data-action="approve-seeds">'+ICON.check+'Approve All</button><button class="btn btn-ghost" data-action="toast" data-msg="Per-entry review is mocked">Review Each</button><button class="btn btn-ghost" data-action="reject-seeds">Reject Batch</button></div></div>';
 }
 
 /* ---- Monitor Configuration screen (spec §29) ---- */
@@ -2691,7 +2757,8 @@ function panelInference(id){
     +'<div class="section-h mt16">User feedback</div><div class="secondary">'+(x.feedback||'Not yet received')+'</div>'
     +'<div class="flex gap8 mt16 wrap">'+(x.addedToTraining?'<span class="pill pill-green">'+ICON.check+'Added to training set</span>':'<button class="btn btn-primary btn-sm" data-action="add-to-training" data-id="'+x.id+'">'+ICON.plus+'Add to Training Set</button>')
     +'<button class="btn btn-ghost btn-sm" data-action="request-human-review" data-id="'+x.id+'">'+ICON.users+'Request Human Review</button>'
-    +'<button class="btn btn-ghost btn-sm" data-action="close-panel">Dismiss</button></div>';
+    +'<button class="btn btn-ghost btn-sm" data-action="close-panel">Dismiss</button></div>'
+    +'<div class="muted mt12" style="font-size:11px;line-height:1.6">'+(isSovereign()?'🔒 ':'')+'Content stored only if flagged and transfer permitted. Embeddings and scores only by default'+(isSovereign()?' — sovereign mode: all scoring runs on your infrastructure, no content leaves your network.':'.')+'</div>';
   openPanel(html, 'Inference '+x.id);
 }
 /* ---- Monitor configuration handlers (spec §29) ---- */
@@ -2723,6 +2790,19 @@ function saveMonitorConfig(){
   log.event('monitor:save',{mode:c.mode, preset:c.preset});
   appState.monitorView='dashboard'; appState.monitorDraft=null;
   showToast('Monitor configuration saved','ok'); renderView();
+}
+function approveCorpusSeeds(){
+  if(!['MLEngineer','Architect','Admin'].includes(currentUser.role)){ showToast('Corpus seed approval is ML Engineer / Architect only','error'); return; }
+  const seeds=getCorpusSeeds(); const n=seeds.length; if(!n){ showToast('No seeds to approve','info'); return; }
+  const cs=getColdStart();
+  if(cs){ cs.corpusEmbeddings += n; cs.signals.drift.progress += n;
+    if(cs.signals.drift.progress>=cs.signals.drift.target){ cs.signals.drift.active=true; cs.signals.drift.reason='active'; } }
+  corpusSeeds=corpusSeeds.filter(s=>s.tenantId!==currentTenant.id);
+  notifications=notifications.filter(nn=>nn.id!=='nseed');
+  log.event('seeds:approve',{count:n});
+  pushActivity('approved '+n+' corpus seed embeddings');
+  showToast(n+' embeddings added to corpus — semantic drift '+(cs&&cs.signals.drift.active?'activated':'coverage updated'),'ok');
+  appState.reviewTab='datasets'; renderView();
 }
 function copySnippet(){
   const pre=el('mon-snippet'); const text=pre?pre.textContent:'';
@@ -3145,6 +3225,10 @@ function dispatch(action, d){
     case 'mon-channel': { const c=monitorDraft(); c.channel=d.v; renderView(); break; }
     case 'save-monitor-config': saveMonitorConfig(); break;
     case 'copy-snippet': copySnippet(); break;
+    // --- Cold start & corpus seeds (spec §31) ---
+    case 'cold-review': setView('review'); appState.reviewTab=d.tab||'datasets'; renderView(); break;
+    case 'approve-seeds': approveCorpusSeeds(); break;
+    case 'reject-seeds': { corpusSeeds=corpusSeeds.filter(s=>s.tenantId!==currentTenant.id); log.event('seeds:reject',{}); showToast('Corpus seed batch rejected','info'); appState.reviewTab='datasets'; renderView(); break; }
     // --- Preference ranking (spec §24) ---
     case 'pref-choose': { const p=byId(prefPairs,d.id); if(p&&assertTenant(p)){ p.chosen=d.choice; renderView(); } break; }
     case 'pref-dim': { const p=byId(prefPairs,d.id); if(p&&assertTenant(p)){ p.dims[d.dim]=p.dims[d.dim]===d.v?null:d.v; renderView(); } break; }
@@ -3802,6 +3886,7 @@ function initMockData(){
   initAudioVideo();// audio & video mock data (spec §21)
   initInferences();// inference monitor mock data (spec §23)
   initMonitorConfigs();// monitor configuration per tenant (spec §29)
+  initColdStart(); // cold-start monitor + corpus seeds (spec §31)
   initPrefPairs(); // RLHF preference pairs (spec §24)
   initEntity();    // entity labelling projects (spec §25)
 }

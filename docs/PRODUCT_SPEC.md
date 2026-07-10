@@ -2527,3 +2527,196 @@ Always visible in inference detail. Sets correct expectations.
 53. Score breakdown in inference detail: show signal rows even when signal was not sampled — mark as "skipped" with reason.
 54. Scoring transparency note: always visible, non-dismissable. Cannot be hidden by any user role.
 55. Mode selector: changing to Safety Gate shows a confirmation modal — "This mode flags responses in real-time. Ensure your application handles flag callbacks. Continue?"
+
+---
+
+## 31. DELTA — COLD START STATE & CORPUS-FREE INFERENCE SCORING
+
+### Corrections to Earlier Sections
+
+**Section 23 (Inference Monitor) and Section 29 (Monitor Configuration):**
+Remove any implication that Cueval stores full production inference content.
+
+Replace with: Cueval receives embeddings and quality signals only. Raw instruction and response text stays on the client's infrastructure unless explicitly flagged for human review and the client chooses to transfer it. Sovereign clients run all scoring workers on-premise — only scores and embeddings flow, never content.
+
+---
+
+### Cold Start Monitor State
+
+Triggered when: project connected to monitor AND corpus embeddings < 500.
+
+Replaces the standard coverage indicator with a "Building" state panel.
+
+**Coverage indicator — cold start variant:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Monitor: Building    Connected 4 days ago                  │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  Signal              Status      Detail                     │
+│  Policy Compliance   ✅ Active   12 rules configured        │
+│  User Feedback       ✅ Active   Collecting                 │
+│  Factuality (RAG)    ✅ Active   Context docs at inference  │
+│  Hallucination (RAG) ✅ Active   Context docs at inference  │
+│  Semantic Drift      ⏳ Warming  47 / 500 embeddings        │
+│                      ████░░░░░░  ~12 days to activate       │
+│  Confidence Calib.   ❌ Inactive Logprobs unavailable       │
+│                                                             │
+├─────────────────────────────────────────────────────────────┤
+│  Already catching issues:                                   │
+│  Policy failures today:        3   [Review →]              │
+│  User 👎 received:             7   [Review →]              │
+│  RAG hallucinations flagged:   2   [Review →]              │
+│                                                             │
+│  Semantic drift active in ~12 days at current pace.        │
+│  Non-RAG factuality active after 500 corpus entries.       │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Key design decisions:**
+- Never shows "0% coverage" or broken state — always shows what IS working
+- Estimated activation date calculated from daily embedding accumulation rate
+- RAG factuality and hallucination explicitly shown as active — these work from day one regardless of corpus size because they check response against inference-time context documents, not Cueval's stored corpus
+- Non-RAG factuality stays disabled until corpus builds — shown clearly with reason
+
+---
+
+### Signal Activation Rules
+
+```javascript
+// What activates at connection — no corpus needed
+ALWAYS_ACTIVE = [
+  'policy_compliance',   // rule-based, zero corpus dependency
+  'user_feedback',       // collected passively from application
+]
+
+// Active from day one IF client provides context docs at inference time
+RAG_ACTIVE = [
+  'factuality',          // checks response vs inference-time context chunks
+  'hallucination',       // checks entities vs inference-time context chunks
+]
+// If no context provided: disabled with note "Enable by providing context at inference"
+
+// Activates when corpus embeddings >= 500
+CORPUS_DEPENDENT = [
+  'semantic_drift',      // needs cluster to compare against
+]
+
+// Activates only if model API exposes logprobs
+API_DEPENDENT = [
+  'confidence_calibration',
+]
+```
+
+---
+
+### What Cueval Actually Stores Per Inference
+
+Corrects earlier spec sections. Cueval never stores full inference content by default.
+
+```javascript
+// What SDK sends to Cueval per inference:
+{
+  inference_id:     "inf_8821",        // client-generated ID
+  embedding:        [0.23, -0.41, ...], // 384 floats ~1.5KB — response embedding only
+  policy_signals:   {                  // computed client-side before sending
+    refusal_correct: true,
+    format_valid:    true,
+    prohibited_terms: false,
+    length_ok:       true
+  },
+  rag_signals:      {                  // null if no context provided
+    factuality_score:    0.31,         // computed client-side
+    hallucination_flags: ['₹45 crore'] // flagged entities only, not full text
+  },
+  model_version:    "v1.2",
+  timestamp:        "2025-06-14T14:32:04Z",
+  user_feedback:    null               // populated later via feedback API
+}
+// Raw instruction and response text: NOT sent. Stays on client.
+```
+
+Full content transferred ONLY when:
+- Inference is flagged AND
+- Client has configured content transfer as permitted AND
+- Client is not in sovereign mode
+
+In sovereign mode: all scoring workers run on-premise. Only scores sent to Cueval dashboard. Content never leaves client network under any configuration.
+
+---
+
+### Corpus Seeding from User Feedback
+
+When 50+ thumbs-up inferences accumulated with no corpus:
+
+**Notification (bell icon + in-app):**
+```
+💡 Corpus Seed Available
+53 positively-rated inferences ready for corpus review.
+Approving these will activate semantic drift scoring.
+[Review Batch →]  — ML Engineer / Architect only
+```
+
+**Batch review UI (in Review Queue → new tab: Corpus Seeds):**
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Corpus Seeds    53 proposed entries    Batch #1            │
+│  Source: User 👍 feedback (inference embeddings only)       │
+├─────────────────────────────────────────────────────────────┤
+│  Entry   Instruction type        Feedback   Policy score    │
+│  001     Contract clause query   👍 ×3      94%             │
+│  002     Section lookup          👍 ×1      91%             │
+│  003     Summarisation request   👍 ×2      88%             │
+│  ...                                                        │
+│                                                             │
+│  ⚠️ You are approving embeddings, not response content.    │
+│  These entries will anchor the semantic drift cluster.     │
+│  Review instruction types — ensure they represent          │
+│  typical production usage before approving.                │
+│                                                             │
+│  [Approve All] [Review Each] [Reject Batch]                │
+└─────────────────────────────────────────────────────────────┘
+```
+
+On approval: embeddings enter the corpus cluster. Semantic drift signal activates. Coverage percentage updates immediately.
+
+Note: instruction type labels shown (e.g. "Contract clause query") are derived from embedding clustering — not from raw text. No content transferred.
+
+---
+
+### Updated Mock Data — Cold Start Project
+
+Add one cold start project to IITM Pravartak tenant:
+
+```javascript
+{
+  name: "Prison Welfare AI (New)",
+  monitorState: "cold_start",
+  connectedDaysAgo: 4,
+  corpus_embeddings: 47,
+  daily_embedding_rate: 38,
+  estimated_drift_activation: "12 days",
+  signals: {
+    policy: { active: true, flags_today: 3 },
+    user_feedback: { active: true, negative_today: 7 },
+    factuality: { active: true, mode: "rag_only", flags_today: 2 },
+    hallucination: { active: true, mode: "rag_only", flags_today: 0 },
+    semantic_drift: { active: false, reason: "warming", progress: 47, target: 500 },
+    confidence: { active: false, reason: "no_logprobs" }
+  },
+  corpus_seeds_available: 0  // below 50 threshold — notification not yet triggered
+}
+```
+
+---
+
+### Implementation Notes for Claude Code (delta)
+
+64. Cold start state: check corpus_embeddings < 500 on project load. Render Building panel instead of standard coverage indicator. Never show a "broken" or "0%" state.
+65. Embedding accumulation progress bar: animate fill proportional to 47/500. Show estimated days remaining calculated from daily_embedding_rate.
+66. "Already catching issues" counts in cold start panel: pull from mock signal data. Each count is a link to the relevant review queue tab.
+67. Corpus Seeds tab in Review Queue: only visible to ML Engineer and Architect roles. Hidden from Annotator, Reviewer, PM.
+68. Corpus Seeds notification: show in bell dropdown when seeds >= 50. Badge on Review Queue dock icon does NOT include seed count — seeds are not review tasks, they are approval decisions.
+69. What Cueval stores disclaimer: show as a one-line note under the inference detail panel: "Content stored only if flagged and transfer permitted. Embeddings and scores only by default."
+70. Sovereign mode indicator: if project is configured as sovereign, show a "🔒 Sovereign" badge on the Monitor screen header. Tooltip: "All scoring runs on your infrastructure. No content leaves your network."
