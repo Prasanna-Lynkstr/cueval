@@ -49,8 +49,10 @@ a{color:inherit;text-decoration:none}
    3. LAYOUT PRIMITIVES  (shell, dock, topbar, canvas, panel)
    ============================================================ */
 #app{height:100vh;width:100vw;position:relative}
-.shell{display:grid;grid-template-columns:var(--dock-w) 1fr;height:100vh;position:relative}
-.shell-main{display:grid;grid-template-rows:var(--topbar-h) 1fr;min-width:0;position:relative}
+/* Dock is an absolute overlay (64px, expands on hover); reserve its width with padding
+   so shell-main fills the rest of the viewport — not a grid column it could mis-place into. */
+.shell{position:relative;height:100vh;padding-left:var(--dock-w);overflow:hidden}
+.shell-main{display:grid;grid-template-rows:var(--topbar-h) 1fr;min-width:0;height:100%;position:relative}
 .canvas{overflow:hidden;position:relative;min-height:0}
 .canvas-scroll{position:absolute;inset:0;overflow-y:auto;padding:28px 32px 48px}
 .view-anim{animation:viewIn var(--t-med) ease-out}
