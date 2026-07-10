@@ -322,6 +322,19 @@ body.impersonating .shell,body.impersonating #app>.shell{margin-top:34px;height:
 /* Inference feed new-row slide-in (spec §28 note 38) */
 #mon-feed tr:first-child{animation:feedIn 400ms ease-out}
 @keyframes feedIn{from{opacity:0;transform:translateY(-10px);background:var(--coral-glow)}to{opacity:1;transform:none}}
+/* Integration Guide overlay (spec §32) */
+.ig-scrim{position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);z-index:260;display:flex;justify-content:center;align-items:flex-start;padding:4vh 16px;animation:fadeIn var(--t-med)}
+.ig{width:min(880px,96vw);max-height:92vh;overflow-y:auto;background:var(--bg-surface);border:1px solid var(--border-active);border-radius:var(--r-lg);box-shadow:0 30px 90px rgba(0,0,0,.7);animation:viewIn var(--t-med) ease-out}
+.ig-head{position:sticky;top:0;background:var(--bg-surface);border-bottom:1px solid var(--border);padding:16px 20px;display:flex;align-items:center;justify-content:space-between;z-index:2}
+.ig-body{padding:20px}
+.ig-tabs{display:flex;gap:8px;flex-wrap:wrap}
+.ig-checklist{list-style:none;padding:0}
+.ig-checklist li{padding:5px 0;font-size:13px;display:flex;gap:8px;align-items:flex-start}
+.code{background:var(--bg-base);border:1px solid var(--border);border-radius:var(--r-md);padding:14px;font-family:var(--font-mono);font-size:12px;line-height:1.7;overflow-x:auto;white-space:pre;color:var(--text-secondary)}
+.code .cd-kw{color:#c084fc}.code .cd-str{color:#7dd3a8}.code .cd-com{color:var(--text-muted);font-style:italic}.code .cd-fn{color:#fb923c}
+.limbox{background:rgba(234,179,8,.08);border:1px solid rgba(234,179,8,.3);border-radius:var(--r-md);padding:12px 14px;font-size:12px;line-height:1.7}
+.limbox li{margin-left:4px;color:#facc15}
+.callout-amber{background:rgba(232,93,38,.08);border:1px solid rgba(232,93,38,.4);border-radius:var(--r-md);padding:16px}
 
 @media (max-width:1024px){.grid-3{grid-template-columns:repeat(2,1fr)}}
 @media (prefers-reduced-motion:reduce){
@@ -586,6 +599,7 @@ const appState = {
   prefIndex:0, entityProjectId:null, entityDocIndex:0, entityView:'label', entityPendingSel:null, // §24/§25
   expTab:'timeline', lineageRowQuery:'', // experiment lineage (§26)
   monitorView:'dashboard', monitorDraft:null, // monitor config (§29)
+  igTab:'sdk', igDisclaimers:true, igVisited:false, // integration guide (§32)
 };
 // Document-ingestion collections (populated in initMockData — after Section E)
 let documents = [];
@@ -1067,6 +1081,7 @@ function afterRender(){
   document.querySelectorAll('canvas[data-line]').forEach(cv=>drawLineChart(cv));
   document.querySelectorAll('canvas[data-donut]').forEach(cv=>drawDonut(cv));
   attachEntitySelection();
+  const dd=el('ig-disc'); if(dd) dd.ontoggle=()=>{ appState.igDisclaimers=dd.open; }; // persist disclaimer state (note 76)
 }
 // Entity labelling: capture text selection offsets relative to the document container (note 40)
 function attachEntitySelection(){
@@ -2639,7 +2654,7 @@ function screenMonitor(){
     +'</div></details>';
   const sov = isSovereign()?'<span class="pill pill-blue" title="All scoring runs on your infrastructure. No content leaves your network.">🔒 Sovereign</span>':'';
   const cs = getColdStart();
-  return '<div class="row-between"><div><h1 class="page-h">Inference Monitor</h1><p class="page-sub">Live production monitoring · every inference makes the next model smarter</p></div><div class="flex gap8">'+sov+'<span class="pill pill-green">'+ICON.radar+' Live</span>'+(can('Eval')?'<button class="btn btn-ghost btn-sm" data-action="configure-monitor">'+ICON.sliders+'Configure Monitor</button>':'')+'</div></div>'
+  return '<div class="row-between"><div><h1 class="page-h">Inference Monitor</h1><p class="page-sub">Live production monitoring · every inference makes the next model smarter</p></div><div class="flex gap8">'+sov+'<span class="pill pill-green">'+ICON.radar+' Live</span><button class="btn btn-ghost btn-sm" data-action="view-integration-guide">'+ICON.book+'Integration Guide</button>'+(can('Eval')?'<button class="btn btn-ghost btn-sm" data-action="configure-monitor">'+ICON.sliders+'Configure Monitor</button>':'')+'</div></div>'
     +'<div class="warn-banner mt16" style="background:var(--bg-hover);border:1px solid var(--border);color:var(--text-secondary);font-size:12px">'+ICON.info+'<span>Cueval receives embeddings and quality signals only — raw instruction &amp; response text stays on your infrastructure unless a flagged item is explicitly transferred for review.</span></div>'
     +(cs?coldStartPanel(cs):'')
     +'<div class="mt24">'+stripHtml+'</div>'
@@ -2738,7 +2753,7 @@ function monitorConfigScreen(){
     +'<div class="section-h mt16">Integration snippet</div><pre class="card mono" style="padding:12px;font-size:12px;overflow-x:auto;white-space:pre" id="mon-snippet">'+escapeHtml(snippet)+'</pre>'
     +'<div class="flex gap8 mt8"><button class="btn btn-ghost btn-sm" data-action="copy-snippet">'+ICON.clone+'Copy</button><button class="btn btn-ghost btn-sm" data-action="toast" data-msg="SDK docs are mocked in this prototype">View Full SDK Docs</button></div></div>';
   const note = cfg.note ? '<div class="warn-banner warn-orange">'+ICON.warn+'<span>'+escapeHtml(cfg.note)+'</span></div>' : '';
-  const foot='<div class="flex gap8 mt24" style="justify-content:flex-end"><button class="btn btn-ghost" data-action="monitor-config-back">Cancel</button><button class="btn btn-primary" id="mon-save" data-action="save-monitor-config"'+(ok?'':' disabled')+'>'+ICON.check+'Save Configuration</button></div>';
+  const foot='<div class="flex gap8 mt24" style="align-items:center"><button class="btn btn-ghost" data-action="view-integration-guide">'+ICON.book+'View Integration Guide →</button><div style="flex:1"></div><button class="btn btn-ghost" data-action="monitor-config-back">Cancel</button><button class="btn btn-primary" id="mon-save" data-action="save-monitor-config"'+(ok?'':' disabled')+'>'+ICON.check+'Save Configuration</button></div>';
   return back+'<div class="mt16" style="max-width:820px">'+note+mode+'<div class="mt16"></div>'+signals+'<div class="mt16"></div>'+presets+'<div class="grid-2 mt16" style="align-items:start">'+routing+cadence+'</div><div class="grid-2 mt16" style="align-items:start">'+sampling+apps+'</div>'+foot+'</div>';
 }
 function radioLine(name,label,val,on,desc){ return '<label class="flex gap8" style="padding:8px 0;cursor:pointer;align-items:flex-start" data-action="mon-radio" data-name="'+name+'" data-val="'+escapeAttr(val)+'"><span style="width:16px;height:16px;border-radius:50%;border:2px solid '+(on?'var(--coral)':'var(--border-active)')+';flex-shrink:0;margin-top:2px;'+(on?'background:var(--coral);box-shadow:inset 0 0 0 3px var(--bg-surface)':'')+'"></span><span><span style="font-weight:500">'+escapeHtml(label)+'</span>'+(desc?'<span class="muted" style="display:block;font-size:12px">'+escapeHtml(desc)+'</span>':'')+'</span></label>'; }
@@ -2804,12 +2819,12 @@ function approveCorpusSeeds(){
   showToast(n+' embeddings added to corpus — semantic drift '+(cs&&cs.signals.drift.active?'activated':'coverage updated'),'ok');
   appState.reviewTab='datasets'; renderView();
 }
-function copySnippet(){
-  const pre=el('mon-snippet'); const text=pre?pre.textContent:'';
+function copyText(text){
   try{ if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(text); } }
   catch(err){ log.warn('[clipboard] unavailable',err); }
   showToast('Copied!','ok');
 }
+function copySnippet(){ const pre=el('mon-snippet'); copyText(pre?pre.textContent:''); }
 function updateMonitorTotals(){
   const c=appState.monitorDraft; if(!c) return; const total=signalWeightTotal(c.signals);
   const tot=el('mon-total'); if(tot){ tot.textContent='Current total: '+total+'% '+(total===100?'✅':'⚠️'); tot.className=(total===100?'score-good':'score-bad')+' mono'; }
@@ -3013,6 +3028,98 @@ function entityConflictView(proj, doc){
 }
 
 /* ============================================================
+   SECTION I-IG — INTEGRATION GUIDE (spec §32)
+   ============================================================ */
+// Raw snippet text (copied verbatim, never HTML). Keyed for the Copy buttons.
+const IG_SNIPPETS={
+  'sdk-init':'from cueval import monitor\n\n# Initialise once at app startup\nmonitor.init(\n  project_id  = "legal-ai-prod",\n  api_key     = os.environ["CUEVAL_KEY"],\n  model_ver   = "v1.2",\n  sovereign   = False\n)\n\n# Replace your existing model call\n# Before:\n# response = model.generate(instruction, context)\n\n# After:\nresponse = monitor.generate(\n  model       = model,\n  instruction = instruction,\n  context     = context,   # pass if RAG\n)\n# response is identical — no application change',
+  'sdk-feedback':'# After showing response to user:\nmonitor.feedback(\n  inference_id = response.inference_id,\n  rating       = "positive" | "negative",\n  comment      = user_comment  # optional\n)',
+  'sidecar-compose':'cueval-sidecar:\n  image: cueval/sidecar:latest\n  ports: ["8080:8080"]\n  environment:\n    CUEVAL_PROJECT_ID: "legal-ai-prod"\n    CUEVAL_API_KEY:    "${CUEVAL_KEY}"\n    MODEL_ENDPOINT:    "http://your-model:8000"\n    MODEL_VERSION:     "v1.2"\n    SOVEREIGN:         "false"',
+  'sidecar-app':'# Only change: point to sidecar instead of model\nMODEL_URL = "http://cueval-sidecar:8080/generate"\n# API signature identical to original endpoint',
+  'onprem-compose':'# Full on-premise stack\nservices:\n  cueval-api:\n  cueval-frontend:\n  cueval-worker:\n  cueval-scoring:    # local scoring models\n  ollama:            # local LLM judge\n  postgres:\n  redis:\n  minio:',
+  'version-notify':'monitor.notify_deployment(\n  model_version = "v1.3",\n  deployed_at   = datetime.utcnow(),\n  changelog     = "Improved factuality on legal queries"\n)',
+};
+const IG_COMPOSE_FULL='# Cueval on-premise stack — docker-compose.yml\nversion: "3.9"\nservices:\n  cueval-api:\n    image: cueval/api:latest\n    ports: ["8000:8000"]\n  cueval-frontend:\n    image: cueval/frontend:latest\n    ports: ["3000:3000"]\n  cueval-worker:\n    image: cueval/worker:latest\n  cueval-scoring:\n    image: cueval/scoring:latest   # MiniLM + FastText local scoring\n  ollama:\n    image: ollama/ollama:latest    # local LLM judge\n  postgres:\n    image: postgres:16\n  redis:\n    image: redis:7\n  minio:\n    image: minio/minio:latest\n';
+// Tiny syntax highlighter for the snippets (Python/YAML) — escapes first, then classes.
+function highlightCode(text){
+  const lines=text.split('\n').map(line=>{
+    const c=line.indexOf('#');
+    if(c>=0){ const before=line.slice(0,c), comment=line.slice(c); return hlTokens(before)+'<span class="cd-com">'+escapeHtml(comment)+'</span>'; }
+    return hlTokens(line);
+  });
+  return lines.join('\n');
+}
+function hlTokens(s){
+  let out=escapeHtml(s);
+  out=out.replace(/&quot;[^&]*?&quot;/g, m=>'<span class="cd-str">'+m+'</span>');
+  out=out.replace(/\b(from|import|def|return|None|True|False|version|services|image|ports|environment)\b/g, '<span class="cd-kw">$1</span>');
+  out=out.replace(/\b(monitor|generate|init|feedback|notify_deployment)\b/g, '<span class="cd-fn">$1</span>');
+  return out;
+}
+function codeBlock(key){ return '<div class="code">'+highlightCode(IG_SNIPPETS[key])+'</div><button class="btn btn-ghost btn-sm mt8" data-action="ig-copy" data-key="'+key+'">'+ICON.clone+'Copy</button>'; }
+function igChecklist(items){ return '<ul class="ig-checklist">'+items.map(it=>'<li><span style="color:'+(it[0]?'var(--green)':'var(--text-muted)')+'">'+(it[0]?'☑':'☐')+'</span><span'+(it[0]?' class="muted"':'')+'>'+escapeHtml(it[1])+'</span></li>').join('')+'</ul>'; }
+function limBox(items){ return '<div class="limbox mt16"><div class="flex gap6" style="color:#facc15;font-weight:600;margin-bottom:6px">'+ICON.warn+'Known limitations</div><ul style="padding-left:16px">'+items.map(i=>'<li>'+escapeHtml(i)+'</li>').join('')+'</ul></div>'; }
+
+function igSdk(){
+  return '<div class="card"><div class="card-title">SDK Wrapper</div><p class="secondary mt4" style="font-size:13px">Simplest integration. One code change. Recommended when adding a Python/JS dependency is fine.</p></div>'
+    +'<div class="section-h mt16">Setup checklist</div>'+igChecklist([[1,'Install Cueval SDK (pip install cueval-sdk)'],[1,'Add project ID and API key to environment'],[0,'Wrap model call with monitor.generate()'],[0,'Pass context documents if using RAG'],[0,'Notify Cueval on model version change'],[0,'Add feedback widget to application UI']])
+    +'<div class="section-h mt16">Integration snippet</div>'+codeBlock('sdk-init')
+    +'<div class="section-h mt16">Feedback widget snippet</div>'+codeBlock('sdk-feedback')
+    +limBox(['Context docs must be passed explicitly — not captured automatically. Without them, factuality scoring is off.','Background embedding adds 10–50ms in a separate thread. First inference after cold start may not be embedded.','Logprobs only captured if the model returns them. Most hosted APIs do not — confidence signal likely off.','Multi-turn: pass the last 2 turns as context for better drift scoring. Single-turn scoring only by default.']);
+}
+function igSidecar(){
+  return '<div class="card"><div class="card-title">Sidecar Service</div><p class="secondary mt4" style="font-size:13px">No application code change. A proxy intercepts model calls. Best for legacy systems or multiple calling services.</p></div>'
+    +'<div class="section-h mt16">Setup checklist</div>'+igChecklist([[1,'Deploy Cueval sidecar container'],[0,'Point application model endpoint to sidecar URL'],[0,'Set original model endpoint in sidecar config'],[0,'Configure project ID and API key in sidecar env'],[0,'Add feedback endpoint call to application UI'],[0,'Notify sidecar on model version change via API']])
+    +'<div class="section-h mt16">Docker Compose snippet</div>'+codeBlock('sidecar-compose')
+    +'<div class="section-h mt16">Application change</div>'+codeBlock('sidecar-app')
+    +limBox(['Context documents not automatically captured from RAG retrieval — must be passed in request headers (needs application-side instrumentation).','Adds one network hop — typically 2–5ms additional latency. Negligible for most applications.','The sidecar must be kept up to date — an outdated version may produce inconsistent scoring signals.','Streaming responses: partial support. Scoring runs after the stream completes, not on partial tokens.']);
+}
+function igOnprem(){
+  const stays='<div class="card" style="border-color:rgba(34,197,94,.3)"><div class="section-h">What stays on your network</div>'
+    +['Raw instructions and responses — never transmitted','Context documents — never transmitted','All scoring computation — runs locally','Embeddings — generated and stored locally','Review queue — accessed via local Cueval UI'].map(t=>'<div style="padding:4px 0;font-size:13px"><span class="score-good">✅</span> '+escapeHtml(t)+'</div>').join('')+'</div>';
+  const sent='<div class="card"><div class="section-h">Transmitted to Cueval cloud (if enabled)</div>'
+    +['Aggregated score metrics only (no content)','Model version change notifications','Plan usage counts (row counts, eval counts)','Software update checks (version numbers only)'].map(t=>'<div style="padding:4px 0;font-size:13px" class="secondary">→ '+escapeHtml(t)+'</div>').join('')+'</div>';
+  const airgap='<div class="callout-amber mt16"><div class="card-title" style="font-size:14px">Fully air-gapped option</div><p class="secondary mt4" style="font-size:13px">Disable all outbound. Cueval runs entirely offline. Software updates delivered as signed package files; plan management via offline licence key.</p><button class="btn btn-ghost btn-sm mt8" data-action="toast" data-msg="Air-gap configuration is mocked in this prototype">Configure Air-Gap Mode →</button></div>';
+  return '<div class="card"><div class="flex gap8"><span class="card-title">On-Premise Agent</span><span class="pill pill-blue">🔒 Sovereign</span></div><p class="secondary mt4" style="font-size:13px">All scoring on your infrastructure. Nothing leaves your network. Required for sovereign / air-gapped deployments.</p></div>'
+    +'<div class="section-h mt16">Setup checklist</div>'+igChecklist([[1,'Deploy Cueval on-premise stack (Docker Compose)'],[0,'Configure local scoring models (MiniLM, FastText)'],[0,'Configure local LLM judge (Ollama / vLLM)'],[0,'Point SDK or sidecar to local Cueval endpoint'],[0,'Configure outbound: scores only, no content'],[0,'Verify air-gap: run network isolation test']])
+    +'<div class="grid-2 mt16" style="align-items:start">'+stays+sent+'</div>'+airgap
+    +'<div class="section-h mt16">Docker Compose snippet</div><div class="code">'+highlightCode(IG_SNIPPETS['onprem-compose'])+'</div>'
+    +'<div class="flex gap8 mt8"><button class="btn btn-ghost btn-sm" data-action="ig-copy" data-key="onprem-compose">'+ICON.clone+'Copy</button><button class="btn btn-ghost btn-sm" data-action="ig-download-compose">'+ICON.download+'Download Full Compose File</button></div>'
+    +limBox(['Local LLM judge (7B model) is less accurate than the cloud judge — calibration required (see Monitor Configuration).','GPU recommended for scoring above 1,000 inferences/day. CPU-only viable below that.','Software updates are manual — Lynkstr ships signed packages. Auto-update not available in air-gap mode.','Cueval dashboard accessible on the local network only; remote access requires your own VPN/tunnelling.']);
+}
+const ACCURACY_ROWS=[['RAG · English · corpus >2K','75–82%','✅ Most reliable'],['RAG · Indic · corpus >2K','58–68%','🟡 Improving'],['Non-RAG · any language','45–55%','🟡 Policy + feedback'],['Cold start · corpus <500','30–40%','⚠️ Building']];
+const DISCLAIMERS=[
+  ['Accuracy','Cueval\'s inference scoring is probabilistic triage, not verification. A high score does not certify correctness; a low score does not certify a response is wrong. Human review makes the final determination in all cases.'],
+  ['Coverage','Scoring accuracy depends on corpus size, context docs at inference time, and policy-rule configuration. A newly connected project has lower coverage than a mature one. Coverage improves with annotation activity.'],
+  ['RAG dependency','Factuality and hallucination scoring only apply to RAG inferences where context documents are provided. For models answering from training knowledge alone, these signals are disabled.'],
+  ['Indic languages','Scoring accuracy for Indic languages is 10–20% lower than English due to limitations in available NLI and embedding models. Cueval is actively improving Indic accuracy.'],
+  ['Not a compliance tool','Cueval does not certify outputs for regulated industries (medical, legal, financial, defence). Clients are responsible for their own compliance frameworks.'],
+  ['Data','Cueval stores embeddings and quality signals by default, not raw content. Content transfer only when explicitly configured. Sovereign mode: all processing on-premise, no data leaves the client network.'],
+  ['Model internals','Cueval assesses observed inputs and outputs only. It cannot explain why a model produced a response, only whether it meets configured quality criteria.'],
+];
+function renderIntegrationGuide(){
+  const tab=appState.igTab;
+  const tabBtn=(k,label,badge)=>'<button class="chip '+(tab===k?'is-on':'')+'" data-action="ig-tab" data-tab="'+k+'">'+label+(badge?' '+badge:'')+'</button>';
+  const tabs='<div class="ig-tabs">'+tabBtn('sdk','SDK Wrapper','')+tabBtn('sidecar','Sidecar Service','')+tabBtn('onprem','On-Premise Agent','🔒')+'</div>';
+  const body = tab==='sidecar'?igSidecar() : tab==='onprem'?igOnprem() : igSdk();
+  // accuracy table (always visible)
+  let acc='<table class="tbl"><thead><tr><th>Scenario</th><th>Realistic accuracy</th></tr></thead><tbody>'
+    +ACCURACY_ROWS.map(r=>'<tr><td>'+escapeHtml(r[0])+'</td><td class="mono">'+r[1]+'  '+r[2]+'</td></tr>').join('')+'</tbody></table>';
+  const accuracy='<div class="section-h mt24">What to expect — scoring accuracy</div><div class="card" style="padding:0;overflow:auto">'+acc+'</div>'
+    +'<div class="secondary mt8" style="font-size:12px">False positive rate (flagged but actually fine): <strong>18–25%</strong> · False negative rate (bad but not flagged): <strong>8–15%</strong>. These improve as the corpus grows and reviewers dismiss flags — a dismissed flag teaches the system what acceptable looks like for your domain.</div>';
+  // version notify callout (always visible)
+  const callout='<div class="callout-amber mt24"><div class="flex gap6" style="font-weight:600;color:#fb923c">'+ICON.warn+'Always notify Cueval when you deploy a new model version</div><p class="secondary mt4" style="font-size:13px">Without this, scoring baselines drift silently.</p><div class="code mt8">'+highlightCode(IG_SNIPPETS['version-notify'])+'</div><button class="btn btn-ghost btn-sm mt8" data-action="ig-copy" data-key="version-notify">'+ICON.clone+'Copy</button>'
+    +'<div class="secondary mt8" style="font-size:12px">This call marks a deployment on the Monitor timeline, resets the regression-detection baseline, and creates a version-comparison checkpoint automatically.</div></div>';
+  // disclaimers (collapsible)
+  const disc='<details class="faq mt24" id="ig-disc"'+(appState.igDisclaimers?' open':'')+'><summary>Disclaimers<span class="faq-chev">'+ICON.chevR+'</span></summary><div class="faq-body">'
+    +DISCLAIMERS.map(d=>'<div style="margin-bottom:12px"><div style="font-weight:600;text-transform:uppercase;font-size:11px;letter-spacing:.5px;color:var(--text-primary)">'+escapeHtml(d[0])+'</div><div class="mt4">'+escapeHtml(d[1])+'</div></div>').join('')+'</div></details>';
+  el('overlays').innerHTML='<div class="ig-scrim" data-action="close-ig"><div class="ig" data-stop="1"><div class="ig-head"><div><strong>Integration Guide</strong><div class="muted" style="font-size:12px">Connect your application to Cueval monitoring</div></div><button class="icon-btn" data-action="close-ig" aria-label="Close">'+ICON.x+'</button></div><div class="ig-body">'+tabs+'<div class="mt16">'+body+'</div>'+accuracy+callout+disc+'</div></div></div>';
+  if(typeof afterRender==='function') afterRender();
+}
+function openIntegrationGuide(){ if(!appState.igVisited){ appState.igDisclaimers=true; appState.igVisited=true; } appState.igTab='sdk'; log.event('ig:open',{}); renderIntegrationGuide(); }
+function closeIntegrationGuide(){ el('overlays').innerHTML=''; }
+
+/* ============================================================
    SECTION J — AUTH, DROPDOWNS, PALETTE, MODALS
    ============================================================ */
 function doLogin(email, pass){
@@ -3096,7 +3203,7 @@ function paletteItems(q){ q=(q||'').toLowerCase(); const items=[];
   getAudioFiles().forEach(f=>add('Audio','bolt',f.name,'open-audio',{id:f.id}));
   getVideoFiles().forEach(f=>add('Video','image',f.name,'open-video',{id:f.id}));
   getEntityProjects().forEach(p=>add('Entity Labelling','tag',p.name,'nav-entity',{id:p.id}));
-  [['Upload dataset','upload-dataset',null],['Upload document','upload-document',null],['Correct OCR regions','goto-ocr',null],['Start bulk ingestion job','bulk-start',null],['View bulk job status','bulk-status',null],['View deduplication report','bulk-status',null],['View annotation project','goto-annotation',null],['Run eval','nav','eval'],['New project','new-project',null],['New experiment','new-experiment',null],['About platform / Guide','nav','guide'],['Open FAQ','nav','guide'],['Upload audio','upload-audio',null],['Upload video','upload-video',null],['Correct audio segments','goto-audio-corr',null],['Review video frames','goto-video-corr',null],['Open inference monitor','nav','monitor'],['Configure monitor','configure-monitor',null],['Rank preferences (RLHF)','goto-pref',null],['Label entities','goto-entity',null]].forEach(a=>add('Actions','plus',a[0],a[1],a[2]?{view:a[2]}:{}));
+  [['Upload dataset','upload-dataset',null],['Upload document','upload-document',null],['Correct OCR regions','goto-ocr',null],['Start bulk ingestion job','bulk-start',null],['View bulk job status','bulk-status',null],['View deduplication report','bulk-status',null],['View annotation project','goto-annotation',null],['Run eval','nav','eval'],['New project','new-project',null],['New experiment','new-experiment',null],['About platform / Guide','nav','guide'],['Open FAQ','nav','guide'],['Upload audio','upload-audio',null],['Upload video','upload-video',null],['Correct audio segments','goto-audio-corr',null],['Review video frames','goto-video-corr',null],['Open inference monitor','nav','monitor'],['Configure monitor','configure-monitor',null],['View integration guide','view-integration-guide',null],['Rank preferences (RLHF)','goto-pref',null],['Label entities','goto-entity',null]].forEach(a=>add('Actions','plus',a[0],a[1],a[2]?{view:a[2]}:{}));
   const filtered = q ? items.filter(i=>i.label.toLowerCase().includes(q)||i.group.toLowerCase().includes(q)) : items.slice(0,12);
   return filtered.slice(0,40);
 }
@@ -3229,6 +3336,12 @@ function dispatch(action, d){
     case 'cold-review': setView('review'); appState.reviewTab=d.tab||'datasets'; renderView(); break;
     case 'approve-seeds': approveCorpusSeeds(); break;
     case 'reject-seeds': { corpusSeeds=corpusSeeds.filter(s=>s.tenantId!==currentTenant.id); log.event('seeds:reject',{}); showToast('Corpus seed batch rejected','info'); appState.reviewTab='datasets'; renderView(); break; }
+    // --- Integration guide (spec §32) ---
+    case 'view-integration-guide': case 'connect-app': openIntegrationGuide(); break;
+    case 'close-ig': closeIntegrationGuide(); break;
+    case 'ig-tab': appState.igTab=d.tab; renderIntegrationGuide(); break;
+    case 'ig-copy': copyText(IG_SNIPPETS[d.key]||''); break;
+    case 'ig-download-compose': download('docker-compose.yml', IG_COMPOSE_FULL, 'text/yaml'); log.event('ig:download-compose',{}); showToast('docker-compose.yml downloaded','ok'); break;
     // --- Preference ranking (spec §24) ---
     case 'pref-choose': { const p=byId(prefPairs,d.id); if(p&&assertTenant(p)){ p.chosen=d.choice; renderView(); } break; }
     case 'pref-dim': { const p=byId(prefPairs,d.id); if(p&&assertTenant(p)){ p.dims[d.dim]=p.dims[d.dim]===d.v?null:d.v; renderView(); } break; }
@@ -3802,8 +3915,9 @@ document.addEventListener('click', e=>{
   if(!e.target.closest('.dropdown') && !e.target.closest('[data-action="toggle-proj"],[data-action="toggle-rel"],[data-action="toggle-notif"],[data-action="user-menu"]')) closeAllDropdowns();
   if(!t) return;
   const action=t.dataset.action;
-  // scrim/modal background clicks
-  if((action==='close-modal'||action==='close-palette'||action==='close-panel') && stop && stop!==t && e.target!==t && t.contains(stop)) { /* clicked inside */ }
+  // Backdrop-close actions must only fire on a direct scrim click, not clicks inside the
+  // stop container (the guide/modal body) that bubble up to the scrim's data-action.
+  if(action==='close-ig' && stop) return;
   e.stopPropagation();
   dispatch(action, {...t.dataset, do:t.dataset.do});
 });

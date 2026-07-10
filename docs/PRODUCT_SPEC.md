@@ -2720,3 +2720,327 @@ Add one cold start project to IITM Pravartak tenant:
 68. Corpus Seeds notification: show in bell dropdown when seeds >= 50. Badge on Review Queue dock icon does NOT include seed count — seeds are not review tasks, they are approval decisions.
 69. What Cueval stores disclaimer: show as a one-line note under the inference detail panel: "Content stored only if flagged and transfer permitted. Embeddings and scores only by default."
 70. Sovereign mode indicator: if project is configured as sovereign, show a "🔒 Sovereign" badge on the Monitor screen header. Tooltip: "All scoring runs on your infrastructure. No content leaves your network."
+
+---
+
+## 32. DELTA — INTEGRATION GUIDE SCREEN
+
+### Where It Lives
+Monitor Configuration → bottom of screen → [View Integration Guide →] button
+Also accessible from: empty Monitor screen when no app connected → [Connect Your Application]
+
+---
+
+### Integration Guide Screen
+
+Full-screen modal or dedicated view. Three tabs across top.
+
+---
+
+### Tab 1 — SDK Wrapper
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  SDK Wrapper                                                │
+│  Simplest integration. One code change. Recommended for     │
+│  applications where adding a Python/JS dependency is fine.  │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  SETUP CHECKLIST                                            │
+│  ☑ Install Cueval SDK (pip install cueval-sdk)             │
+│  ☑ Add project ID and API key to environment               │
+│  ☐ Wrap model call with monitor.generate()                 │
+│  ☐ Pass context documents if using RAG                     │
+│  ☐ Notify Cueval on model version change                   │
+│  ☐ Add feedback widget to application UI                   │
+│                                                             │
+│  INTEGRATION SNIPPET                                        │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │ from cueval import monitor                          │   │
+│  │                                                     │   │
+│  │ # Initialise once at app startup                    │   │
+│  │ monitor.init(                                       │   │
+│  │   project_id  = "legal-ai-prod",                   │   │
+│  │   api_key     = os.environ["CUEVAL_KEY"],           │   │
+│  │   model_ver   = "v1.2",                             │   │
+│  │   sovereign   = False                               │   │
+│  │ )                                                   │   │
+│  │                                                     │   │
+│  │ # Replace your existing model call                  │   │
+│  │ # Before:                                           │   │
+│  │ # response = model.generate(instruction, context)   │   │
+│  │                                                     │   │
+│  │ # After:                                            │   │
+│  │ response = monitor.generate(                        │   │
+│  │   model       = model,                              │   │
+│  │   instruction = instruction,                        │   │
+│  │   context     = context,   # pass if RAG            │   │
+│  │ )                                                   │   │
+│  │ # response is identical — no application change     │   │
+│  └─────────────────────────────────────────────────────┘   │
+│  [Copy]                                                     │
+│                                                             │
+│  FEEDBACK WIDGET SNIPPET                                    │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │ # After showing response to user:                   │   │
+│  │ monitor.feedback(                                   │   │
+│  │   inference_id = response.inference_id,             │   │
+│  │   rating       = "positive" | "negative",           │   │
+│  │   comment      = user_comment  # optional           │   │
+│  │ )                                                   │   │
+│  └─────────────────────────────────────────────────────┘   │
+│  [Copy]                                                     │
+│                                                             │
+│  ⚠️ KNOWN LIMITATIONS — SDK WRAPPER                        │
+│  • Context docs must be passed explicitly — not captured   │
+│    automatically. Without them, factuality scoring off.    │
+│  • Background embedding adds 10–50ms in separate thread.   │
+│    First inference after cold start may not be embedded.   │
+│  • Logprobs only captured if model returns them.           │
+│    Most hosted APIs do not. Confidence signal likely off.  │
+│  • Multi-turn: pass last 2 turns as context for better     │
+│    drift scoring. Single-turn scoring only by default.     │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### Tab 2 — Sidecar Service
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Sidecar Service                                            │
+│  No application code change. Proxy intercepts model calls. │
+│  Best for legacy systems or multiple calling services.      │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  SETUP CHECKLIST                                            │
+│  ☑ Deploy Cueval sidecar container                         │
+│  ☐ Point application model endpoint to sidecar URL         │
+│  ☐ Set original model endpoint in sidecar config           │
+│  ☐ Configure project ID and API key in sidecar env         │
+│  ☐ Add feedback endpoint call to application UI            │
+│  ☐ Notify sidecar on model version change via API          │
+│                                                             │
+│  DOCKER COMPOSE SNIPPET                                     │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │ cueval-sidecar:                                     │   │
+│  │   image: cueval/sidecar:latest                      │   │
+│  │   ports: ["8080:8080"]                              │   │
+│  │   environment:                                      │   │
+│  │     CUEVAL_PROJECT_ID: "legal-ai-prod"              │   │
+│  │     CUEVAL_API_KEY:    "${CUEVAL_KEY}"              │   │
+│  │     MODEL_ENDPOINT:    "http://your-model:8000"     │   │
+│  │     MODEL_VERSION:     "v1.2"                       │   │
+│  │     SOVEREIGN:         "false"                      │   │
+│  └─────────────────────────────────────────────────────┘   │
+│  [Copy]                                                     │
+│                                                             │
+│  APPLICATION CHANGE                                         │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │ # Only change: point to sidecar instead of model   │   │
+│  │ MODEL_URL = "http://cueval-sidecar:8080/generate"   │   │
+│  │ # API signature identical to original endpoint      │   │
+│  └─────────────────────────────────────────────────────┘   │
+│  [Copy]                                                     │
+│                                                             │
+│  ⚠️ KNOWN LIMITATIONS — SIDECAR                            │
+│  • Context documents not automatically captured from        │
+│    RAG retrieval. Must be passed in request headers.       │
+│    Requires application-side instrumentation.              │
+│  • Adds one network hop — typically 2–5ms additional       │
+│    latency. Negligible for most applications.              │
+│  • Sidecar must be kept up to date — outdated sidecar      │
+│    version may produce inconsistent scoring signals.       │
+│  • Streaming responses: partial support. Scoring runs      │
+│    after stream completes — not on partial tokens.         │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### Tab 3 — On-Premise Agent
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  On-Premise Agent    🔒 Sovereign                           │
+│  All scoring on your infrastructure. Nothing leaves your   │
+│  network. Required for sovereign / air-gapped deployments. │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  SETUP CHECKLIST                                            │
+│  ☑ Deploy Cueval on-premise stack (Docker Compose)         │
+│  ☐ Configure local scoring models (MiniLM, FastText)       │
+│  ☐ Configure local LLM judge (Ollama / vLLM)              │
+│  ☐ Point SDK or sidecar to local Cueval endpoint           │
+│  ☐ Configure outbound: scores only, no content             │
+│  ☐ Verify air-gap: run network isolation test              │
+│                                                             │
+│  WHAT STAYS ON YOUR NETWORK                                 │
+│  ✅ Raw instructions and responses — never transmitted      │
+│  ✅ Context documents — never transmitted                   │
+│  ✅ All scoring computation — runs locally                  │
+│  ✅ Embeddings — generated and stored locally               │
+│  ✅ Review queue — accessed via local Cueval UI             │
+│                                                             │
+│  WHAT IS TRANSMITTED TO CUEVAL CLOUD (if enabled)          │
+│  → Aggregated score metrics only (no content)              │
+│  → Model version change notifications                      │
+│  → Plan usage counts (row counts, eval counts)             │
+│  → Software update checks (version numbers only)           │
+│                                                             │
+│  FULLY AIR-GAPPED OPTION                                    │
+│  Disable all outbound. Cueval runs entirely offline.        │
+│  Software updates delivered as signed package files.        │
+│  Plan management handled via offline licence key.           │
+│  [Configure Air-Gap Mode →]                                 │
+│                                                             │
+│  DOCKER COMPOSE SNIPPET                                     │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │ # Full on-premise stack                             │   │
+│  │ services:                                           │   │
+│  │   cueval-api:                                       │   │
+│  │   cueval-frontend:                                  │   │
+│  │   cueval-worker:                                    │   │
+│  │   cueval-scoring:    # local scoring models         │   │
+│  │   ollama:            # local LLM judge              │   │
+│  │   postgres:                                         │   │
+│  │   redis:                                            │   │
+│  │   minio:                                            │   │
+│  └─────────────────────────────────────────────────────┘   │
+│  [Copy] [Download Full Compose File]                        │
+│                                                             │
+│  ⚠️ KNOWN LIMITATIONS — ON-PREMISE                         │
+│  • Local LLM judge (7B model) less accurate than cloud     │
+│    judge. Calibration required — see Section 29.           │
+│  • GPU recommended for scoring at > 1,000 inferences/day. │
+│    CPU-only viable below this threshold.                   │
+│  • Software updates manual — Lynkstr ships signed          │
+│    packages. Auto-update not available in air-gap mode.    │
+│  • Cueval dashboard accessible on local network only.      │
+│    Remote access requires client's own VPN/tunnelling.     │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### Accuracy Expectations Panel
+
+Below the three tabs — always visible regardless of active tab.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  What to Expect — Scoring Accuracy                         │
+├──────────────────────────────┬──────────────────────────────┤
+│  Scenario                    │  Realistic Accuracy          │
+├──────────────────────────────┼──────────────────────────────┤
+│  RAG · English · corpus >2K  │  75–82%  ✅ Most reliable   │
+│  RAG · Indic · corpus >2K    │  58–68%  🟡 Improving       │
+│  Non-RAG · any language      │  45–55%  🟡 Policy + feedback│
+│  Cold start · corpus <500    │  30–40%  ⚠️ Building        │
+├──────────────────────────────┴──────────────────────────────┤
+│                                                             │
+│  False positive rate (flagged but actually fine):  18–25%  │
+│  False negative rate (bad but not flagged):        8–15%   │
+│                                                             │
+│  These figures improve as corpus grows and reviewers       │
+│  provide feedback on flags. A dismissed flag teaches the   │
+│  system what acceptable looks like for your domain.        │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### Disclaimers Panel
+
+Below accuracy panel. Collapsible. Expanded by default on first visit, collapsed on return.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Disclaimers  [▾ collapse]                                  │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  ACCURACY                                                   │
+│  Cueval's inference scoring is probabilistic triage, not   │
+│  verification. A high score does not certify correctness.  │
+│  A low score does not certify a response is wrong. Human   │
+│  review makes the final determination in all cases.        │
+│                                                             │
+│  COVERAGE                                                   │
+│  Scoring accuracy depends on corpus size, context docs at  │
+│  inference time, and policy rule configuration. A newly    │
+│  connected project will have lower coverage than a mature  │
+│  project. Coverage improves with annotation activity.      │
+│                                                             │
+│  RAG DEPENDENCY                                            │
+│  Factuality and hallucination scoring only apply to RAG    │
+│  inferences where context documents are provided. For      │
+│  models answering from training knowledge alone, these     │
+│  signals are disabled.                                     │
+│                                                             │
+│  INDIC LANGUAGES                                           │
+│  Scoring accuracy for Indic languages is 10–20% lower than │
+│  English due to limitations in available NLI and embedding │
+│  models. Cueval is actively improving Indic accuracy.      │
+│                                                             │
+│  NOT A COMPLIANCE TOOL                                     │
+│  Cueval does not certify outputs for regulated industries  │
+│  (medical, legal, financial, defence). Clients are         │
+│  responsible for their own compliance frameworks.          │
+│                                                             │
+│  DATA                                                      │
+│  Cueval stores embeddings and quality signals by default,  │
+│  not raw content. Content transfer only when explicitly    │
+│  configured. Sovereign mode: all processing on-premise,    │
+│  no data leaves client network under any configuration.    │
+│                                                             │
+│  MODEL INTERNALS                                           │
+│  Cueval assesses observed inputs and outputs only. It      │
+│  cannot explain why a model produced a response, only      │
+│  whether it meets configured quality criteria.             │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### Version Change Notification API
+
+Referenced in all three integration tabs. Show as a standalone callout:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  ⚠️  Always notify Cueval when you deploy a new model       │
+│  version. Without this, scoring baselines drift silently.  │
+│                                                             │
+│  monitor.notify_deployment(                                 │
+│    model_version = "v1.3",                                  │
+│    deployed_at   = datetime.utcnow(),                       │
+│    changelog     = "Improved factuality on legal queries"  │
+│  )                                                          │
+│  [Copy]                                                     │
+│                                                             │
+│  This call:                                                 │
+│  • Marks a deployment event on the Monitor timeline        │
+│  • Resets regression detection baseline to current scores  │
+│  • Creates a version comparison checkpoint automatically   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### Implementation Notes for Claude Code (delta)
+
+71. Integration Guide opens as a full-screen overlay (z-index above everything). Close button top right. Escape key closes.
+72. Tab switching in Integration Guide: instant — no animation needed. Content is dense, tab switch should feel snappy.
+73. All code snippets: syntax highlighted using CSS classes (keyword, string, comment colours from design system). [Copy] button copies raw text without HTML tags.
+74. Setup checklist items: first two pre-checked (☑) as "done by Cueval" steps. Remaining unchecked (☐) as "your steps". Not interactive — informational only.
+75. Accuracy table: render as a styled HTML table. False positive / negative rates shown below table in plain text, not in table rows — different nature of metric.
+76. Disclaimers panel: remember collapsed/expanded state in JS variable per session. Default expanded on first render of the screen.
+77. Version change notification callout: shown as a distinct amber-bordered box. Not part of any tab — appears below all three tabs, always visible.
+78. [Download Full Compose File] button in On-Premise tab: triggers download of a mock docker-compose.yml file with all services listed. Use Blob + createObjectURL same as dataset export.
+79. Known limitations in each tab: rendered as amber warning box with ⚠️ icon. Each limitation is a separate line. Not collapsible.
+80. On-Premise tab: 🔒 Sovereign badge in tab label itself — visible before clicking the tab.
