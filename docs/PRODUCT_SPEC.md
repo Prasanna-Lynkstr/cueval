@@ -1088,3 +1088,312 @@ Add searchable actions:
 - "Configure chunking for [document name]"
 - "Generate pairs from [document name]"
 - Search documents by name
+
+---
+
+## 20. BULK INGESTION MODULE (CORPUS SCALE)
+
+### Overview
+Separate mode from standard document upload. Designed for 10K–500K document corpus ingestion. Accessible via UI (this prototype) and eventually via API/CLI. Demonstrates scale-aware architecture visually even in the mock.
+
+---
+
+### New Navigation Item
+Add under Documents dock icon — secondary tab:
+```
+📄  Documents
+    ├── My Documents    (existing — single/small batch upload)
+    └── Bulk Ingestion  (new — corpus scale)
+```
+
+---
+
+### Bulk Ingestion Screen
+
+**Entry point:**
+Large card on Documents screen:
+```
+┌─────────────────────────────────────────┐
+│  📦  Bulk Corpus Ingestion              │
+│  For large document sets (1K–500K PDFs) │
+│  API, folder path, or S3 bucket         │
+│  [Start Bulk Job]                       │
+└─────────────────────────────────────────┘
+```
+
+---
+
+### New Bulk Job Wizard (3 steps)
+
+**Step 1 — Source Configuration**
+```
+Source type (radio):
+○ Upload folder (zip)
+○ S3 / Object Storage bucket path
+○ API push (show endpoint + token)
+
+Bucket path:  [s3://pravartak-corpus/audit-docs/          ]
+Credentials:  [Auto-detected from server config            ]
+
+Document types to include (checkboxes):
+☑ PDF (digital)   ☑ PDF (scanned)   ☑ DOCX   ☐ Images only
+
+Estimated count: [Auto-detected after path scan: 51,240 files]
+Estimated size:  [Auto-detected: 284 GB                       ]
+```
+
+**Step 2 — Processing Configuration**
+```
+OCR Language Pack:
+☑ English   ☑ Hindi   ☑ Tamil   ☐ Telugu   ☐ Kannada   ☐ Malayalam
+
+Chunking strategy (applied to all):
+○ Auto-detect per document (recommended)
+○ Structural   ○ Semantic   ○ Paragraph   ○ Fixed size
+
+Instruction pair synthesis:
+○ Skip (extract text + chunks only)
+○ Generate pairs after chunking
+  Pair types: ☑ QA   ☑ Summarisation   ☐ Extraction
+
+Deduplication:
+☑ File-level (SHA256 — instant, always on)
+☑ Content near-duplicate (MinHash — runs after extraction)
+  Similarity threshold: [0.92 ▾]
+
+Worker allocation:
+CPU workers:  [20 ▾]   (parallel document processors)
+GPU workers:  [2  ▾]   (scanned OCR acceleration, if available)
+
+Estimated processing time: ~2.4 days
+Estimated compute cost:    ~₹11,200 (one-time burst)
+```
+
+**Step 3 — Review Queue Configuration**
+```
+OCR confidence threshold for human review:
+Auto-route regions below [60%▾] confidence to correction queue
+
+Annotation team assignment:
+Language    Assigned to            Target SLA
+English  →  [Batch Auto-assign ▾]  [3 days  ▾]
+Hindi    →  [Ravi Kumar        ▾]  [5 days  ▾]
+Tamil    →  [Priya S           ▾]  [7 days  ▾]
+
+Skip correction for documents where:
+○ Avg confidence > 85% (accept automatically)
+○ Never skip — review everything
+● Skip if avg confidence > 75% (recommended)
+
+[Start Ingestion Job]
+```
+
+---
+
+### Bulk Job Dashboard (main view after job starts)
+
+Full-screen live status view. Mock animates counters incrementing in real time.
+
+**Top strip — key numbers:**
+```
+Total Files    Queued      Processing   Complete    Failed    Skipped (dup)
+  51,240       31,840        200         18,942       258        1,847
+```
+Progress bar across full width: 37% complete. Estimated completion: 1d 14h remaining.
+
+**Pipeline stage funnel (animated):**
+```
+Detected      →  Deduped    →  Extracted  →  OCR'd     →  Chunked   →  Ready
+51,240           49,393        41,200        31,840        18,942       12,105
+                 -1,847 dups   -8,193        -9,360        -12,898
+                               (failed/      (queued)      (queued)
+                                queued)
+```
+Each stage shows count + drop-off explanation.
+
+**Live worker status panel:**
+```
+Worker          Status          Current Doc              Speed
+cpu-worker-01   Processing      audit_report_4521.pdf    12 docs/min
+cpu-worker-02   Processing      circular_TN_2019.pdf     8 docs/min
+cpu-worker-03   Idle            —                        —
+...
+gpu-worker-01   OCR Running     scanned_order_8821.pdf   4 docs/min
+gpu-worker-02   OCR Running     gazette_hindi_003.pdf    3 docs/min
+```
+
+**Failure log (collapsible panel):**
+```
+Doc ID      Filename                    Stage       Reason              Action
+doc_4821    corrupted_scan_991.pdf      Pre-process Unreadable file      [Skip] [Retry]
+doc_7103    arabic_contract.pdf         OCR         Unsupported script   [Skip]
+doc_9341    empty_document.pdf          Extract     No text found        [Skip]
+```
+[Retry All Failed] [Export Failure Log]
+
+**Deduplication report:**
+```
+1,847 duplicates detected and skipped
+  - 1,203 exact duplicates (SHA256 match)
+  - 644 near-duplicates (content similarity > 0.92)
+
+Top duplicate clusters:
+  "Budget_Circular_2023.pdf" — 47 identical copies
+  "Standard_Operating_Procedure.pdf" — 31 copies
+  [View All Clusters]
+```
+
+---
+
+### Annotation Project View
+
+When bulk job generates a large OCR correction backlog, it creates an **Annotation Project** — not just a queue.
+
+Accessed from: Review Queue → OCR Corrections → [View as Project]
+
+**Project header:**
+```
+Annotation Project: Audit Corpus OCR Review
+Documents: 51,240   Regions flagged: 14,832   Corrected: 3,241 (21%)
+Team: 4 annotators   Target: 7 days   Status: In Progress
+```
+
+**Assignment table:**
+```
+Annotator       Language    Assigned    Complete    Remaining   Pace        ETA
+Ravi Kumar      Hindi       4,200       1,840       2,360       420/day     5.6 days
+Priya S         Tamil       6,100       890         5,210       180/day     28 days ⚠️
+Auto-assign     English     3,200       510         2,690       —           —
+Unassigned      Telugu      1,332       0           1,332       —           —  ⚠️
+```
+
+Warnings surface automatically:
+- Priya S at current pace won't meet deadline → [Reassign some load]
+- Telugu has no annotator assigned → [Assign Now]
+
+**Document-level progress (table):**
+```
+Document                        Pages  Regions  Corrected  Status
+audit_report_TN_2021.pdf         48     312       312      ✅ Complete
+gazette_notification_2019.pdf    12     84        41       🔄 In Progress
+scanned_circular_hindi_88.pdf    6      156       0        ⏳ Not Started
+```
+
+Click any document → see its regions, correction status, assigned annotator.
+
+---
+
+### Cost Tracker (shown throughout bulk job)
+
+Persistent panel on bulk ingestion dashboard:
+
+```
+Compute Cost Breakdown
+──────────────────────────────────
+CPU workers (20×, 2.4 days)    ₹8,400
+GPU workers (2×, 2.4 days)     ₹2,800
+Storage (284GB raw + outputs)  ₹1,200
+LLM pair synthesis (est.)      ₹3,600
+──────────────────────────────────
+Total estimated                ₹16,000
+Spent so far                   ₹5,940
+```
+
+---
+
+### Mock Data for Bulk Ingestion
+
+Pre-load one completed bulk job per tenant to show history:
+
+**IITM Pravartak:**
+```javascript
+{
+  name: "Audit Corpus 2015–2024",
+  totalFiles: 51240,
+  status: "in_progress",
+  complete: 18942,
+  failed: 258,
+  duplicatesSkipped: 1847,
+  ocrRegionsFlagged: 14832,
+  ocrRegionsCorrected: 3241,
+  workersActive: 22,
+  startedAt: "2025-06-28T09:00:00",
+  estimatedCompletion: "2025-07-01T11:30:00",
+  computeCostSoFar: 5940
+}
+```
+
+**Legal AI Corp:**
+```javascript
+{
+  name: "Legal Document Corpus v1",
+  totalFiles: 12400,
+  status: "complete",
+  complete: 12400,
+  failed: 43,
+  duplicatesSkipped: 892,
+  ocrRegionsFlagged: 2841,
+  ocrRegionsCorrected: 2841,
+  startedAt: "2025-06-01T08:00:00",
+  completedAt: "2025-06-03T14:22:00",
+  computeCostTotal: 4200
+}
+```
+
+**HealthBot India:**
+```javascript
+{
+  name: "Clinical Guidelines Hindi",
+  totalFiles: 3200,
+  status: "complete",
+  complete: 3200,
+  failed: 12,
+  duplicatesSkipped: 341,
+  ocrRegionsFlagged: 8920,
+  ocrRegionsCorrected: 4100,   // only 46% corrected — at plan limit
+  startedAt: "2025-06-10T10:00:00",
+  completedAt: "2025-06-12T16:00:00",
+  computeCostTotal: 2800,
+  note: "OCR correction paused — row limit reached. Upgrade to continue."
+}
+```
+
+HealthBot India shows upgrade CTA prominently in the annotation project view — 4,820 regions uncorrected because they hit their Starter plan row limit.
+
+---
+
+### Updated Dashboard CTAs for Bulk Jobs
+
+```
+Admin:       "Bulk job 37% complete — 1d 14h remaining" → [View Job]
+PM:          "Tamil annotation team behind schedule — 28 days at current pace" → [Reassign]
+ML Engineer: "18,942 documents ready for chunking" → [Configure Chunking]
+Architect:   "1,847 duplicates removed — view dedup report" → [View Report]
+Annotator:   "You have 2,360 Hindi corrections remaining" → [Continue]
+```
+
+---
+
+### Updated Command Palette Actions
+
+```
+"Start bulk ingestion job"
+"View bulk job status"
+"View deduplication report"
+"Reassign annotation workload"
+"Export failure log"
+"Retry failed documents"
+"View annotation project"
+```
+
+---
+
+### Implementation Notes for Claude Code
+
+23. Bulk job dashboard counters should animate — increment mock numbers every 2 seconds to simulate live processing. Use setInterval with realistic increments (10–15 docs/second across all workers).
+24. Pipeline funnel numbers must stay mathematically consistent as they animate — complete + processing + queued must always sum to total minus duplicates minus failed.
+25. Worker status table updates every 3 seconds — rotate which worker is processing which document name from a pre-defined list.
+26. Annotation project ETA calculates from pace — if pace changes, ETA updates. Show ⚠️ if ETA exceeds target.
+27. Cost tracker increments in real time proportional to job progress.
+28. HealthBot India bulk job must show upgrade CTA blocking further OCR correction — annotation project view shows a locked state with [Upgrade Plan] button.
+29. All bulk job history persists in mock data — switching tenants shows that tenant's jobs only.

@@ -527,16 +527,28 @@ const appState = {
   evalResult:null,                         // last eval shown in harness
   superView:'tenants', superTenant:null,   // superadmin sub-state
   docView:'list', docId:null,              // Documents screen: list | chunk | synth
+  docTab:'mine',                           // Documents: mine | bulk
   reviewTab:'datasets',                    // review queue tab: datasets | ocr
   chunkStrategy:'structural', chunkSize:220, chunkOverlap:20, // chunking config
   synthTypes:['QA Pairs'], synthPerChunk:2, synthLLM:'Mock', // synthesis config
+  bulkView:'list', bulkStep:1, bulkJobId:null, showFailures:false, // bulk ingestion (spec §20)
+  annotationJobId:null,                    // annotation project view
+  bulkConfig:null,                         // wizard config in progress
 };
 // Document-ingestion collections (populated in initMockData — after Section E)
 let documents = [];
 let ocrRegions = [];
 let chunks = [];
+let bulkJobs = [];
 
-function setView(v){ currentView=v; appState.panel=null; renderShell(); log.event('nav',{view:v}); }
+// Live-timer registry — every setInterval/timeout that drives an on-screen
+// animation is registered here and cleared on any view change (CLAUDE.md §10:
+// no polling loop outlives the screen that started it).
+let liveTimers = [];
+function registerTimer(id){ liveTimers.push(id); return id; }
+function clearScreenTimers(){ liveTimers.forEach(id=>clearInterval(id)); liveTimers=[]; }
+
+function setView(v){ clearScreenTimers(); currentView=v; appState.panel=null; renderShell(); log.event('nav',{view:v}); }
 
 /* ============================================================
    SECTION D — DATA ACCESSORS  (tenant isolation boundary, CLAUDE.md §5)
@@ -558,6 +570,8 @@ function getActivity(){ return scoped(activity); }
 function getDocuments(){ return scoped(documents); }
 function getOcrRegions(){ return scoped(ocrRegions); }
 function getChunks(){ return scoped(chunks); }
+function getBulkJobs(){ return scoped(bulkJobs); }
+function activeBulkJob(){ return byId(getBulkJobs(), appState.bulkJobId) || getBulkJobs()[0] || null; }
 function regionsForDoc(docId){ return getOcrRegions().filter(r=>r.documentId===docId); }
 function chunksForDoc(docId){ return getChunks().filter(c=>c.documentId===docId).sort((a,b)=>a.chunkIndex-b.chunkIndex); }
 function findRegion(id){ return byId(ocrRegions, id) || null; }
@@ -868,6 +882,7 @@ function renderShell(){
 
 // screen dispatch
 function renderView(){
+  clearScreenTimers(); // stop any animation from the previous screen (§10)
   const c=el('canvas'); if(!c) return;
   const map = {
     dashboard:screenDashboard, projects:screenProjects, datasets:screenDatasets, documents:screenDocuments, review:screenReview,
@@ -878,6 +893,8 @@ function renderView(){
   c.innerHTML = '<div class="view-anim">'+guard(fn, currentView)()+'</div>';
   c.scrollTop=0;
   if(typeof afterRender==='function') afterRender();
+  // Kick live animation only when the bulk dashboard is actually on screen.
+  if(currentView==='documents' && appState.docTab==='bulk' && appState.bulkView==='dashboard'){ startBulkAnimation(); }
 }
 
 /* ---- Right panel ---- */
@@ -963,6 +980,21 @@ function myWorkCard(){
   const role=currentUser.role; const pend=pendingCount();
   const ocrPend=ocrPendingCount(); const docs=getDocuments();
   const readyDoc=docs.find(d=>d.status==='ready-chunk'); const flaggedDoc=docs.filter(d=>d.regionsFlagged>0).sort((a,b)=>b.regionsFlagged-a.regionsFlagged)[0];
+  // Bulk-job-aware CTAs take priority when a live bulk job exists (spec §20)
+  const bulk=getBulkJobs().find(j=>j.status==='in_progress');
+  if(bulk){
+    const pct=Math.round(bulk.complete/bulk.totalFiles*100);
+    const behind=bulk.annotators.find(a=>{ const e=annotatorEta(a); return e.days!==null && e.days>7; });
+    const bmap={
+      Admin:['Bulk job '+pct+'% complete', escapeHtml(bulk.estimatedCompletion), 'View Job','bulk-open','id',bulk.id],
+      ProjectManager: behind?[LANG_LABEL[behind.lang]+' annotation team behind schedule', annotatorEta(behind).days+' days at current pace', 'Reassign','view-annotation-project','id',bulk.id]:['Bulk job '+pct+'% complete','monitor progress','View Job','bulk-open','id',bulk.id],
+      MLEngineer:[fmtNum(bulk.funnel.chunked)+' documents ready for chunking', 'from '+escapeHtml(bulk.name), 'Configure Chunking','bulk-open','id',bulk.id],
+      Architect:[fmtNum(bulk.duplicatesSkipped)+' duplicates removed', 'review the deduplication report', 'View Report','bulk-open','id',bulk.id],
+      Annotator:[fmtNum(bulk.annotators[0].assigned-bulk.annotators[0].complete)+' '+LANG_LABEL[bulk.annotators[0].lang]+' corrections remaining', 'in '+escapeHtml(bulk.name), 'Continue','goto-ocr','',''],
+    };
+    const bm=bmap[role]; if(bm){ const da=bm[4]?' data-'+bm[4]+'="'+escapeAttr(bm[5])+'"':'';
+      return '<div class="card" style="border-color:var(--coral)"><div class="section-h">My Work Today</div><div class="card-title">'+escapeHtml(bm[0])+'</div><div class="secondary mt4">'+bm[1]+'</div><button class="btn btn-primary mt16" data-action="'+bm[3]+'"'+da+'>'+escapeHtml(bm[2])+ICON.arrowR+'</button></div>'; }
+  }
   // [title, sub, ctaLabel, action, dataKey, dataVal] — document-aware CTAs (spec §19)
   const map = {
     Annotator: ocrPend>0
@@ -1157,7 +1189,12 @@ function screenReview(){
     +'<button class="chip '+(tab==='ocr'?'is-on':'')+'" data-action="review-tab" data-tab="ocr">OCR Corrections'+(oq.length?' <span class="pill pill-coral" style="padding:1px 6px">'+oq.length+'</span>':'')+'</button></div>';
   const title='<div class="row-between"><div><h1 class="page-h">Review Queue</h1><p class="page-sub">'+(tab==='ocr'?'Low-confidence OCR regions · lowest first':'Worst-scoring rows first')+'</p></div>'
     +(currentUser.role==='Reviewer'&&tab==='datasets'?'<button class="btn btn-ghost" data-action="review-batch">'+ICON.check+'Batch approval</button>':'')+'</div>'+tabBar;
-  if(tab==='ocr') return title+'<div class="mt24">'+reviewOcrPane()+'</div>';
+  if(tab==='ocr'){
+    if(appState.annotationJobId){ const j=byId(getBulkJobs(),appState.annotationJobId); if(j) return annotationProject(j); }
+    const job=getBulkJobs()[0];
+    const projBtn = job ? '<button class="btn btn-ghost btn-sm" data-action="view-annotation-project" data-id="'+job.id+'">'+ICON.users+'View as Project</button>' : '';
+    return title+'<div class="row-between mt16"><span class="secondary">'+ocrPendingCount()+' regions pending correction</span>'+projBtn+'</div><div class="mt16">'+reviewOcrPane()+'</div>';
+  }
   if(!q.length) return title+'<div class="mt24">'+emptyState('check','You\'re all caught up','No rows pending review. ✅','')+'</div>';
   const head=title;
   if(appState.reviewIndex>=q.length) appState.reviewIndex=0;
@@ -1489,17 +1526,20 @@ const DOC_STATUS_PILL={ processed:'blue', 'needs-review':'yellow', 'ready-chunk'
 const DOC_STATUS_LABEL={ processed:'Processed', 'needs-review':'Needs Review', 'ready-chunk':'Ready for Chunking', chunked:'Chunked', synthesised:'Pairs Synthesised' };
 function docStatusPill(s){ return '<span class="pill pill-'+(DOC_STATUS_PILL[s]||'muted')+'">'+(DOC_STATUS_LABEL[s]||s)+'</span>'; }
 
-/* ---- Documents screen (list / chunk / synth sub-views) ---- */
+/* ---- Documents screen (list / chunk / synth sub-views + bulk tab) ---- */
 function screenDocuments(){
+  // Bulk sub-screens own the whole canvas (their own back navigation).
+  if(appState.docTab==='bulk' && appState.bulkView!=='list') return screenBulk();
   if(appState.docView==='chunk' && activeDoc()) return screenChunking(activeDoc());
   if(appState.docView==='synth' && activeDoc()) return screenSynthesis(activeDoc());
-  return screenDocList();
+  const head='<div class="row-between"><div><h1 class="page-h">Documents</h1><p class="page-sub">Ingestion pipeline · OCR · chunking · pair synthesis</p></div>'
+    +(appState.docTab==='mine'&&can('Datasets')?'<button class="btn btn-primary" data-action="upload-document">'+ICON.upload+'Upload Documents</button>':'')+'</div>'+docTabBar();
+  return head+'<div class="mt8">'+(appState.docTab==='bulk'?screenBulk():screenDocList())+'</div>';
 }
 function screenDocList(){
   const docs=getDocuments();
-  const head='<div class="row-between"><div><h1 class="page-h">Documents</h1><p class="page-sub">Ingestion pipeline · OCR · chunking · pair synthesis</p></div>'
-    +(can('Datasets')?'<button class="btn btn-primary" data-action="upload-document">'+ICON.upload+'Upload Documents</button>':'')+'</div>';
-  if(!docs.length) return head+'<div class="mt24">'+emptyState('doc','No documents yet','Upload PDFs, scans, or images to start the ingestion pipeline.',(can('Datasets')?'<button class="btn btn-primary" data-action="upload-document">'+ICON.upload+'Upload Documents</button>':''))+'</div>';
+  if(!docs.length) return '<div class="mt24">'+emptyState('doc','No documents yet','Upload PDFs, scans, or images to start the ingestion pipeline.',(can('Datasets')?'<button class="btn btn-primary" data-action="upload-document">'+ICON.upload+'Upload Documents</button>':''))+'</div>';
+  const head='';
   let rows='';
   docs.forEach(d=>{ const scripts=d.scriptsDetected.map(s=>langPill(s)).join(' ');
     rows+='<tr data-action="open-doc" data-id="'+d.id+'"><td><div class="flex gap8">'+(d.format==='pdf-scanned'?ICON.image:ICON.doc)+'<span>'+escapeHtml(d.name)+'</span></div></td>'
@@ -1641,6 +1681,274 @@ function reviewOcrPane(){
 }
 
 /* ============================================================
+   SECTION I-BULK — BULK INGESTION MODULE (corpus scale, spec §20)
+   ============================================================ */
+const WORKER_DOCS=['audit_report_4521.pdf','circular_TN_2019.pdf','scanned_order_8821.pdf','gazette_hindi_003.pdf','budget_circular_2023.pdf','sop_finance_77.pdf','judgment_2021_dl.pdf','notification_ap_12.pdf','tender_doc_5590.pdf','minutes_meeting_88.pdf'];
+function initBulkJobs(){
+  bulkJobs=[
+    { id:'bulk1', tenantId:'tenant_pravartak', name:'Audit Corpus 2015–2024', totalFiles:51240, status:'in_progress',
+      complete:18942, processing:200, failed:258, duplicatesSkipped:1847, ocrRegionsFlagged:14832, ocrRegionsCorrected:3241,
+      workersActive:22, cpuWorkers:20, gpuWorkers:2, startedAt:'2025-06-28T09:00', estimatedCompletion:'1d 14h remaining',
+      computeCostSoFar:5940, computeCostTotal:16000, locked:false, config:defaultBulkConfig() },
+    { id:'bulk2', tenantId:'tenant_legalai', name:'Legal Document Corpus v1', totalFiles:12400, status:'complete',
+      complete:12400, processing:0, failed:43, duplicatesSkipped:892, ocrRegionsFlagged:2841, ocrRegionsCorrected:2841,
+      workersActive:0, cpuWorkers:16, gpuWorkers:2, startedAt:'2025-06-01T08:00', completedAt:'2025-06-03T14:22',
+      computeCostSoFar:4200, computeCostTotal:4200, locked:false, config:defaultBulkConfig() },
+    { id:'bulk3', tenantId:'tenant_healthbot', name:'Clinical Guidelines Hindi', totalFiles:3200, status:'complete',
+      complete:3200, processing:0, failed:12, duplicatesSkipped:341, ocrRegionsFlagged:8920, ocrRegionsCorrected:4100,
+      workersActive:0, cpuWorkers:8, gpuWorkers:1, startedAt:'2025-06-10T10:00', completedAt:'2025-06-12T16:00',
+      computeCostSoFar:2800, computeCostTotal:2800, locked:true, note:'OCR correction paused — row limit reached. Upgrade to continue.', config:defaultBulkConfig() },
+  ];
+  bulkJobs.forEach(j=>{ j.queued = Math.max(0, j.totalFiles - j.duplicatesSkipped - j.failed - j.complete - j.processing);
+    j.funnel=deriveFunnel(j); j.failures=sampleFailures(j); j.dedupClusters=sampleClusters(j); j.annotators=deriveAnnotators(j); });
+  log.info('[boot] bulk jobs ready — '+bulkJobs.length);
+}
+function defaultBulkConfig(){ return { source:'s3', bucket:'s3://pravartak-corpus/audit-docs/', types:['pdf-digital','pdf-scanned','docx'], langs:['en','hi','ta'], chunk:'auto', synth:'after', synthTypes:['QA','Summarisation'], dedupThreshold:0.92, cpu:20, gpu:2, ocrThreshold:60, skipAbove:75 }; }
+function deriveFunnel(j){
+  const deduped=j.totalFiles-j.duplicatesSkipped;
+  const extracted=Math.round(deduped*0.834);
+  const ocrd=j.complete+j.processing+Math.round(j.queued*0.4);
+  const chunked=j.complete;
+  const ready=Math.round(j.complete*0.64);
+  return { detected:j.totalFiles, deduped, extracted, ocrd, chunked, ready };
+}
+function sampleFailures(j){
+  if(!j.failed) return [];
+  return [
+    { id:'doc_4821', file:'corrupted_scan_991.pdf', stage:'Pre-process', reason:'Unreadable file' },
+    { id:'doc_7103', file:'arabic_contract.pdf', stage:'OCR', reason:'Unsupported script' },
+    { id:'doc_9341', file:'empty_document.pdf', stage:'Extract', reason:'No text found' },
+  ];
+}
+function sampleClusters(j){
+  if(!j.duplicatesSkipped) return [];
+  return [ { name:'Budget_Circular_2023.pdf', copies:47 }, { name:'Standard_Operating_Procedure.pdf', copies:31 }, { name:'Leave_Policy_2022.pdf', copies:18 } ];
+}
+function deriveAnnotators(j){
+  if(j.id==='bulk1') return [
+    { name:'Ravi Kumar', lang:'hi', assigned:4200, complete:1840, pace:420 },
+    { name:'Priya S', lang:'ta', assigned:6100, complete:890, pace:180 },
+    { name:'Auto-assign', lang:'en', assigned:3200, complete:510, pace:0 },
+    { name:'Unassigned', lang:'te', assigned:1332, complete:0, pace:0 },
+  ];
+  if(j.id==='bulk3') return [
+    { name:'Meera Pillai', lang:'hi', assigned:8920, complete:4100, pace:300 },
+  ];
+  return [ { name:'Sara Iyer', lang:'en', assigned:2841, complete:2841, pace:600 } ];
+}
+function annotatorEta(a){ const remaining=a.assigned-a.complete; if(a.pace<=0) return {remaining, days:null}; return {remaining, days:+(remaining/a.pace).toFixed(1)}; }
+
+/* ---- Documents screen tab bar (My Documents | Bulk Ingestion) ---- */
+function docTabBar(){
+  const t=appState.docTab;
+  return '<div class="flex gap8 mt16"><button class="chip '+(t==='mine'?'is-on':'')+'" data-action="doc-tab" data-tab="mine">'+ICON.doc+' My Documents</button>'
+    +'<button class="chip '+(t==='bulk'?'is-on':'')+'" data-action="doc-tab" data-tab="bulk">'+ICON.grid+' Bulk Ingestion</button></div>';
+}
+
+/* ---- Bulk Ingestion sub-screens ---- */
+function screenBulk(){
+  if(appState.bulkView==='wizard') return bulkWizard();
+  if(appState.bulkView==='dashboard' && activeBulkJob()) return bulkDashboard(activeBulkJob());
+  return bulkList();
+}
+function bulkList(){
+  const jobs=getBulkJobs();
+  const entry='<div class="card" style="background:linear-gradient(135deg,rgba(232,93,38,.08),rgba(214,51,132,.08));border-color:var(--border-active)">'
+    +'<div class="flex gap16" style="align-items:center"><div style="width:52px;height:52px;border-radius:14px;background:var(--gradient-brand);display:grid;place-items:center;color:#fff">'+ICON.grid+'</div>'
+    +'<div style="flex:1"><div class="card-title">Bulk Corpus Ingestion</div><div class="secondary mt4">For large document sets (1K–500K PDFs) — API, folder path, or S3 bucket.</div></div>'
+    +(can('Datasets')?'<button class="btn btn-primary" data-action="bulk-start">'+ICON.plus+'Start Bulk Job</button>':'')+'</div></div>';
+  let hist='';
+  if(jobs.length){ hist='<div class="section-h mt24">Job history</div><div class="card" style="padding:0;overflow:auto"><table class="tbl"><thead><tr><th>Job</th><th>Files</th><th>Status</th><th>Complete</th><th>Flagged</th><th>Cost</th><th></th></tr></thead><tbody>';
+    jobs.forEach(j=>{ const pct=Math.round(j.complete/j.totalFiles*100);
+      hist+='<tr data-action="bulk-open" data-id="'+j.id+'"><td><strong>'+escapeHtml(j.name)+'</strong>'+(j.locked?' <span class="pill pill-red">Locked</span>':'')+'</td><td class="mono">'+fmtNum(j.totalFiles)+'</td>'
+        +'<td>'+statusPill(j.status==='in_progress'?'running':'completed').replace(/>[^<]*</,'>'+(j.status==='in_progress'?'In Progress':'Complete')+'<')+'</td>'
+        +'<td class="mono">'+pct+'%</td><td class="mono">'+fmtNum(j.ocrRegionsFlagged)+'</td><td class="mono">'+fmtMoney(j.computeCostTotal)+'</td>'
+        +'<td><button class="btn btn-sm btn-ghost" data-action="bulk-open" data-id="'+j.id+'">View</button></td></tr>'; });
+    hist+='</tbody></table></div>'; }
+  else hist='<div class="mt24">'+emptyState('grid','No bulk jobs yet','Start a bulk job to ingest a document corpus at scale.','')+'</div>';
+  return entry+hist;
+}
+
+/* ---- 3-step wizard ---- */
+function bulkWizard(){
+  const step=appState.bulkStep; const cfg=appState.bulkConfig||(appState.bulkConfig=defaultBulkConfig());
+  const steps=['Source','Processing','Review Queue'];
+  let nav='<div class="flex gap8 mt16">'+steps.map((s,i)=>'<div class="pill '+(i+1===step?'pill-coral':i+1<step?'pill-green':'pill-muted')+'">'+(i+1<step?ICON.check:(i+1))+' '+s+'</div>').join(ICON.chevR)+'</div>';
+  let body='';
+  if(step===1){
+    body='<div class="card"><div class="section-h">Source configuration</div>'
+      +radioRow('bulk-src','Upload folder (zip)','folder',cfg.source==='folder')
+      +radioRow('bulk-src','S3 / Object Storage bucket path','s3',cfg.source==='s3')
+      +radioRow('bulk-src','API push (endpoint + token)','api',cfg.source==='api')
+      +(cfg.source==='api'?'<div class="card mono mt8" style="padding:12px;font-size:12px"><div>POST https://api.cueval.ai/v1/bulk/'+currentTenant.slug+'/push</div><div class="muted mt4">Authorization: Bearer sk_live_••••••••••••7f3a</div></div>'
+        :'<div class="mt12"><label class="field-label">Bucket path</label><input class="input mono" value="'+escapeAttr(cfg.bucket)+'" data-action="bulk-field" data-key="bucket"></div>'
+         +'<div class="mt8"><label class="field-label">Credentials</label><div class="input" style="background:var(--bg-elevated);color:var(--text-muted)">Auto-detected from server config</div></div>')
+      +'<div class="section-h mt16">Document types</div><div class="flex wrap gap6">'+bulkCheck('type','pdf-digital','PDF (digital)',cfg)+bulkCheck('type','pdf-scanned','PDF (scanned)',cfg)+bulkCheck('type','docx','DOCX',cfg)+bulkCheck('type','image','Images only',cfg)+'</div>'
+      +'<div class="grid-2 mt16"><div class="card" style="padding:12px;background:var(--bg-base)"><div class="muted" style="font-size:11px">ESTIMATED COUNT (after path scan)</div><div class="bignum" style="font-size:22px">51,240</div><div class="muted" style="font-size:11px">files</div></div>'
+      +'<div class="card" style="padding:12px;background:var(--bg-base)"><div class="muted" style="font-size:11px">ESTIMATED SIZE</div><div class="bignum" style="font-size:22px">284</div><div class="muted" style="font-size:11px">GB</div></div></div></div>';
+  } else if(step===2){
+    body='<div class="card"><div class="section-h">OCR language pack</div><div class="flex wrap gap6">'+['en','hi','ta','te','kn','ml'].map(l=>bulkCheck('lang',l,LANG_LABEL[l],cfg)).join('')+'</div>'
+      +'<div class="section-h mt16">Chunking strategy (applied to all)</div>'
+      +radioRow('bulk-chunk','Auto-detect per document (recommended)','auto',cfg.chunk==='auto')+radioRow('bulk-chunk','Structural','structural',cfg.chunk==='structural')+radioRow('bulk-chunk','Semantic','semantic',cfg.chunk==='semantic')+radioRow('bulk-chunk','Paragraph','paragraph',cfg.chunk==='paragraph')+radioRow('bulk-chunk','Fixed size','fixed',cfg.chunk==='fixed')
+      +'<div class="section-h mt16">Instruction pair synthesis</div>'
+      +radioRow('bulk-synth','Skip (extract text + chunks only)','skip',cfg.synth==='skip')+radioRow('bulk-synth','Generate pairs after chunking','after',cfg.synth==='after')
+      +(cfg.synth==='after'?'<div class="flex wrap gap6 mt8" style="padding-left:26px">'+bulkCheck('synthType','QA','QA',cfg)+bulkCheck('synthType','Summarisation','Summarisation',cfg)+bulkCheck('synthType','Extraction','Extraction',cfg)+'</div>':'')
+      +'<div class="section-h mt16">Deduplication</div>'
+      +'<div class="flex gap8" style="padding:6px 0"><span style="color:var(--green)">'+ICON.check+'</span>File-level (SHA256 — instant, always on)</div>'
+      +bulkCheck('dedup','minhash','Content near-duplicate (MinHash — after extraction)',cfg,true)
+      +'<div class="row-between mt8" style="padding-left:26px"><span class="secondary">Similarity threshold</span><span class="mono">'+cfg.dedupThreshold+'</span></div>'
+      +'<div class="section-h mt16">Worker allocation</div><div class="grid-2"><div><label class="field-label">CPU workers</label><input class="input mono" type="number" value="'+cfg.cpu+'" data-action="bulk-field" data-key="cpu"></div>'
+      +'<div><label class="field-label">GPU workers</label><input class="input mono" type="number" value="'+cfg.gpu+'" data-action="bulk-field" data-key="gpu"></div></div>'
+      +'<div class="grid-2 mt16"><div class="warn-banner warn-yellow" style="margin:0"><span>Estimated processing time: <strong>~2.4 days</strong></span></div><div class="warn-banner warn-orange" style="margin:0"><span>Estimated compute cost: <strong>~₹11,200</strong> (one-time burst)</span></div></div></div>';
+  } else {
+    body='<div class="card"><div class="section-h">OCR confidence threshold for human review</div>'
+      +'<div class="secondary">Auto-route regions below <strong>'+cfg.ocrThreshold+'%</strong> confidence to the correction queue.</div>'
+      +'<div class="section-h mt16">Annotation team assignment</div><table class="tbl"><thead><tr><th>Language</th><th>Assigned to</th><th>Target SLA</th></tr></thead><tbody>'
+      +'<tr><td>English</td><td>Batch Auto-assign</td><td>3 days</td></tr><tr><td>Hindi</td><td>Ravi Kumar</td><td>5 days</td></tr><tr><td>Tamil</td><td>Priya S</td><td>7 days</td></tr></tbody></table>'
+      +'<div class="section-h mt16">Skip correction for documents where</div>'
+      +radioRow('bulk-skip','Avg confidence > 85% (accept automatically)','85',cfg.skipAbove==85)+radioRow('bulk-skip','Never skip — review everything','0',cfg.skipAbove==0)+radioRow('bulk-skip','Skip if avg confidence > 75% (recommended)','75',cfg.skipAbove==75)
+      +'</div>';
+  }
+  const footer='<div class="flex gap8 mt16">'+(step>1?'<button class="btn btn-ghost" data-action="bulk-step" data-dir="-1">'+ICON.chevR+' Back</button>':'<button class="btn btn-ghost" data-action="bulk-cancel">Cancel</button>')
+    +'<div style="flex:1"></div>'+(step<3?'<button class="btn btn-primary" data-action="bulk-step" data-dir="1">Next '+ICON.arrowR+'</button>':'<button class="btn btn-primary" data-action="bulk-launch">'+ICON.grid+'Start Ingestion Job</button>')+'</div>';
+  return '<div class="row-between"><div><button class="btn btn-sm btn-ghost" data-action="bulk-cancel">'+ICON.chevR+' Bulk Ingestion</button><h1 class="page-h mt8">New Bulk Job</h1></div></div>'+nav+'<div class="mt16" style="max-width:720px">'+body+footer+'</div>';
+}
+function radioRow(name,label,val,on){ return '<label class="flex gap8" style="padding:7px 0;cursor:pointer" data-action="bulk-radio" data-name="'+name+'" data-val="'+escapeAttr(val)+'"><span style="width:16px;height:16px;border-radius:50%;border:2px solid '+(on?'var(--coral)':'var(--border-active)')+';flex-shrink:0;'+(on?'background:var(--coral);box-shadow:inset 0 0 0 3px var(--bg-surface)':'')+'"></span><span>'+escapeHtml(label)+'</span></label>'; }
+function bulkCheck(group,val,label,cfg,forceOn){
+  const list = group==='type'?cfg.types : group==='lang'?cfg.langs : group==='synthType'?cfg.synthTypes : [];
+  const on = forceOn || (list&&list.includes(val));
+  return '<button class="chip '+(on?'is-on':'')+'" data-action="bulk-check" data-group="'+group+'" data-val="'+escapeAttr(val)+'">'+(on?'☑ ':'☐ ')+escapeHtml(label)+'</button>';
+}
+
+/* ---- Bulk Job Dashboard (animated) ---- */
+function bulkDashboard(j){
+  const back='<div class="row-between"><div><button class="btn btn-sm btn-ghost" data-action="bulk-cancel">'+ICON.chevR+' Bulk Ingestion</button><h1 class="page-h mt8">'+escapeHtml(j.name)+'</h1>'
+    +'<p class="page-sub">'+(j.status==='in_progress'?'Live · '+escapeHtml(j.estimatedCompletion):'Completed '+escapeHtml(j.completedAt||''))+'</p></div>'
+    +(j.status==='in_progress'?'<span class="pill pill-blue">'+ICON.bolt+' '+j.workersActive+' workers active</span>':'<span class="pill pill-green">'+ICON.check+' Complete</span>')+'</div>';
+  // live region (counters, funnel, workers, cost) re-rendered on tick
+  const live='<div id="bulk-live">'+bulkLiveHtml(j)+'</div>';
+  const failures=bulkFailuresHtml(j);
+  const dedup=bulkDedupHtml(j);
+  const annCta='<div class="card mt16"><div class="row-between"><div><div class="card-title">Annotation backlog</div><div class="secondary mt4">'+fmtNum(j.ocrRegionsFlagged)+' regions flagged · '+fmtNum(j.ocrRegionsCorrected)+' corrected ('+Math.round(j.ocrRegionsCorrected/j.ocrRegionsFlagged*100)+'%)</div></div>'
+    +'<button class="btn btn-ghost" data-action="view-annotation-project" data-id="'+j.id+'">'+ICON.users+'View Annotation Project</button></div></div>';
+  return back+'<div class="mt16">'+live+'</div>'+annCta+'<div class="grid-2 mt16" style="align-items:start">'+failures+dedup+'</div>';
+}
+function bulkLiveHtml(j){
+  const total=j.totalFiles; const pct=Math.round(j.complete/total*100);
+  const strip=[['Total Files',fmtNum(total),'text'],['Queued',fmtNum(j.queued),'blue'],['Processing',fmtNum(j.processing),'coral'],['Complete',fmtNum(j.complete),'green'],['Failed',fmtNum(j.failed),'red'],['Skipped (dup)',fmtNum(j.duplicatesSkipped),'muted']];
+  let cards='<div class="grid-3" style="grid-template-columns:repeat(6,1fr)">';
+  strip.forEach(s=>cards+='<div class="card" style="padding:12px"><div class="section-h" style="margin:0">'+s[0]+'</div><div class="bignum" style="font-size:20px;color:var(--'+(s[2]==='muted'?'text-muted':s[2]==='text'?'text-primary':s[2])+')">'+s[1]+'</div></div>');
+  cards+='</div>';
+  const bar='<div class="card mt16"><div class="row-between" style="font-size:12px"><span class="secondary">'+pct+'% complete</span><span class="muted">'+(j.status==='in_progress'?escapeHtml(j.estimatedCompletion):'done')+'</span></div><div class="meter mt8"><div style="height:100%;width:'+pct+'%;background:var(--gradient-brand);border-radius:6px;transition:width 1s linear"></div></div></div>';
+  // funnel
+  const f=j.funnel; const fstages=[['Detected',f.detected,''],['Deduped',f.deduped,'-'+fmtNum(j.duplicatesSkipped)+' dups'],['Extracted',f.extracted,'-'+fmtNum(f.deduped-f.extracted)+' failed/queued'],['OCR\'d',f.ocrd,''],['Chunked',f.chunked,''],['Ready',f.ready,'']];
+  let funnel='<div class="card mt16"><div class="section-h">Pipeline stages</div><div class="flex gap8" style="align-items:stretch;overflow-x:auto">';
+  fstages.forEach((s,i)=>{ funnel+='<div style="flex:1;min-width:110px"><div class="card" style="padding:12px;background:var(--bg-base)"><div class="muted" style="font-size:11px">'+s[0]+'</div><div class="bignum mono" style="font-size:18px">'+fmtNum(s[1])+'</div>'+(s[2]?'<div class="muted" style="font-size:10px;color:var(--red)">'+s[2]+'</div>':'')+'</div></div>'+(i<fstages.length-1?'<div style="align-self:center;color:var(--text-muted)">'+ICON.chevR+'</div>':''); });
+  funnel+='</div></div>';
+  const workers=bulkWorkersHtml(j);
+  const cost=bulkCostHtml(j);
+  return cards+bar+funnel+'<div class="grid-2 mt16" style="align-items:start">'+workers+cost+'</div>';
+}
+function bulkWorkersHtml(j){
+  if(j.status!=='in_progress') return '<div class="card"><div class="section-h">Worker status</div><div class="muted">All workers idle — job complete.</div></div>';
+  let rows='';
+  for(let i=1;i<=Math.min(6,j.cpuWorkers);i++){ const idle=i===3; rows+='<tr><td class="mono">cpu-worker-0'+i+'</td><td>'+(idle?'<span class="pill pill-muted">Idle</span>':'<span class="pill pill-blue">Processing</span>')+'</td><td class="mono">'+(idle?'—':escapeHtml(WORKER_DOCS[(bulkTick+i)%WORKER_DOCS.length]))+'</td><td class="mono">'+(idle?'—':(8+((bulkTick+i)%7))+' docs/min')+'</td></tr>'; }
+  for(let i=1;i<=j.gpuWorkers;i++){ rows+='<tr><td class="mono">gpu-worker-0'+i+'</td><td><span class="pill pill-coral">OCR Running</span></td><td class="mono">'+escapeHtml(WORKER_DOCS[(bulkTick+i+3)%WORKER_DOCS.length])+'</td><td class="mono">'+(3+((bulkTick+i)%3))+' docs/min</td></tr>'; }
+  return '<div class="card" style="padding:0;overflow:auto"><div class="section-h" style="padding:14px 16px 0">Live worker status</div><table class="tbl"><thead><tr><th>Worker</th><th>Status</th><th>Current Doc</th><th>Speed</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+}
+function bulkCostHtml(j){
+  const breakdown=[['CPU workers ('+j.cpuWorkers+'×, 2.4 days)',8400],['GPU workers ('+j.gpuWorkers+'×, 2.4 days)',2800],['Storage (284GB raw + outputs)',1200],['LLM pair synthesis (est.)',3600]];
+  let rows=breakdown.map(b=>'<div class="row-between" style="padding:5px 0;font-size:13px"><span class="secondary">'+escapeHtml(b[0])+'</span><span class="mono">'+fmtMoney(b[1])+'</span></div>').join('');
+  return '<div class="card"><div class="section-h">Compute cost breakdown</div>'+rows
+    +'<div class="row-between" style="padding-top:8px;margin-top:6px;border-top:1px solid var(--border)"><span>Total estimated</span><span class="mono">'+fmtMoney(j.computeCostTotal)+'</span></div>'
+    +'<div class="row-between" style="padding:5px 0"><span class="secondary">Spent so far</span><span class="mono score-mid">'+fmtMoney(Math.round(j.computeCostSoFar))+'</span></div>'
+    +'<div class="meter mt8"><div style="height:100%;width:'+Math.round(j.computeCostSoFar/j.computeCostTotal*100)+'%;background:var(--pink);border-radius:6px"></div></div></div>';
+}
+function bulkFailuresHtml(j){
+  if(!j.failures.length) return '<div class="card"><div class="section-h">Failure log</div><div class="muted">No failures 🎉</div></div>';
+  const open=appState.showFailures;
+  let rows=''; j.failures.forEach(f=>{ rows+='<tr><td class="mono muted">'+escapeHtml(f.id)+'</td><td class="mono">'+escapeHtml(f.file)+'</td><td>'+escapeHtml(f.stage)+'</td><td class="secondary">'+escapeHtml(f.reason)+'</td><td><button class="btn btn-sm btn-ghost" data-action="bulk-skip-fail" data-id="'+f.id+'">Skip</button></td></tr>'; });
+  return '<div class="card"><div class="row-between"><span class="section-h" style="margin:0">Failure log ('+fmtNum(j.failed)+')</span><button class="btn btn-sm btn-ghost" data-action="bulk-toggle-failures">'+(open?'Hide':'Show')+'</button></div>'
+    +(open?'<div style="overflow:auto;max-height:32vh"><table class="tbl"><thead><tr><th>Doc ID</th><th>Filename</th><th>Stage</th><th>Reason</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div><div class="flex gap8 mt12"><button class="btn btn-ghost btn-sm" data-action="bulk-retry-failed" data-id="'+j.id+'">'+ICON.bolt+'Retry All Failed</button><button class="btn btn-ghost btn-sm" data-action="bulk-export-failures" data-id="'+j.id+'">'+ICON.download+'Export Failure Log</button></div>':'')+'</div>';
+}
+function bulkDedupHtml(j){
+  if(!j.duplicatesSkipped) return '<div class="card"><div class="section-h">Deduplication report</div><div class="muted">No duplicates.</div></div>';
+  const exact=Math.round(j.duplicatesSkipped*0.65), near=j.duplicatesSkipped-exact;
+  let clusters=j.dedupClusters.map(c=>'<div class="row-between" style="padding:5px 0;font-size:13px"><span class="mono truncate" style="max-width:220px">'+escapeHtml(c.name)+'</span><span class="pill pill-muted">'+c.copies+' copies</span></div>').join('');
+  return '<div class="card"><div class="section-h">Deduplication report</div><div class="secondary"><strong>'+fmtNum(j.duplicatesSkipped)+'</strong> duplicates detected and skipped</div>'
+    +'<div class="flex gap16 mt8" style="font-size:12px"><span>'+fmtNum(exact)+' exact (SHA256)</span><span>'+fmtNum(near)+' near-dup (&gt;0.92)</span></div>'
+    +'<div class="section-h mt16">Top duplicate clusters</div>'+clusters+'</div>';
+}
+
+/* ---- Annotation Project View ---- */
+function annotationProject(j){
+  const back='<div class="row-between"><div><button class="btn btn-sm btn-ghost" data-action="back-to-review">'+ICON.chevR+' Review Queue</button><h1 class="page-h mt8">Annotation Project: '+escapeHtml(j.name)+' OCR Review</h1></div></div>';
+  const pctDone=Math.round(j.ocrRegionsCorrected/j.ocrRegionsFlagged*100);
+  const header='<div class="card mt16"><div class="flex wrap gap16" style="justify-content:space-between"><div><div class="muted" style="font-size:11px">DOCUMENTS</div><div class="bignum" style="font-size:20px">'+fmtNum(j.totalFiles)+'</div></div>'
+    +'<div><div class="muted" style="font-size:11px">REGIONS FLAGGED</div><div class="bignum" style="font-size:20px">'+fmtNum(j.ocrRegionsFlagged)+'</div></div>'
+    +'<div><div class="muted" style="font-size:11px">CORRECTED</div><div class="bignum score-mid" style="font-size:20px">'+fmtNum(j.ocrRegionsCorrected)+' ('+pctDone+'%)</div></div>'
+    +'<div><div class="muted" style="font-size:11px">TEAM</div><div class="bignum" style="font-size:20px">'+j.annotators.filter(a=>a.name!=='Unassigned').length+'</div></div>'
+    +'<div><div class="muted" style="font-size:11px">STATUS</div><div class="mt4">'+(j.status==='in_progress'?statusPill('running').replace(/>[^<]*</,'>In Progress<'):statusPill('completed').replace(/>[^<]*</,'>Complete<'))+'</div></div></div>'
+    +'<div class="meter mt16"><div style="height:100%;width:'+pctDone+'%;background:var(--gradient-brand);border-radius:6px"></div></div></div>';
+  // locked state for HealthBot
+  const locked = j.locked ? '<div class="warn-banner warn-red mt16">'+ICON.warn+'<span><strong>OCR correction paused — row limit reached.</strong> '+fmtNum(j.ocrRegionsFlagged-j.ocrRegionsCorrected)+' regions remain uncorrected on the '+currentTenant.plan+' plan.</span><div style="flex:1"></div><button class="btn btn-sm btn-primary" data-action="nav" data-view="settings">'+ICON.rocket+'Upgrade Plan</button></div>' : '';
+  // assignment table
+  let arows=''; j.annotators.forEach((a,i)=>{ const eta=annotatorEta(a); const remaining=a.assigned-a.complete;
+    const targetDays=[3,5,7,5][i]||7; const late = eta.days!==null && eta.days>targetDays; const unassigned=a.name==='Unassigned'||a.pace<=0&&remaining>0;
+    arows+='<tr><td>'+(a.name==='Unassigned'||a.name==='Auto-assign'?'<span class="muted">'+a.name+'</span>':'<strong>'+escapeHtml(a.name)+'</strong>')+'</td><td>'+escapeHtml(LANG_LABEL[a.lang]||a.lang)+'</td>'
+      +'<td class="mono">'+fmtNum(a.assigned)+'</td><td class="mono">'+fmtNum(a.complete)+'</td><td class="mono">'+fmtNum(remaining)+'</td>'
+      +'<td class="mono">'+(a.pace>0?a.pace+'/day':'—')+'</td>'
+      +'<td class="mono">'+(eta.days!==null?eta.days+' days'+(late?' <span class="score-bad">⚠</span>':''):(unassigned?'<span class="score-bad">— ⚠</span>':'—'))+'</td>'
+      +'<td>'+(late?'<button class="btn btn-sm btn-ghost" data-action="reassign-load">Reassign</button>':unassigned&&a.name==='Unassigned'?'<button class="btn btn-sm btn-primary" data-action="assign-now">Assign Now</button>':'')+'</td></tr>'; });
+  const assignTable='<div class="section-h mt24">Assignment</div><div class="card" style="padding:0;overflow:auto"><table class="tbl"><thead><tr><th>Annotator</th><th>Language</th><th>Assigned</th><th>Complete</th><th>Remaining</th><th>Pace</th><th>ETA</th><th></th></tr></thead><tbody>'+arows+'</tbody></table></div>';
+  // warnings
+  const warns=[]; j.annotators.forEach((a,i)=>{ const eta=annotatorEta(a); const targetDays=[3,5,7,5][i]||7;
+    if(eta.days!==null && eta.days>targetDays) warns.push(escapeHtml(a.name)+' at current pace ('+a.pace+'/day) won\'t meet the '+targetDays+'-day target — ETA '+eta.days+' days');
+    if((a.name==='Unassigned') && (a.assigned-a.complete)>0) warns.push(escapeHtml(LANG_LABEL[a.lang]||a.lang)+' has no annotator assigned ('+fmtNum(a.assigned)+' regions)'); });
+  let warnHtml=''; warns.forEach(w=>warnHtml+='<div class="warn-banner warn-yellow" style="margin-bottom:8px">'+ICON.warn+'<span>'+w+'</span></div>');
+  // document-level progress (sample)
+  const docs=getDocuments().slice(0,6);
+  let drows=''; docs.forEach(d=>{ const regs=regionsForDoc(d.id); const corrected=regs.filter(r=>r.correctionStatus!=='pending').length;
+    const st = d.regionsFlagged===0?'✅ Complete':corrected>0?'🔄 In Progress':'⏳ Not Started';
+    drows+='<tr data-action="open-doc" data-id="'+d.id+'"><td>'+escapeHtml(d.name)+'</td><td class="mono">'+d.pages+'</td><td class="mono">'+d.regionsTotal+'</td><td class="mono">'+corrected+'</td><td>'+st+'</td></tr>'; });
+  const docTable='<div class="section-h mt24">Document-level progress</div><div class="card" style="padding:0;overflow:auto"><table class="tbl"><thead><tr><th>Document</th><th>Pages</th><th>Regions</th><th>Corrected</th><th>Status</th></tr></thead><tbody>'+drows+'</tbody></table></div>';
+  return back+header+locked+warnHtml+assignTable+docTable;
+}
+
+/* ---- Bulk animation (spec §20 notes 23-27) ---- */
+let bulkTick=0;
+function startBulkAnimation(){
+  clearScreenTimers(); bulkTick=0;
+  const job=activeBulkJob(); if(!job || job.status!=='in_progress') return;
+  // counters every 2s — advance the job while keeping the funnel math consistent
+  registerTimer(setInterval(()=>{
+    if(currentView!=='documents' || appState.docTab!=='bulk' || appState.bulkView!=='dashboard'){ clearScreenTimers(); return; }
+    advanceBulkJob(job);
+    const n=el('bulk-live'); if(n) n.innerHTML=bulkLiveHtml(job);
+  }, 2000));
+  // worker doc rotation every 3s
+  registerTimer(setInterval(()=>{ bulkTick++;
+    if(currentView!=='documents' || appState.docTab!=='bulk' || appState.bulkView!=='dashboard'){ clearScreenTimers(); return; }
+    const n=el('bulk-live'); if(n) n.innerHTML=bulkLiveHtml(job);
+  }, 3000));
+  log.event('bulk:animate',{job:job.id});
+}
+function advanceBulkJob(job){
+  const remaining=job.totalFiles - job.duplicatesSkipped - job.failed - job.complete;
+  if(remaining<=0){ job.processing=0; job.queued=0; job.status='complete'; job.estimatedCompletion='done'; return; }
+  const delta=Math.min(remaining, 20+Math.floor(Math.random()*11)); // ~10-15 docs/sec over 2s
+  job.complete+=delta;
+  job.queued=Math.max(0, job.totalFiles - job.duplicatesSkipped - job.failed - job.complete - job.processing);
+  job.processing=Math.min(job.queued>0?200:0, job.queued);
+  // keep funnel consistent + increment corrected/cost proportionally
+  job.funnel=deriveFunnel(job);
+  job.ocrRegionsCorrected=Math.min(job.ocrRegionsFlagged, job.ocrRegionsCorrected+Math.floor(delta*0.4));
+  job.computeCostSoFar=Math.min(job.computeCostTotal, job.computeCostSoFar + delta*0.18);
+  const pct=job.complete/job.totalFiles;
+  job.estimatedCompletion = pct>=0.99?'finishing…':(Math.max(1,Math.round((1-pct)*40))+'h remaining');
+}
+
+/* ============================================================
    SECTION J — AUTH, DROPDOWNS, PALETTE, MODALS
    ============================================================ */
 function doLogin(email, pass){
@@ -1719,7 +2027,8 @@ function paletteItems(q){ q=(q||'').toLowerCase(); const items=[];
     add('Documents','scissors','Configure chunking for '+truncate(dd.name,28),'configure-chunking',{id:dd.id});
     add('Documents','sparkles','Generate pairs from '+truncate(dd.name,28),'configure-synthesis',{id:dd.id}); });
   let rc=0; if(q) getDatasets().forEach(d=>d.rows.forEach(r=>{ if(rc<40 && (r.instruction||'').toLowerCase().includes(q)){ add('Rows','pencil',truncate(r.instruction,50),'open-row',{id:r.id}); rc++; } }));
-  [['Upload dataset','upload-dataset',null],['Upload document','upload-document',null],['Correct OCR regions','goto-ocr',null],['Run eval','nav','eval'],['New project','new-project',null],['New experiment','new-experiment',null]].forEach(a=>add('Actions','plus',a[0],a[1],a[2]?{view:a[2]}:{}));
+  getBulkJobs().forEach(j=>add('Bulk Jobs','grid',j.name,'bulk-open',{id:j.id}));
+  [['Upload dataset','upload-dataset',null],['Upload document','upload-document',null],['Correct OCR regions','goto-ocr',null],['Start bulk ingestion job','bulk-start',null],['View bulk job status','bulk-status',null],['View deduplication report','bulk-status',null],['View annotation project','goto-annotation',null],['Run eval','nav','eval'],['New project','new-project',null],['New experiment','new-experiment',null]].forEach(a=>add('Actions','plus',a[0],a[1],a[2]?{view:a[2]}:{}));
   const filtered = q ? items.filter(i=>i.label.toLowerCase().includes(q)||i.group.toLowerCase().includes(q)) : items.slice(0,12);
   return filtered.slice(0,40);
 }
@@ -1784,6 +2093,26 @@ function dispatch(action, d){
     case 'ocr-accept': ocrCorrect(d.id, false); break;
     case 'ocr-edit-accept': ocrCorrect(d.id, true); break;
     case 'ocr-flag': ocrFlag(d.id); break;
+    // --- Bulk ingestion module (spec §20) ---
+    case 'doc-tab': appState.docTab=d.tab; appState.bulkView='list'; appState.docView='list'; renderView(); break;
+    case 'bulk-start': setView('documents'); appState.docTab='bulk'; appState.bulkView='wizard'; appState.bulkStep=1; appState.bulkConfig=defaultBulkConfig(); renderView(); break;
+    case 'bulk-status': { const j=getBulkJobs()[0]; if(j){ setView('documents'); appState.docTab='bulk'; appState.bulkJobId=j.id; appState.bulkView='dashboard'; renderView(); } else showToast('No bulk jobs yet','info'); break; }
+    case 'goto-annotation': { const j=getBulkJobs()[0]; if(j){ setView('review'); appState.reviewTab='ocr'; appState.annotationJobId=j.id; renderView(); } else showToast('No annotation project yet','info'); break; }
+    case 'bulk-open': appState.docTab='bulk'; appState.bulkJobId=d.id; appState.bulkView='dashboard'; renderView(); break;
+    case 'bulk-cancel': appState.bulkView='list'; appState.bulkConfig=null; clearScreenTimers(); renderView(); break;
+    case 'bulk-step': appState.bulkStep=Math.max(1,Math.min(3,appState.bulkStep+(+d.dir))); renderView(); break;
+    case 'bulk-radio': setBulkRadio(d.name, d.val); break;
+    case 'bulk-check': toggleBulkCheck(d.group, d.val); break;
+    case 'bulk-field': if(appState.bulkConfig) appState.bulkConfig[d.key]=d.val; break;
+    case 'bulk-launch': launchBulkJob(); break;
+    case 'bulk-toggle-failures': appState.showFailures=!appState.showFailures; renderView(); break;
+    case 'bulk-skip-fail': showToast('Document skipped','info'); break;
+    case 'bulk-retry-failed': showToast('Retrying failed documents (mock)','info'); break;
+    case 'bulk-export-failures': exportFailureLog(d.id); break;
+    case 'view-annotation-project': closePanel(); setView('review'); appState.reviewTab='ocr'; appState.annotationJobId=d.id; renderView(); break;
+    case 'back-to-review': appState.annotationJobId=null; renderView(); break;
+    case 'reassign-load': showToast('Reassignment flow is mocked — load balanced across team','info'); break;
+    case 'assign-now': showToast('Assign annotator flow is mocked','info'); break;
     case 'open-row': panelRow(d.id); break;
     case 'review-row': reviewRow(d.id, d.do, d.queue==='1'); break;
     case 'edit-row': editRowModal(d.id, false); break;
@@ -2127,6 +2456,48 @@ function recomputeDocOcr(docId){
   if(pend===0 && doc.status==='needs-review') doc.status='ready-chunk';
 }
 
+/* ---- Bulk ingestion handlers (spec §20) ---- */
+function setBulkRadio(name, val){
+  const cfg=appState.bulkConfig; if(!cfg) return;
+  if(name==='bulk-src') cfg.source=val;
+  else if(name==='bulk-chunk') cfg.chunk=val;
+  else if(name==='bulk-synth') cfg.synth=val;
+  else if(name==='bulk-skip') cfg.skipAbove=+val;
+  renderView();
+}
+function toggleBulkCheck(group, val){
+  const cfg=appState.bulkConfig; if(!cfg) return;
+  const key = group==='type'?'types' : group==='lang'?'langs' : group==='synthType'?'synthTypes' : null;
+  if(!key){ renderView(); return; }
+  const arr=cfg[key]; const i=arr.indexOf(val); if(i>=0) arr.splice(i,1); else arr.push(val);
+  renderView();
+}
+function launchBulkJob(){
+  if(!can('Datasets')){ showToast('You lack permission to start bulk jobs','error'); return; }
+  const cfg=appState.bulkConfig||defaultBulkConfig();
+  const id='bulk'+Date.now();
+  const total=51240;
+  const job={ id, tenantId:currentTenant.id, name:'New Corpus Ingestion', totalFiles:total, status:'in_progress',
+    complete:0, processing:200, failed:0, duplicatesSkipped:1847, ocrRegionsFlagged:14832, ocrRegionsCorrected:0,
+    workersActive:cfg.cpu+cfg.gpu, cpuWorkers:cfg.cpu, gpuWorkers:cfg.gpu, startedAt:'2026-07-10T09:00',
+    estimatedCompletion:'~2.4 days remaining', computeCostSoFar:0, computeCostTotal:16000, locked:false, config:cfg };
+  job.queued=total-job.duplicatesSkipped-job.failed-job.complete-job.processing;
+  job.funnel=deriveFunnel(job); job.failures=sampleFailures(job); job.dedupClusters=sampleClusters(job); job.annotators=deriveAnnotators({id:'bulk1'});
+  bulkJobs.unshift(job);
+  log.event('bulk:launch',{id, config:cfg}); pushActivity('started bulk ingestion job ('+fmtNum(total)+' files)'); pushNotif('Bulk job started — '+fmtNum(total)+' files queued','grid');
+  appState.bulkJobId=id; appState.bulkView='dashboard';
+  showToast('Bulk ingestion job started','ok');
+  renderView();
+}
+function exportFailureLog(id){
+  const j=byId(getBulkJobs(),id); if(!j||!assertTenant(j)) return;
+  const csv='doc_id,filename,stage,reason\n'+j.failures.map(f=>[f.id,f.file,f.stage,f.reason].join(',')).join('\n');
+  const blob=new Blob([csv],{type:'text/csv'}); const url=URL.createObjectURL(blob);
+  const a=document.createElement('a'); a.href=url; a.download=j.name.replace(/\s+/g,'_')+'_failures.csv'; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+  log.event('bulk:export-failures',{id}); showToast('Failure log exported','ok');
+}
+
 /* ---- Global events ---- */
 document.addEventListener('click', e=>{
   const stop=e.target.closest('[data-stop]');
@@ -2180,6 +2551,7 @@ function initMockData(){
   evalRuns.forEach(e=>{ e.rubric = RUBRIC_DEFAULT.map(n=>({dimension:n, weight:20})); if(e.status==='completed') computeEval(e); });
   log.info('[boot] mock data ready — '+datasets.length+' datasets, '+datasets.reduce((a,d)=>a+d.totalRows,0)+' rows');
   initDocuments(); // document ingestion mock data (spec §19)
+  initBulkJobs();  // bulk ingestion mock data (spec §20)
 }
 function boot(){ log.info('[boot] Cueval prototype starting'); initMockData(); renderLogin(); }
 boot();
