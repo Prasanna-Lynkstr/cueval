@@ -539,6 +539,8 @@ const datasets = [
   { id:'d5', projectId:'p5', releaseId:'rel8', tenantId:'tenant_legalai', name:'dd_dataroom.parquet', format:'parquet', uploadedBy:'Sara Iyer', uploadedAt:'2025-05-20', _seed:505, _count:52 },
   { id:'d6', projectId:'p6', releaseId:'rel9', tenantId:'tenant_legalai', name:'compliance_rules.jsonl', format:'jsonl', uploadedBy:'Vikram Rao', uploadedAt:'2025-05-25', _seed:606, _count:54 },
   { id:'d7', projectId:'p7', releaseId:'rel10', tenantId:'tenant_healthbot', name:'triage_hi_en.jsonl', format:'jsonl', uploadedBy:'Meera Pillai', uploadedAt:'2025-06-12', _seed:707, _count:57 },
+  { id:'d8', projectId:'p4', releaseId:'rel7', tenantId:'tenant_legalai', name:'Contract NER Dataset', format:'jsonl', uploadedBy:'Sara Iyer', uploadedAt:'2025-06-14', _seed:808, _count:56,
+    importMeta:{ source:'label_studio', sourceLabel:'Label Studio', sourceProject:'Contract NER — Legal AI Corp', importedAt:'14 Jun 2025', importedBy:'Sara Iyer', rows:1198, rowsFiltered:42, template:'NER → Instruction Pair', filterReasons:{ 'low quality':28, 'near-duplicate':11, 'PII':3 } } },
 ];
 // NOTE: rows are materialised in initMockData() (called from boot) — AFTER Section E
 // defines scoreRow/deriveFlags/PII_PATTERNS, to avoid a temporal-dead-zone reference.
@@ -608,12 +610,13 @@ const appState = {
   annotationJobId:null,                    // annotation project view
   bulkConfig:null,                         // wizard config in progress
   audioId:null, videoId:null, videoView:'list', framePage:0, // audio/video (spec §21)
-  prefIndex:0, entityProjectId:null, entityDocIndex:0, entityView:'label', entityPendingSel:null, // §24/§25
+  prefIndex:0, // §24 (entity labelling removed — §34)
   expTab:'timeline', lineageRowQuery:'', // experiment lineage (§26)
   monitorView:'dashboard', monitorDraft:null, // monitor config (§29)
   igTab:'sdk', igDisclaimers:true, igVisited:false, // integration guide (§32)
   coverageOpen:false, // coverage indicator (§30)
   agentFilter:'all', agentProjFilter:'all', // agents log filters (§33)
+  dsView:'list', // datasets sub-view: list | import (§34)
 };
 // Document-ingestion collections (populated in initMockData — after Section E)
 let documents = [];
@@ -625,11 +628,9 @@ let audioFiles = [];
 let audioSegments = [];
 let videoFiles = [];
 let videoFrames = [];
-// Inference monitor / RLHF preference / entity labelling (spec §23-25)
+// Inference monitor / RLHF preference (spec §23-24)
 let inferences = [];
 let prefPairs = [];
-let entityProjects = [];
-let entityDocs = [];
 // Cold-start monitor + corpus seeding (spec §31)
 let coldStartProjects = [];
 let corpusSeeds = [];
@@ -680,10 +681,7 @@ function findSegment(id){ return byId(audioSegments,id) || null; }
 function findFrame(id){ return byId(videoFrames,id) || null; }
 function getInferences(){ return scoped(inferences); }
 function getPrefPairs(){ return scoped(prefPairs); }
-function getEntityProjects(){ return scoped(entityProjects); }
-function getEntityDocs(){ return scoped(entityDocs); }
 function prefPendingCount(){ return getPrefPairs().filter(p=>p.status==='pending').length; }
-function entityPendingCount(){ return getEntityDocs().filter(d=>d.status==='pending').length; }
 function findInference(id){ return byId(inferences,id) || null; }
 function getColdStart(){ return scoped(coldStartProjects)[0] || null; }
 function getAgents(){ return scoped(agents); }
@@ -999,7 +997,7 @@ function datasetPendingCount(){ return getDatasets().reduce((a,d)=>a+d.rows.filt
 function ocrPendingCount(){ return getOcrRegions().filter(r=>r.correctionStatus==='pending').length; }
 function audioPendingCount(){ return getAudioSegments().filter(s=>s.status==='pending').length; }
 function videoPendingCount(){ return getVideoFrames().filter(f=>f.status==='pending').length; }
-function pendingCount(){ return datasetPendingCount()+ocrPendingCount()+audioPendingCount()+videoPendingCount()+prefPendingCount()+entityPendingCount(); } // combined for dock badge (spec §27)
+function pendingCount(){ return datasetPendingCount()+ocrPendingCount()+audioPendingCount()+videoPendingCount()+prefPendingCount(); } // combined for dock badge (spec §27, §34)
 function evalRunning(){ return getEvalRuns().some(e=>e.status==='running'); }
 
 function renderDock(){
@@ -1103,23 +1101,8 @@ function afterRender(){
   document.querySelectorAll('canvas[data-radar]').forEach(cv=>drawRadar(cv));
   document.querySelectorAll('canvas[data-line]').forEach(cv=>drawLineChart(cv));
   document.querySelectorAll('canvas[data-donut]').forEach(cv=>drawDonut(cv));
-  attachEntitySelection();
   const dd=el('ig-disc'); if(dd) dd.ontoggle=()=>{ appState.igDisclaimers=dd.open; }; // persist disclaimer state (note 76)
   const cov=el('cov-panel'); if(cov) cov.ontoggle=()=>{ appState.coverageOpen=cov.open; }; // persist coverage expand (note 56)
-}
-// Entity labelling: capture text selection offsets relative to the document container (note 40)
-function attachEntitySelection(){
-  const box=el('entity-doc'); if(!box) return;
-  box.onmouseup=()=>{
-    const sel=window.getSelection(); if(!sel || !sel.rangeCount || sel.isCollapsed){ return; }
-    const range=sel.getRangeAt(0);
-    if(!box.contains(range.startContainer) || !box.contains(range.endContainer)) return;
-    const pre=range.cloneRange(); pre.selectNodeContents(box); pre.setEnd(range.startContainer, range.startOffset);
-    const start=pre.toString().length; const text=range.toString(); const end=start+text.length;
-    if(!text.trim()){ return; }
-    appState.entityPendingSel={ start, end, text };
-    renderView();
-  };
 }
 // Line chart (Canvas) — two series + optional marker (spec §23 note 39)
 function drawLineChart(cv){
@@ -1254,15 +1237,6 @@ function myWorkCard(){
   };
   const av=avmap[role]; if(av){ const da=av[4]?' data-'+av[4]+'="'+escapeAttr(av[5])+'"':'';
     return '<div class="card" style="border-color:var(--border-active)"><div class="section-h">My Work Today</div><div class="card-title">'+escapeHtml(av[0])+'</div><div class="secondary mt4">'+escapeHtml(av[1])+'</div><button class="btn btn-primary mt16" data-action="'+av[3]+'"'+da+'>'+escapeHtml(av[2])+ICON.arrowR+'</button></div>'; }
-  // Entity-labelling-aware CTAs (spec §25)
-  const entProj=getEntityProjects()[0]; const entPend=entityPendingCount();
-  const entmap={
-    Annotator: entPend>0?[entPend+' documents pending entity labelling','highlight spans & assign labels','Start Labelling','goto-entity','','']:null,
-    Reviewer: (entProj&&entProj.conflicts)?[entProj.conflicts+' conflict documents awaiting resolution','annotators disagree on some spans','Resolve Conflicts','goto-entity','','']:null,
-    Architect: entProj?[escapeHtml(entProj.name)+' '+entProj.completePct+'% complete',entProj.completePct>=50?'on track':'ramping up','View Progress','goto-entity','','']:null,
-  };
-  const ent=entmap[role]; if(ent){ const da=ent[4]?' data-'+ent[4]+'="'+escapeAttr(ent[5])+'"':'';
-    return '<div class="card" style="border-color:var(--border-active)"><div class="section-h">My Work Today</div><div class="card-title">'+ent[0]+'</div><div class="secondary mt4">'+escapeHtml(ent[1])+'</div><button class="btn btn-primary mt16" data-action="'+ent[3]+'"'+da+'>'+escapeHtml(ent[2])+ICON.arrowR+'</button></div>'; }
   // [title, sub, ctaLabel, action, dataKey, dataVal] — document-aware CTAs (spec §19)
   const map = {
     Annotator: ocrPend>0
@@ -1349,18 +1323,97 @@ function screenProjects(){
 let activeDatasetId=null;
 function currentDataset(){ const list=getDatasets(); return byId(list,activeDatasetId) || (activeRelease()&&datasetForRelease(activeRelease().id)) || list[0] || null; }
 function screenDatasets(){
+  if(appState.dsView==='import') return screenImportConnector();
   const list=getDatasets();
-  const head='<div class="row-between"><div><h1 class="page-h">Datasets</h1><p class="page-sub">Curation & quality for '+escapeHtml(currentTenant.name)+'</p></div>'
-    +(can('Datasets')?'<button class="btn btn-primary" data-action="upload-dataset">'+ICON.upload+'Upload Dataset</button>':'')+'</div>';
-  if(!list.length) return head+'<div class="mt24">'+emptyState('database','No datasets yet','Upload a dataset to begin curation.',(can('Datasets')?'<button class="btn btn-primary" data-action="upload-dataset">'+ICON.upload+'Upload Dataset</button>':''))+'</div>';
+  // [Add Data ▾] dropdown: Upload File / Import from Annotation Tool (spec §34)
+  const addBtn = can('Datasets') ? '<div class="selectbox" id="adddata-select"><button class="btn btn-primary" data-action="toggle-adddata">'+ICON.upload+'Add Data<span class="chev">'+ICON.chevD+'</span></button></div>' : '';
+  const head='<div class="row-between"><div><h1 class="page-h">Datasets</h1><p class="page-sub">Curation & quality for '+escapeHtml(currentTenant.name)+'</p></div>'+addBtn+'</div>';
+  if(!list.length) return head+'<div class="mt24">'+emptyState('database','No datasets yet','Upload a dataset or import from an annotation tool to begin curation.',(can('Datasets')?'<button class="btn btn-primary" data-action="upload-dataset">'+ICON.upload+'Upload Dataset</button>':''))+'</div>';
   const d=currentDataset();
   let listHtml='';
   list.forEach(x=>{ listHtml+='<button class="dropdown-item '+(x===d?'is-active':'')+'" data-action="select-dataset" data-id="'+x.id+'" style="flex-direction:column;align-items:flex-start;gap:2px">'
     +'<span class="flex gap8" style="width:100%;justify-content:space-between"><span class="mono" style="font-size:12px">'+escapeHtml(truncate(x.name,20))+'</span><span class="badge-fmt">'+x.format+'</span></span>'
-    +'<span class="muted" style="font-size:11px">'+fmtNum(x.totalRows)+' rows · score '+x.overallScore+'</span></button>'; });
+    +'<span class="muted" style="font-size:11px">'+fmtNum(x.importMeta?x.importMeta.rows:x.totalRows)+' rows · score '+x.overallScore+'</span>'
+    +(x.importMeta?'<span class="muted" style="font-size:10px">'+ICON.arrowR+' '+escapeHtml(x.importMeta.sourceLabel)+'</span>':'')+'</button>'; });
   return head+'<div class="mt24" style="display:grid;grid-template-columns:230px 1fr;gap:20px;align-items:start">'
     + '<div class="card" style="padding:8px"><div class="dropdown-head">Datasets</div>'+listHtml+'</div>'
     + '<div id="ds-detail">'+datasetDetail(d)+'</div></div>';
+}
+/* ---- Annotation Import Connector (spec §34) ---- */
+const IMPORT_TOOLS=[
+  {key:'label_studio', name:'Label Studio', connected:true},
+  {key:'argilla', name:'Argilla', connected:false},
+  {key:'prodigy', name:'Prodigy', connected:false},
+  {key:'labelbox', name:'Labelbox', connected:false},
+  {key:'scale', name:'Scale AI', connected:false},
+  {key:'custom', name:'Custom JSON', connected:false, custom:true},
+];
+const CONVERSION_TEMPLATES=['NER → Instruction Pair','Classification → Instruction Pair','Preference Ranking → RLHF Pair','Span QA → Instruction Pair','Custom template'];
+function screenImportConnector(){
+  const back='<div class="row-between"><div><button class="btn btn-sm btn-ghost" data-action="import-back">'+ICON.chevR+' Datasets</button><h1 class="page-h mt8">Import from Annotation Tool</h1><p class="page-sub">Bring externally labelled data into Cueval\'s curation pipeline</p></div></div>';
+  const note='<div class="boundary-box mt16"><strong>Cueval does not replace your annotation tool.</strong><div class="secondary mt4" style="font-size:13px;line-height:1.7">Use Label Studio, Argilla, or any tool your team prefers for raw data labelling. Cueval starts where they finish — converting labelled data to training-ready instruction pairs, running quality checks, and closing the loop back from production to your next annotation sprint.</div></div>';
+  let cards='<div class="section-h mt24">Select source</div><div class="grid-3" style="gap:12px">';
+  IMPORT_TOOLS.forEach(t=>{ const on=t.connected;
+    cards+='<div class="card hover" data-action="import-source" data-key="'+t.key+'" style="text-align:center;'+(on?'border-color:var(--green)':'')+'"><div class="card-title" style="font-size:14px">'+escapeHtml(t.name)+'</div>'
+      +'<div class="mt8">'+(on?'<span class="pill pill-green">'+ICON.check+'Connected</span>':(t.custom?'<span class="pill pill-muted">'+ICON.upload+'Upload file</span>':'<span class="pill pill-muted">'+ICON.plus+'Connect</span>'))+'</div></div>'; });
+  cards+='</div>';
+  // Label Studio connected panel (static mock)
+  const templateOpts=CONVERSION_TEMPLATES.map((t,i)=>'<option'+(i===0?' selected':'')+'>'+escapeHtml(t)+'</option>').join('');
+  const projs=getProjects().map(p=>'<option>'+escapeHtml(p.name)+'</option>').join('');
+  const panel='<div class="card mt24"><div class="row-between"><div class="card-title">Label Studio — <span class="score-good">Connected</span></div><span class="muted" style="font-size:12px">Last sync: 14 Jun 2025 09:30</span></div>'
+    +'<div class="grid-2 mt12"><div><label class="field-label">Project</label><select class="input"><option>Contract NER — Legal AI Corp</option></select></div>'
+    +'<div><label class="field-label">Tasks</label><div class="input" style="background:var(--bg-elevated)">1,240 total · 1,198 completed · 42 pending</div></div></div>'
+    +'<div class="section-h mt16">Import</div>'
+    +radioLine('imp-mode','Completed tasks only (1,198)','completed',false)+radioLine('imp-mode','All tasks with completion filter','filter',true)+radioLine('imp-mode','Tasks annotated by specific annotators','byann',false)
+    +'<div class="mt8"><span class="pill pill-blue">Data type detected: NER (entity spans)</span></div>'
+    +'<div class="section-h mt16">Conversion to Cueval format</div><div class="card" style="padding:12px;background:var(--bg-base)"><div class="mono" style="font-size:12px;line-height:1.7">Input text + entity spans<br>&nbsp;&nbsp;&nbsp;&nbsp;↓<br>Instruction: "Extract all named entities from the following text"<br>Output: JSON of labelled entities</div>'
+    +'<div class="flex gap8 mt12" style="align-items:center"><label class="field-label" style="margin:0">Template</label><select class="input" style="width:auto">'+templateOpts+'</select><button class="btn btn-ghost btn-sm" data-action="import-preview">'+ICON.eye+'Preview conversion (5 samples)</button></div></div>'
+    +'<div class="section-h mt16">Target</div><div class="grid-2"><div><label class="field-label">Project</label><select class="input">'+projs+'</select></div><div><label class="field-label">Release</label><select class="input"><option>v1.3 — NER Training Data</option></select></div></div>'
+    +'<div class="mt12"><label class="field-label">After import: run full curation pipeline automatically</label><div class="flex wrap gap6">'+['Quality scoring','PII detection','Near-dup check'].map(c=>'<span class="chip is-on">☑ '+c+'</span>').join('')+'</div></div>'
+    +'<div class="warn-banner warn-yellow mt16" style="margin:0;font-size:12px">'+ICON.info+'<span>Estimated import: 1,198 rows → ~940 after curation</span></div>'
+    +'<div class="flex gap8 mt16" style="justify-content:flex-end"><button class="btn btn-ghost" data-action="import-back">Cancel</button><button class="btn btn-ghost" data-action="import-preview">Preview Import</button><button class="btn btn-primary" data-action="import-now">'+ICON.download+'Import Now</button></div></div>';
+  return back+note+cards+panel;
+}
+function importPreviewModal(){
+  const samples=[
+    ['{"text":"Acme Corp and Beta Ltd...","entities":[[0,9,"PARTY"]]}','Extract all named entities → [{"text":"Acme Corp","label":"PARTY"}]'],
+    ['{"text":"governed by Maharashtra law","entities":[[12,23,"JURISDICTION"]]}','Extract all named entities → [{"text":"Maharashtra","label":"JURISDICTION"}]'],
+    ['{"text":"payable within 30 days","entities":[[15,22,"OBLIGATION"]]}','Extract all named entities → [{"text":"30 days","label":"OBLIGATION"}]'],
+    ['{"text":"dated 1 April 2025","entities":[[6,18,"DATE"]]}','Extract all named entities → [{"text":"1 April 2025","label":"DATE"}]'],
+    ['{"text":"₹12 lakh consideration","entities":[[0,8,"AMOUNT"]]}','Extract all named entities → [{"text":"₹12 lakh","label":"AMOUNT"}]'],
+  ];
+  let rows=samples.map(s=>'<tr><td class="mono" style="font-size:11px;color:var(--text-secondary)">'+escapeHtml(s[0])+'</td><td class="mono" style="font-size:11px">'+escapeHtml(s[1])+'</td></tr>').join('');
+  openModal('<div class="modal-head"><strong>Preview conversion · 5 samples</strong><button class="icon-btn" data-action="close-modal">'+ICON.x+'</button></div>'
+    +'<div class="modal-body"><div class="card" style="padding:0;overflow:auto"><table class="tbl"><thead><tr><th>Label Studio output</th><th>Cueval instruction pair</th></tr></thead><tbody>'+rows+'</tbody></table></div></div>'
+    +'<div class="modal-foot"><button class="btn btn-ghost" data-action="close-modal">Close</button><button class="btn btn-primary" data-action="import-now">'+ICON.download+'Import Now</button></div>');
+}
+function importNowFlow(){
+  if(!can('Datasets')){ showToast('You lack dataset permission','error'); return; }
+  closeModal();
+  openModal('<div class="modal-body" style="text-align:center;padding:36px"><div class="bignum" style="font-size:18px" id="imp-step">Starting…</div><div class="meter mt16"><div class="meter-fill" id="imp-bar" style="width:0;background:var(--gradient-brand)"></div></div></div>');
+  const steps=['Fetching from Label Studio…','Converting format…','Running curation pipeline…','Done'];
+  let i=0; const tick=()=>{ if(!el('imp-step')) return; el('imp-step').textContent=steps[i]; el('imp-bar').style.width=Math.round((i+1)/steps.length*100)+'%';
+    i++; if(i<steps.length){ setTimeout(tick,1000); } else {
+      const seed=(Date.now()%1000)+808; const proj=activeProject()||getProjects()[0]; const rel=activeRelease();
+      const d={ id:'d'+Date.now(), projectId:proj?proj.id:null, releaseId:rel?rel.id:null, tenantId:currentTenant.id, name:'imported_ner_pairs.jsonl', format:'jsonl', uploadedBy:currentUser.name, uploadedAt:'2026-07-10', _seed:seed, _count:54,
+        importMeta:{ source:'label_studio', sourceLabel:'Label Studio', sourceProject:'Contract NER — Legal AI Corp', importedAt:'10 Jul 2026', importedBy:currentUser.name, rows:940, rowsFiltered:258, template:'NER → Instruction Pair', filterReasons:{'low quality':180,'near-duplicate':62,'PII':16} } };
+      d.rows=buildRows(seed,54); finaliseDataset(d); datasets.push(d); activeDatasetId=d.id;
+      currentTenant.usage.rowsThisMonth += 940;
+      closeModal(); appState.dsView='list'; setView('datasets');
+      log.event('import:complete',{dataset:d.id, source:'label_studio'}); pushActivity('imported 940 rows from Label Studio'); pushNotif('Imported 940 rows from Label Studio — curation complete','database');
+      showToast('Imported 940 rows from Label Studio','ok');
+    } };
+  setTimeout(tick,400);
+}
+function panelImportLog(id){
+  const d=byId(getDatasets(),id); if(!d||!assertTenant(d)||!d.importMeta) return; const m=d.importMeta;
+  let reasons=Object.entries(m.filterReasons).map(r=>'<div class="row-between" style="padding:4px 0;font-size:13px"><span class="secondary">'+escapeHtml(r[0])+'</span><span class="mono">'+r[1]+'</span></div>').join('');
+  openPanel('<div class="flex gap8"><span class="pill pill-blue">'+escapeHtml(m.sourceLabel)+'</span></div>'
+    +'<div class="section-h mt16">Source</div><div class="card" style="padding:12px">'+escapeHtml(m.sourceProject)+'<div class="secondary mt4" style="font-size:12px">Imported '+escapeHtml(m.importedAt)+' by '+escapeHtml(m.importedBy)+'</div></div>'
+    +'<div class="section-h mt16">Conversion</div><div class="card" style="padding:12px">Template: <span class="mono">'+escapeHtml(m.template)+'</span></div>'
+    +'<div class="section-h mt16">Rows</div><div class="card" style="padding:12px"><div class="row-between"><span>Imported</span><strong>'+fmtNum(m.rows)+'</strong></div><div class="row-between mt8"><span>Filtered by curation</span><strong class="score-mid">'+m.rowsFiltered+'</strong></div></div>'
+    +'<div class="section-h mt16">Filter reasons</div>'+reasons
+    +'<div class="muted mt16" style="font-size:11px">Full provenance — trace any training row back to its original annotation task in '+escapeHtml(m.sourceLabel)+'.</div>', 'Import log · '+d.name);
 }
 function datasetDetail(d){
   if(!d) return emptyState('database','Select a dataset','Choose a dataset from the list.','');
@@ -1372,8 +1425,9 @@ function datasetDetail(d){
     histo+='<div class="stack" style="flex:1;align-items:center;gap:4px"><div style="width:100%;height:'+h+'px;background:var(--gradient-brand);border-radius:5px 5px 0 0"></div><span class="muted" style="font-size:10px">'+lbl+'</span><span style="font-size:11px">'+dist[i]+'</span></div>'; });
   histo+='</div>';
   let flags=''; Object.entries(flagCounts).sort((a,b)=>b[1]-a[1]).forEach(([f,n])=>{ flags+='<div class="flex gap8" style="justify-content:space-between;padding:5px 0">'+flagPill(f)+'<span class="secondary">'+n+'</span></div>'; });
-  const hdr='<div class="card"><div class="row-between"><div><div class="flex gap8"><span class="card-title mono">'+escapeHtml(d.name)+'</span><span class="badge-fmt">'+d.format+'</span></div>'
-    +'<div class="secondary mt4">'+fmtNum(d.totalRows)+' rows · '+d.flaggedRows+' flagged · uploaded '+escapeHtml(d.uploadedAt)+' by '+escapeHtml(d.uploadedBy)+'</div></div>'
+  const importLine = d.importMeta ? '<div class="muted mt4" style="font-size:12px">'+ICON.arrowR+' Source: '+escapeHtml(d.importMeta.sourceLabel)+' (imported '+escapeHtml(d.importMeta.importedAt)+') · '+d.importMeta.rowsFiltered+' rows filtered by curation <button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:11px" data-action="import-log" data-id="'+d.id+'">View import log</button></div>' : '';
+  const hdr='<div class="card"><div class="row-between"><div><div class="flex gap8"><span class="card-title mono">'+escapeHtml(d.name)+'</span><span class="badge-fmt">'+d.format+'</span>'+(d.importMeta?'<span class="pill pill-blue" style="font-size:10px">'+escapeHtml(d.importMeta.sourceLabel)+'</span>':'')+'</div>'
+    +'<div class="secondary mt4">'+fmtNum(d.importMeta?d.importMeta.rows:d.totalRows)+' rows · '+d.flaggedRows+' flagged · uploaded '+escapeHtml(d.uploadedAt)+' by '+escapeHtml(d.uploadedBy)+'</div>'+importLine+'</div>'
     +'<div style="text-align:right"><div class="muted" style="font-size:11px">OVERALL SCORE</div><div class="bignum '+scoreClass(d.overallScore)+'">'+d.overallScore+'</div></div></div>'
     +'<div class="grid-3 mt16" style="grid-template-columns:1.3fr 1fr 1fr"><div><div class="section-h">Languages</div>'+langBar(d.languages)
     +'<div class="flex wrap gap8 mt8">'+d.languages.map(l=>'<span class="flex gap6" style="font-size:11px"><span style="width:9px;height:9px;border-radius:2px;background:'+(LANG_COLOR[l.code]||'#888')+'"></span>'+escapeHtml(LANG_LABEL[l.code]||l.code)+' '+l.pct+'%</span>').join('')+'</div></div>'
@@ -1454,12 +1508,13 @@ function reviewQueue(){
 function screenReview(){
   const q=reviewQueue(); const tab=appState.reviewTab;
   const badge=n=>n?' <span class="pill pill-coral" style="padding:1px 6px">'+n+'</span>':'';
-  // Final 6-tab structure (spec §27) + Corpus Seeds (spec §31, role-gated, not a badge task)
-  const TABS=[['datasets','Text Review',q.length],['ocr','OCR Corrections',ocrPendingCount()],['audio','Audio Corrections',audioPendingCount()],['video','Video Corrections',videoPendingCount()],['pref','Preference Ranking',prefPendingCount()],['entity','Entity Labelling',entityPendingCount()]];
+  // Final 5-tab structure (spec §27, §34 removed Entity Labelling) + Corpus Seeds (§31, role-gated)
+  const TABS=[['datasets','Text Review',q.length],['ocr','OCR Corrections',ocrPendingCount()],['audio','Audio Corrections',audioPendingCount()],['video','Video Corrections',videoPendingCount()],['pref','Preference Ranking',prefPendingCount()]];
   if(canSeeCorpusSeeds()) TABS.push(['seeds','Corpus Seeds',0]);
   const tabBar='<div class="flex wrap gap8 mt16">'+TABS.map(t=>'<button class="chip '+(tab===t[0]?'is-on':'')+'" data-action="review-tab" data-tab="'+t[0]+'">'+t[1]+badge(t[2])+'</button>').join('')+'</div>';
-  const subs={datasets:'Instruction-pair approval · worst-scoring first',ocr:'Low-confidence OCR regions · lowest first',audio:'Low-confidence audio segments · lowest first',video:'Flagged video frames · lowest first',pref:'RLHF — pick the better response',entity:'NER span annotation',seeds:'Corpus seeds from 👍 feedback · approve embeddings to activate drift'};
+  const subs={datasets:'Instruction-pair approval · worst-scoring first',ocr:'Low-confidence OCR regions · lowest first',audio:'Low-confidence audio segments · lowest first',video:'Flagged video frames · lowest first',pref:'RLHF — pick the better response',seeds:'Corpus seeds from 👍 feedback · approve embeddings to activate drift'};
   if(tab==='seeds' && !canSeeCorpusSeeds()){ appState.reviewTab='datasets'; return screenReview(); }
+  if(!subs[tab]){ appState.reviewTab='datasets'; return screenReview(); } // guard stale/removed tabs (e.g. entity §34)
   const title='<div class="row-between"><div><h1 class="page-h">Review Queue</h1><p class="page-sub">'+subs[tab]+'</p></div>'
     +(currentUser.role==='Reviewer'&&tab==='datasets'?'<button class="btn btn-ghost" data-action="review-batch">'+ICON.check+'Batch approval</button>':'')+'</div>'+tabBar;
   if(tab==='ocr'){
@@ -1471,7 +1526,6 @@ function screenReview(){
   if(tab==='audio') return title+'<div class="mt24">'+reviewAudioPane()+'</div>';
   if(tab==='video') return title+'<div class="mt24">'+reviewVideoPane()+'</div>';
   if(tab==='pref') return title+'<div class="mt24">'+reviewPrefPane()+'</div>';
-  if(tab==='entity') return title+'<div class="mt24">'+reviewEntityPane()+'</div>';
   if(tab==='seeds') return title+'<div class="mt24">'+reviewSeedsPane()+'</div>';
   if(!q.length) return title+'<div class="mt24">'+emptyState('check','You\'re all caught up','No rows pending review. ✅','')+'</div>';
   const head=title;
@@ -2646,7 +2700,7 @@ function coveragePanel(){
   const growth='<div class="section-h mt16">Corpus growth</div><div class="card" style="padding:12px"><div class="secondary" style="font-size:12px">Approved responses in corpus</div>'
     +'<div class="mt8" style="position:relative">'+meter(growthPct,'var(--gradient-brand)')+'<div style="position:absolute;top:-2px;left:100%;transform:translateX(-100%);width:2px;height:12px;background:var(--text-muted)" title="Recommended: 10,000"></div></div>'
     +'<div class="row-between mt4" style="font-size:12px"><span class="mono">'+fmtNum(c.corpusSize)+' / 10,000 recommended</span><span class="muted">+'+c.monthlyGrowth+' this month · full coverage in ~'+months+' months</span></div>'
-    +'<button class="btn btn-ghost btn-sm mt8" data-action="goto-entity">'+ICON.bolt+'Accelerate → Run annotation sprint</button></div>';
+    +'<button class="btn btn-ghost btn-sm mt8" data-action="nav" data-view="review">'+ICON.bolt+'Accelerate → Run annotation sprint</button></div>';
   const body='<div class="section-h">Inference type breakdown</div><div class="card" style="padding:0;overflow:auto"><table class="tbl"><thead><tr><th>Type</th><th>% of traffic</th><th>Coverage</th><th>Basis</th></tr></thead><tbody>'+typeRows+'</tbody></table></div>'
     +'<div class="section-h mt16">Signal coverage</div><div class="card" style="padding:0;overflow:auto"><table class="tbl"><thead><tr><th>Signal</th><th>Coverage</th><th>Limiting factor</th></tr></thead><tbody>'+sigRows+'</tbody></table></div>'
     +'<div class="section-h mt16">How to improve coverage</div>'+improve+growth
@@ -3023,92 +3077,6 @@ function reviewPrefPane(){
 }
 
 /* ============================================================
-   SECTION I-NER — ENTITY LABELLING (spec §25)
-   ============================================================ */
-const ENTITY_LABELS_STD=[
-  {key:'NAME',color:'#3B82F6',short:'N'},{key:'EMAIL',color:'#22C55E',short:'E'},{key:'PHONE',color:'#EAB308',short:'P'},
-  {key:'ADDRESS',color:'#E85D26',short:'A'},{key:'COMPANY',color:'#EF4444',short:'C'},{key:'DESIGNATION',color:'#8b5cf6',short:'D'},
-  {key:'SKILL',color:'#06b6d4',short:'S'},{key:'EDUCATION',color:'#a16207',short:'U'},{key:'DATE',color:'#9898B0',short:'T'},
-];
-const ENTITY_PROJECT_SEED=[
-  { id:'ent1', tenantId:'tenant_pravartak', name:'Audit Report Entity Extraction', docCount:200, completePct:67, conflicts:12,
-    labels:[{key:'AMOUNT',color:'#22C55E',short:'A'},{key:'DEPARTMENT',color:'#3B82F6',short:'D'},{key:'DATE',color:'#9898B0',short:'T'},{key:'VIOLATION_TYPE',color:'#EF4444',short:'V'},{key:'OFFICER_NAME',color:'#8b5cf6',short:'O'}],
-    doc:'The Public Works Department incurred an unauthorised expenditure of ₹45 crore in FY2022 towards procurement, flagged as a financial irregularity by Officer R. Sharma on 14 March 2024.' },
-  { id:'ent2', tenantId:'tenant_legalai', name:'Contract NER Dataset', docCount:150, completePct:34, conflicts:5,
-    labels:[{key:'PARTY',color:'#3B82F6',short:'P'},{key:'CLAUSE_TYPE',color:'#8b5cf6',short:'C'},{key:'OBLIGATION',color:'#E85D26',short:'O'},{key:'DATE',color:'#9898B0',short:'T'},{key:'JURISDICTION',color:'#22C55E',short:'J'},{key:'AMOUNT',color:'#EAB308',short:'A'}],
-    doc:'This Agreement is entered into between Acme Corp and Beta Ltd on 1 April 2025, governed by the laws of Maharashtra, whereby the vendor shall deliver services worth ₹12 lakh within the indemnity clause.' },
-  { id:'ent3', tenantId:'tenant_healthbot', name:'Medical Record Extraction', docCount:100, completePct:12, conflicts:2,
-    labels:[{key:'PATIENT',color:'#3B82F6',short:'P'},{key:'DIAGNOSIS',color:'#EF4444',short:'G'},{key:'MEDICATION',color:'#22C55E',short:'M'},{key:'DOSAGE',color:'#EAB308',short:'O'},{key:'DATE',color:'#9898B0',short:'T'},{key:'DOCTOR',color:'#8b5cf6',short:'D'}],
-    doc:'Patient Meena Kumari was diagnosed with Type 2 Diabetes and prescribed Metformin 500mg twice daily by Dr. A. Verma on 2 June 2025.' },
-];
-let ENTDOC_UID=0;
-function initEntity(){
-  entityProjects=[]; entityDocs=[];
-  ENTITY_PROJECT_SEED.forEach(s=>{
-    entityProjects.push({ id:s.id, tenantId:s.tenantId, name:s.name, docCount:s.docCount, completePct:s.completePct, conflicts:s.conflicts, labels:s.labels });
-    // materialise ~10 sample docs; some done, some pending, one with conflicts
-    for(let i=0;i<10;i++){ const done=i < Math.round(10*s.completePct/100);
-      entityDocs.push({ id:'edoc'+(++ENTDOC_UID), projectId:s.id, tenantId:s.tenantId, index:i, text:s.doc,
-        spans: done? autoSpans(s.doc, s.labels) : [], status: done?'done':'pending', annotatorsRequired:3,
-        conflicts: (i===0 && s.conflicts) ? sampleEntityConflicts(s) : [] }); }
-  });
-  log.info('[boot] entity projects ready — '+entityProjects.length+' ('+entityDocs.length+' docs)');
-}
-function autoSpans(text, labels){ // pre-label a couple of obvious spans deterministically
-  const spans=[]; const push=(sub,label)=>{ const idx=text.indexOf(sub); if(idx>=0) spans.push({start:idx,end:idx+sub.length,label,by:'auto'}); };
-  const m=text.match(/₹[\d,]+ ?(crore|lakh)?/); if(m) push(m[0], labels.find(l=>l.key==='AMOUNT')?'AMOUNT':labels[0].key);
-  const d=text.match(/\d{1,2} \w+ \d{4}|FY\d{4}/); if(d) push(d[0], labels.find(l=>l.key==='DATE')?'DATE':labels[0].key);
-  return spans;
-}
-function sampleEntityConflicts(s){ return [
-  { span:'IIT Bombay', votes:[{by:'Annotator 1',label:'EDUCATION',ok:true},{by:'Annotator 2',label:'COMPANY',ok:false},{by:'Annotator 3',label:'EDUCATION',ok:true}], majority:'EDUCATION' },
-  { span:'2015', votes:[{by:'Annotator 1',label:'DATE',ok:true},{by:'Annotator 2',label:'(not labelled)',ok:false},{by:'Annotator 3',label:'DATE',ok:true}], majority:'DATE' },
-]; }
-function entityQueue(){ return getEntityDocs().filter(d=>d.status==='pending'); }
-function activeEntityProject(){ return byId(getEntityProjects(), appState.entityProjectId) || getEntityProjects()[0] || null; }
-function reviewEntityPane(){
-  const proj=activeEntityProject();
-  if(!proj) return emptyState('tag','No entity labelling projects','Create an Entity Labelling project to start span annotation.','');
-  const docs=getEntityDocs().filter(d=>d.projectId===proj.id);
-  const q=docs.filter(d=>d.status==='pending');
-  // reviewer conflict view
-  if(currentUser.role==='Reviewer'){ const cdoc=docs.find(d=>d.conflicts && d.conflicts.length); if(cdoc) return entityConflictView(proj,cdoc); }
-  if(!q.length) return '<div class="row-between mb12"><span class="secondary">'+escapeHtml(proj.name)+' · '+proj.completePct+'% complete</span></div>'+emptyState('check','No documents pending','All documents in this project are labelled. ✅','');
-  if(appState.entityDocIndex>=q.length) appState.entityDocIndex=0;
-  const doc=q[appState.entityDocIndex];
-  const addBtn = schemaCanEdit() ? '<button class="chip" data-action="add-entity-label" data-proj="'+proj.id+'" style="border-style:dashed">'+ICON.plus+' Add Label</button>' : '';
-  const palette='<div class="flex wrap gap6">'+proj.labels.map(l=>'<button class="chip" data-action="entity-apply" data-id="'+doc.id+'" data-label="'+l.key+'" style="border-color:'+l.color+'"><span style="color:'+l.color+'">■</span> '+l.short+' '+escapeHtml(l.key)+'</button>').join('')+addBtn+'</div>';
-  const rendered=renderEntityText(doc, proj);
-  const list=doc.spans.length? doc.spans.map(sp=>'<span class="pill" style="background:'+(labelColor(proj,sp.label))+'22;color:'+labelColor(proj,sp.label)+';border-color:'+labelColor(proj,sp.label)+'55" data-action="entity-remove" data-id="'+doc.id+'" data-idx="'+doc.spans.indexOf(sp)+'">'+escapeHtml(sp.label)+': "'+escapeHtml(truncate(doc.text.slice(sp.start,sp.end),18))+'" ✕</span>').join(' ') : '<span class="muted">No entities yet</span>';
-  const pending=appState.entityPendingSel?'<div class="warn-banner warn-yellow" style="margin:12px 0 0">'+ICON.tag+'<span>Selected "'+escapeHtml(truncate(appState.entityPendingSel.text,30))+'" — pick a label above or press its shortcut key.</span></div>':'';
-  const hdr='<div class="row-between"><div class="secondary">'+escapeHtml(proj.name)+' · Doc '+(appState.entityDocIndex+1)+' of '+q.length+' · '+doc.annotatorsRequired+' annotators required</div><div class="flex gap6"><button class="btn btn-sm btn-ghost" data-action="entity-prev">◄</button><button class="btn btn-sm btn-ghost" data-action="entity-skip">►</button></div></div>';
-  return hdr
-    +'<div class="card mt16"><div class="section-h">Label palette (select text, then pick a label)</div>'+palette+pending+'</div>'
-    +'<div class="card mt16"><div class="section-h">Document</div><div id="entity-doc" style="line-height:2.2;font-size:15px;user-select:text;cursor:text">'+rendered+'</div></div>'
-    +'<div class="card mt16"><div class="row-between"><span class="section-h" style="margin:0">Labelled entities ('+doc.spans.length+')</span></div><div class="flex wrap gap6 mt8">'+list+'</div>'
-    +'<div class="flex gap8 mt16 wrap"><button class="btn btn-ghost btn-sm" data-action="entity-clear" data-id="'+doc.id+'">Clear All</button><button class="btn btn-ghost btn-sm" data-action="entity-undo" data-id="'+doc.id+'">Undo Last</button>'
-    +'<button class="btn btn-primary btn-sm" data-action="entity-save" data-id="'+doc.id+'">'+ICON.check+'Save &amp; Next</button><button class="btn btn-ghost btn-sm" data-action="entity-skip">Skip</button>'
-    +'<div style="flex:1"></div><button class="btn btn-ghost btn-sm" data-action="export-entity">'+ICON.download+'Export</button></div></div>';
-}
-function labelColor(proj,key){ const l=proj.labels.find(x=>x.key===key); return l?l.color:'#9898B0'; }
-function renderEntityText(doc, proj){
-  // build HTML with non-overlapping spans highlighted (first-match wins for overlaps)
-  const spans=doc.spans.slice().sort((a,b)=>a.start-b.start); let out='', cursor=0;
-  spans.forEach(sp=>{ if(sp.start<cursor) return; out+=escapeHtml(doc.text.slice(cursor,sp.start));
-    const c=labelColor(proj,sp.label); out+='<mark style="background:'+c+'33;color:var(--text-primary);border-bottom:2px solid '+c+';border-radius:3px;padding:1px 2px">'+escapeHtml(doc.text.slice(sp.start,sp.end))+'<span style="font-size:9px;font-weight:600;color:'+c+';margin-left:3px;vertical-align:super">'+escapeHtml(sp.label)+'</span></mark>'; cursor=sp.end; });
-  out+=escapeHtml(doc.text.slice(cursor));
-  return out;
-}
-function entityConflictView(proj, doc){
-  let rows=''; doc.conflicts.forEach((c,ci)=>{ rows+='<div class="card mt12" style="padding:14px"><div class="row-between"><strong>Span: "'+escapeHtml(c.span)+'"</strong><span class="pill pill-blue">Majority: '+escapeHtml(c.majority)+'</span></div>'
-    +c.votes.map(v=>'<div class="flex gap8" style="padding:4px 0;font-size:13px"><span class="secondary" style="width:110px">'+escapeHtml(v.by)+'</span><span>'+escapeHtml(v.label)+'</span><span>'+(v.ok?'<span class="score-good">✓</span>':'<span class="score-bad">✗</span>')+'</span></div>').join('')
-    +'<div class="flex gap8 mt8"><button class="btn btn-sm btn-green" data-action="conflict-accept" data-doc="'+doc.id+'" data-idx="'+ci+'">Accept</button><button class="btn btn-sm btn-ghost" data-action="conflict-override" data-doc="'+doc.id+'" data-idx="'+ci+'">Override</button></div></div>'; });
-  return '<div class="row-between"><div class="secondary">'+escapeHtml(proj.name)+' · '+doc.conflicts.length+' conflicts · 3 annotators</div></div>'
-    +'<div class="card mt16"><div class="section-h">Conflict review — Doc '+(doc.index+1)+'</div>'+rows
-    +'<div class="flex gap8 mt16"><button class="btn btn-primary" data-action="conflict-accept-all" data-doc="'+doc.id+'">'+ICON.check+'Accept All Majority</button></div></div>';
-}
-
-/* ============================================================
    SECTION I-IG — INTEGRATION GUIDE (spec §32)
    ============================================================ */
 // Raw snippet text (copied verbatim, never HTML). Keyed for the Copy buttons.
@@ -3223,7 +3191,7 @@ function initAgents(){
     { id:'al2', tenantId:'tenant_pravartak', agentId:'annotation_router', agent:'Annotation Router', time:'14:28', type:'reassign', title:'REASSIGNED', detail:'34 rows moved from Priya S → Auto-assign pool', reasoning:'Priya S at 12% daily pace vs 28% required. SLA breach in 1.4 days at current rate.', undoMin:4, cta:['View batch','nav','review'] },
     { id:'al3', tenantId:'tenant_pravartak', agentId:'inference_monitor_agent', agent:'Inference Monitor Agent', time:'14:21', type:'escalate', title:'ESCALATED', detail:'Hallucination cluster: 7 similar inferences in 90 min. All cite "Section 44(b)" — not present in corpus.', reasoning:'Action taken: Created annotation sprint #12. Requires ML Engineer to confirm sprint scope.', undoMin:null, cta:['Review sprint','nav','review'] },
     { id:'al4', tenantId:'tenant_pravartak', agentId:'release_agent', agent:'Release Agent', time:'13:58', type:'reminder', title:'REMINDER SENT', detail:'Architect approval pending 2 days for Legal AI v1.2', reasoning:'Sent reminder to architect@cueval.ai. Escalates to Admin if no response in 24 hours.', undoMin:null, cta:['View release','nav','releases'] },
-    { id:'al5', tenantId:'tenant_pravartak', agentId:'dataset_improvement', agent:'Dataset Improvement Agent', time:'06:00', type:'insight', title:'INSIGHT', detail:'Medical QA: 15% of production query types have < 10 corpus entries. Top gap: "drug interaction queries".', reasoning:'Recommendation: Add 150 examples to close coverage gap. Estimated eval improvement: +6–9% on factuality.', undoMin:null, cta:['Create annotation task','goto-entity',''] },
+    { id:'al5', tenantId:'tenant_pravartak', agentId:'dataset_improvement', agent:'Dataset Improvement Agent', time:'06:00', type:'insight', title:'INSIGHT', detail:'Medical QA: 15% of production query types have < 10 corpus entries. Top gap: "drug interaction queries".', reasoning:'Recommendation: Add 150 examples to close coverage gap. Estimated eval improvement: +6–9% on factuality.', undoMin:null, cta:['Review coverage gap','nav','review'] },
     { id:'al6', tenantId:'tenant_pravartak', agentId:'curation_agent', agent:'Curation Agent', time:'11:40', type:'approve', title:'AUTO-APPROVED', detail:'Removed 12 exact duplicates from Legal AI v1.3', reasoning:'SHA256 match, identical instruction+output', undoMin:null, cta:['View rows','nav','datasets'] },
     { id:'al7', tenantId:'tenant_pravartak', agentId:'annotation_router', agent:'Annotation Router', time:'10:15', type:'reassign', title:'REASSIGNED', detail:'18 Tamil rows → Priya S (specialist match)', reasoning:'Language-specialist routing; Priya S handles Tamil at 2x pace', undoMin:null, cta:['View batch','nav','review'] },
     { id:'al8', tenantId:'tenant_pravartak', agentId:'inference_monitor_agent', agent:'Inference Monitor Agent', time:'09:30', type:'insight', title:'INSIGHT', detail:'Flag rate down 2.9% since v1.2 deploy — factuality improvements holding', reasoning:'No action needed. Trend positive over 14-day window.', undoMin:null, cta:['View monitor','nav','monitor'] },
@@ -3369,6 +3337,10 @@ function attachDropdown(anchor, html, right){
   const dd=document.createElement('div'); dd.className='dropdown'+(right?' right':''); dd.innerHTML=html;
   anchor.style.position='relative'; anchor.appendChild(dd);
 }
+function addDataDropdown(){ const h='<div class="dropdown-head">Add data</div>'
+    +'<button class="dropdown-item" data-action="upload-dataset">'+ICON.upload+'Upload File</button>'
+    +'<button class="dropdown-item" data-action="import-connector">'+ICON.arrowR+'Import from Annotation Tool</button>';
+  attachDropdown(el('adddata-select'), h, true); }
 function projectDropdown(){ let h='<div class="dropdown-head">Switch project</div>';
   getProjects().forEach(p=>h+='<button class="dropdown-item '+(p.id===appState.projectId?'is-active':'')+'" data-action="switch-project" data-id="'+p.id+'">'+ICON.folder+escapeHtml(p.name)+'</button>');
   attachDropdown(el('proj-select'), h, false); }
@@ -3402,8 +3374,7 @@ function paletteItems(q){ q=(q||'').toLowerCase(); const items=[];
   getBulkJobs().forEach(j=>add('Bulk Jobs','grid',j.name,'bulk-open',{id:j.id}));
   getAudioFiles().forEach(f=>add('Audio','bolt',f.name,'open-audio',{id:f.id}));
   getVideoFiles().forEach(f=>add('Video','image',f.name,'open-video',{id:f.id}));
-  getEntityProjects().forEach(p=>add('Entity Labelling','tag',p.name,'nav-entity',{id:p.id}));
-  [['Upload dataset','upload-dataset',null],['Upload document','upload-document',null],['Correct OCR regions','goto-ocr',null],['Start bulk ingestion job','bulk-start',null],['View bulk job status','bulk-status',null],['View deduplication report','bulk-status',null],['View annotation project','goto-annotation',null],['Run eval','nav','eval'],['New project','new-project',null],['New experiment','new-experiment',null],['About platform / Guide','nav','guide'],['Open FAQ','nav','guide'],['Upload audio','upload-audio',null],['Upload video','upload-video',null],['Correct audio segments','goto-audio-corr',null],['Review video frames','goto-video-corr',null],['Open inference monitor','nav','monitor'],['View agents','nav','agents'],['Configure monitor','configure-monitor',null],['View integration guide','view-integration-guide',null],['Rank preferences (RLHF)','goto-pref',null],['Label entities','goto-entity',null]].forEach(a=>add('Actions','plus',a[0],a[1],a[2]?{view:a[2]}:{}));
+  [['Upload dataset','upload-dataset',null],['Upload document','upload-document',null],['Correct OCR regions','goto-ocr',null],['Start bulk ingestion job','bulk-start',null],['View bulk job status','bulk-status',null],['View deduplication report','bulk-status',null],['View annotation project','goto-annotation',null],['Run eval','nav','eval'],['New project','new-project',null],['New experiment','new-experiment',null],['About platform / Guide','nav','guide'],['Open FAQ','nav','guide'],['Upload audio','upload-audio',null],['Upload video','upload-video',null],['Correct audio segments','goto-audio-corr',null],['Review video frames','goto-video-corr',null],['Open inference monitor','nav','monitor'],['View agents','nav','agents'],['Configure monitor','configure-monitor',null],['View integration guide','view-integration-guide',null],['Rank preferences (RLHF)','goto-pref',null],['Import from annotation tool','import-connector',null]].forEach(a=>add('Actions','plus',a[0],a[1],a[2]?{view:a[2]}:{}));
   const filtered = q ? items.filter(i=>i.label.toLowerCase().includes(q)||i.group.toLowerCase().includes(q)) : items.slice(0,12);
   return filtered.slice(0,40);
 }
@@ -3441,7 +3412,15 @@ function dispatch(action, d){
     case 'mark-read': notifications.forEach(n=>{ if(!currentTenant||n.tenantId===currentTenant.id) n.read=true; }); closeAllDropdowns(); renderShell(); showToast('All notifications marked read','ok'); break;
     case 'open-project': setView('projects'); appState.projectId=d.id; { const r=projectReleases(d.id)[0]; appState.releaseId=r?r.id:null; } openProjectDetail(d.id); break;
     case 'new-project': newProjectModal(); break;
-    case 'upload-dataset': uploadModal(); break;
+    case 'upload-dataset': closeAllDropdowns(); uploadModal(); break;
+    // --- Annotation import connector (spec §34) ---
+    case 'toggle-adddata': addDataDropdown(); break;
+    case 'import-connector': closeAllDropdowns(); setView('datasets'); appState.dsView='import'; renderView(); break;
+    case 'import-back': appState.dsView='list'; renderView(); break;
+    case 'import-source': { const t=IMPORT_TOOLS.find(x=>x.key===d.key); if(!t) break; if(t.custom){ uploadModal(); } else if(!t.connected){ showToast('Coming soon — email prasanna@lynkstr.com to request early access.','info'); } break; }
+    case 'import-preview': importPreviewModal(); break;
+    case 'import-now': importNowFlow(); break;
+    case 'import-log': panelImportLog(d.id); break;
     case 'select-dataset': activeDatasetId=d.id; mount('ds-detail', datasetDetail(currentDataset())); afterRender(); break;
     case 'goto-dataset': setView('datasets'); activeDatasetId=d.id; break;
     case 'ds-filter': appState.dsFilters[d.key]=d.val; mount('ds-detail', datasetDetail(currentDataset())); afterRender(); break;
@@ -3556,20 +3535,6 @@ function dispatch(action, d){
     case 'pref-flag': { const p=byId(prefPairs,d.id); if(p&&assertTenant(p)){ p.status='ambiguous'; log.event('pref:flag',{id:d.id}); showToast('Flagged as ambiguous — escalated','info'); renderView(); } break; }
     case 'export-pref': exportPref(); break;
     case 'goto-pref': setView('review'); appState.reviewTab='pref'; appState.prefIndex=0; renderView(); break;
-    case 'goto-entity': setView('review'); appState.reviewTab='entity'; appState.entityDocIndex=0; renderView(); break;
-    case 'nav-entity': setView('review'); appState.reviewTab='entity'; appState.entityProjectId=d.id; appState.entityDocIndex=0; renderView(); break;
-    // --- Entity labelling (spec §25) ---
-    case 'entity-apply': entityApplyLabel(d.id, d.label); break;
-    case 'entity-remove': entityRemoveSpan(d.id, +d.idx); break;
-    case 'entity-clear': { const doc=byId(entityDocs,d.id); if(doc&&assertTenant(doc)){ doc.spans=[]; renderView(); } break; }
-    case 'entity-undo': { const doc=byId(entityDocs,d.id); if(doc&&assertTenant(doc)){ doc.spans.pop(); renderView(); } break; }
-    case 'entity-save': entitySave(d.id); break;
-    case 'entity-skip': appState.entityDocIndex++; appState.entityPendingSel=null; renderView(); break;
-    case 'entity-prev': appState.entityDocIndex=Math.max(0,appState.entityDocIndex-1); appState.entityPendingSel=null; renderView(); break;
-    case 'export-entity': exportEntity(); break;
-    case 'add-entity-label': addEntityLabelModal(d.proj); break;
-    case 'conflict-accept': case 'conflict-override': { const doc=byId(entityDocs,d.doc); if(doc&&assertTenant(doc)){ doc.conflicts.splice(+d.idx,1); log.event('conflict:'+action,{doc:d.doc}); showToast(action==='conflict-accept'?'Majority accepted':'Override applied','ok'); renderView(); } break; }
-    case 'conflict-accept-all': { const doc=byId(entityDocs,d.doc); if(doc&&assertTenant(doc)){ doc.conflicts=[]; doc.status='done'; log.event('conflict:accept-all',{doc:d.doc}); showToast('All majority labels accepted','ok'); renderView(); } break; }
     // --- Experiment lineage (spec §26) ---
     case 'exp-tab': appState.expTab=d.tab; panelExperiment(d.id); break;
     case 'lineage-search-live': break; // handled by live input listener; no-op on click
@@ -4079,75 +4044,12 @@ function exportPref(){
   log.event('pref:export',{rows:lines.length}); showToast('Exported '+lines.length+' RLHF preference pairs','ok');
 }
 
-/* ---- Entity labelling handlers (spec §25) ---- */
-function entityApplyLabel(docId, label){
-  const doc=byId(entityDocs,docId); if(!doc||!assertTenant(doc)) return;
-  if(!can('Annotation')){ showToast('You lack annotation permission','error'); return; }
-  const sel=appState.entityPendingSel;
-  if(!sel){ showToast('Select text in the document first, then pick a label','info'); return; }
-  // guard offsets against the document text
-  if(sel.start<0 || sel.end>doc.text.length || sel.start>=sel.end){ appState.entityPendingSel=null; renderView(); return; }
-  doc.spans.push({ start:sel.start, end:sel.end, label, by:currentUser.name });
-  appState.entityPendingSel=null;
-  log.event('entity:label',{doc:docId, label});
-  renderView();
-}
-function entityRemoveSpan(docId, idx){
-  const doc=byId(entityDocs,docId); if(!doc||!assertTenant(doc)) return;
-  doc.spans.splice(idx,1); renderView();
-}
-function entitySave(docId){
-  const doc=byId(entityDocs,docId); if(!doc||!assertTenant(doc)) return;
-  if(!can('Annotation')){ showToast('You lack annotation permission','error'); return; }
-  doc.status='done'; appState.entityPendingSel=null;
-  log.event('entity:save',{doc:docId, spans:doc.spans.length});
-  pushActivity('labelled '+doc.spans.length+' entities in a document');
-  showToast('Document saved · '+doc.spans.length+' entities','ok');
-  renderView();
-}
-function exportEntity(){
-  const proj=activeEntityProject(); if(!proj) return;
-  const docs=getEntityDocs().filter(d=>d.projectId===proj.id && d.status==='done');
-  const lines=docs.map(d=>JSON.stringify({ text:d.text, entities:d.spans.map(s=>[s.start,s.end,s.label]) }));
-  download(proj.name.replace(/\s+/g,'_')+'_spacy.jsonl', lines.join('\n'), 'application/jsonl');
-  log.event('entity:export',{rows:lines.length}); showToast('Exported '+lines.length+' labelled documents (spaCy JSON)','ok');
-}
-// Label schema editing (spec §25 — Architect/Admin only)
-function schemaCanEdit(){ return ['Admin','Architect','SuperAdmin'].includes(currentUser.role); }
-const LABEL_COLORS=[['Blue','#3B82F6'],['Green','#22C55E'],['Yellow','#EAB308'],['Orange','#E85D26'],['Red','#EF4444'],['Purple','#8b5cf6'],['Cyan','#06b6d4'],['Brown','#a16207'],['Pink','#D63384'],['Grey','#9898B0']];
-function addEntityLabelModal(projId){
-  const proj=byId(getEntityProjects(),projId); if(!proj||!assertTenant(proj)) return;
-  if(!schemaCanEdit()){ showToast('Label schema editing is Architect / Admin only','error'); return; }
-  const colorOpts=LABEL_COLORS.map((c,i)=>'<option value="'+c[1]+'"'+(i===0?' selected':'')+'>'+c[0]+'</option>').join('');
-  openModal('<div class="modal-head"><strong>Add Label · '+escapeHtml(proj.name)+'</strong><button class="icon-btn" data-action="close-modal">'+ICON.x+'</button></div>'
-    +'<div class="modal-body"><label class="field-label">Label name</label><input class="input mono" id="nl-name" placeholder="e.g. LOCATION" style="text-transform:uppercase">'
-    +'<div class="grid-2 mt12"><div><label class="field-label">Colour</label><select class="input" id="nl-color">'+colorOpts+'</select></div>'
-    +'<div><label class="field-label">Shortcut key</label><input class="input mono" id="nl-key" maxlength="1" placeholder="L"></div></div>'
-    +'<div id="nl-err" class="field-err hidden"></div>'
-    +'<div class="mt16"><div class="section-h">Current schema</div><div class="flex wrap gap6">'+proj.labels.map(l=>'<span class="chip" style="border-color:'+l.color+'"><span style="color:'+l.color+'">■</span> '+l.short+' '+escapeHtml(l.key)+'</span>').join('')+'</div></div></div>'
-    +'<div class="modal-foot"><button class="btn btn-ghost" data-action="close-modal">Cancel</button><button class="btn btn-primary" id="nl-save">'+ICON.check+'Add Label</button></div>');
-  el('nl-save').onclick=()=>saveEntityLabel(projId);
-}
-function saveEntityLabel(projId){
-  const proj=byId(getEntityProjects(),projId); if(!proj) return;
-  const err=el('nl-err'); const fail=m=>{ err.classList.remove('hidden'); err.innerHTML=ICON.warn+m; };
-  const name=(el('nl-name').value||'').trim().toUpperCase().replace(/\s+/g,'_');
-  const color=el('nl-color').value; const key=(el('nl-key').value||'').trim().toUpperCase().slice(0,1);
-  if(!name) return fail('Label name is required');
-  if(proj.labels.some(l=>l.key===name)) return fail('A label named '+name+' already exists');
-  if(!key) return fail('A shortcut key is required');
-  if(proj.labels.some(l=>l.short===key)) return fail('Shortcut '+key+' is already used by '+proj.labels.find(l=>l.short===key).key);
-  proj.labels.push({ key:name, color, short:key });
-  closeModal(); log.event('entity:add-label',{proj:projId, label:name}); pushActivity('added entity label '+name+' to '+proj.name);
-  showToast('Label '+name+' added','ok'); renderView();
-}
-
 /* ---- Global events ---- */
 document.addEventListener('click', e=>{
   const stop=e.target.closest('[data-stop]');
   const t=e.target.closest('[data-action]');
   // close dropdowns when clicking outside
-  if(!e.target.closest('.dropdown') && !e.target.closest('[data-action="toggle-proj"],[data-action="toggle-rel"],[data-action="toggle-notif"],[data-action="user-menu"]')) closeAllDropdowns();
+  if(!e.target.closest('.dropdown') && !e.target.closest('[data-action="toggle-proj"],[data-action="toggle-rel"],[data-action="toggle-notif"],[data-action="user-menu"],[data-action="toggle-adddata"]')) closeAllDropdowns();
   if(!t) return;
   const action=t.dataset.action;
   // Backdrop-close actions must only fire on a direct scrim click, not clicks inside the
@@ -4211,11 +4113,6 @@ document.addEventListener('keydown', e=>{
       if(typing) return; // A/B/T/X shouldn't fire while typing the reasoning
       if(k==='a'){ p.chosen='A'; renderView(); } else if(k==='b'){ p.chosen='B'; renderView(); }
       else if(k==='t'){ p.chosen='tie'; renderView(); } else if(k==='x'){ p.chosen='both_bad'; renderView(); }
-    } else if(tab==='entity'){
-      if(typing) return;
-      const proj=activeEntityProject(); const dq=proj?getEntityDocs().filter(x=>x.projectId===proj.id && x.status==='pending'):[];
-      const doc=dq[appState.entityDocIndex]; if(!doc) return;
-      if(appState.entityPendingSel){ const lab=proj.labels.find(l=>l.short.toLowerCase()===k); if(lab){ e.preventDefault(); entityApplyLabel(doc.id, lab.key); } }
     }
   }
 });
@@ -4239,7 +4136,6 @@ function initMockData(){
   initColdStart(); // cold-start monitor + corpus seeds (spec §31)
   initAgents();    // agentic layer (spec §33)
   initPrefPairs(); // RLHF preference pairs (spec §24)
-  initEntity();    // entity labelling projects (spec §25)
 }
 function boot(){ log.info('[boot] Cueval prototype starting'); initMockData(); renderLogin(); }
 boot();

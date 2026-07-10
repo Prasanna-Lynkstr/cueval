@@ -3570,3 +3570,223 @@ agents = [
 88. Escalation entries in log: amber background tint to distinguish from standard action entries.
 89. Insight entries in log: blue-tinted background. [Create annotation task] CTA navigates to new task form pre-filled with agent's suggestion.
 90. Sovereign mode indicator: 🔒 badge on agent config modal header and on each agent row in the roster when project is configured as sovereign.
+
+---
+
+## 34. DELTA — REMOVE ENTITY LABELLING, ADD ANNOTATION IMPORT CONNECTOR
+
+### Removed from Spec
+Section 25 (Entity Labelling) is withdrawn. Do not build the span annotation UI, label schema configuration, conflict resolution, or NER export formats.
+
+Remove from:
+- Review Queue tabs — remove "Entity Labelling" tab entirely
+- Dashboard CTAs — remove entity labelling CTAs
+- Project type selector — remove "Entity Labelling" project type
+- Mock data — remove all entity labelling projects from all tenants
+- Section 27 — update Review Queue tabs to 5 tabs (remove Entity Labelling)
+
+Updated Review Queue tab structure:
+```
+Review Queue
+├── Text Review
+├── OCR Corrections
+├── Audio Corrections
+├── Video Corrections
+└── Preference Ranking
+```
+
+---
+
+### New: Annotation Import Connector
+
+**Where it lives:**
+Datasets screen → [Upload Dataset ▾] dropdown now has two options:
+```
+▾ Add Data
+  ├── Upload File          (existing — JSONL, CSV, PDF, audio, video)
+  └── Import from Annotation Tool  (new)
+```
+
+---
+
+### Import Connector Screen
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Import from Annotation Tool                                │
+│  Bring externally labelled data into Cueval's curation     │
+│  pipeline. Cueval does not replace annotation tools —      │
+│  it starts where they finish.                              │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  SELECT SOURCE                                              │
+│                                                             │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐     │
+│  │  Label Studio │  │   Argilla    │  │   Prodigy    │     │
+│  │  ✅ Connected │  │  + Connect   │  │  + Connect   │     │
+│  └──────────────┘  └──────────────┘  └──────────────┘     │
+│                                                             │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐     │
+│  │   Labelbox   │  │   Scale AI   │  │  Custom JSON  │     │
+│  │  + Connect   │  │  + Connect   │  │  Upload file  │     │
+│  └──────────────┘  └──────────────┘  └──────────────┘     │
+│                                                             │
+├─────────────────────────────────────────────────────────────┤
+│  LABEL STUDIO — Connected                                   │
+│                                                             │
+│  Project:  [Contract NER — Legal AI Corp        ▾]         │
+│  Tasks:    1,240 total  |  1,198 completed  |  42 pending  │
+│                                                             │
+│  Import:   ○ Completed tasks only (1,198)                  │
+│            ● All tasks with completion filter              │
+│            ○ Tasks annotated by specific annotators        │
+│                                                             │
+│  Data type detected: NER (entity spans)                    │
+│                                                             │
+│  CONVERSION TO CUEVAL FORMAT                               │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │  Label Studio output → Cueval instruction pair      │   │
+│  │                                                     │   │
+│  │  Input text + entity spans                          │   │
+│  │         ↓                                           │   │
+│  │  Instruction: "Extract all named entities from      │   │
+│  │               the following text"                   │   │
+│  │  Output: JSON of labelled entities                  │   │
+│  │                                                     │   │
+│  │  Conversion template: [NER → Instruction Pair ▾]   │   │
+│  │  [Preview conversion (5 samples)]                   │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                                                             │
+│  TARGET                                                     │
+│  Project:  [Legal AI Assistant               ▾]            │
+│  Release:  [v1.3 — NER Training Data         ▾]            │
+│                                                             │
+│  After import: run full curation pipeline automatically    │
+│  ☑ Quality scoring   ☑ PII detection   ☑ Near-dup check   │
+│                                                             │
+│  Estimated import: 1,198 rows → ~940 after curation       │
+│                                                             │
+│  [Cancel]  [Preview Import]  [Import Now]                  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### Conversion Templates
+
+When importing labelled data, Cueval converts it to instruction pairs using configurable templates. Pre-built templates for common annotation output types:
+
+```
+NER → Instruction Pair:
+  Instruction: "Extract all [ENTITY_TYPES] from the following text"
+  Input: [source_text]
+  Output: JSON array of {text, label, start, end}
+
+Classification → Instruction Pair:
+  Instruction: "Classify the sentiment of the following text"
+  Input: [source_text]
+  Output: [label] — [confidence if available]
+
+Preference Ranking → RLHF Pair:
+  Directly maps to Cueval's preference format
+  chosen: [higher-ranked response]
+  rejected: [lower-ranked response]
+
+Span QA → Instruction Pair:
+  Instruction: [question]
+  Input: [context_document]
+  Output: [extracted_answer_span]
+
+Custom template:
+  User defines instruction template with variable placeholders
+  Maps annotation fields to instruction/input/output
+```
+
+---
+
+### Import History
+
+In Datasets screen, show import provenance on dataset cards:
+
+```
+Contract NER Dataset
+1,198 rows  |  Source: Label Studio (imported 14 Jun 2025)
+Quality score: 79%  |  42 rows filtered by curation
+[View import log]
+```
+
+Import log shows:
+- Source tool and project
+- Import timestamp and who triggered it
+- Rows imported, rows filtered by curation and why
+- Conversion template used
+- Link to original Label Studio project (if accessible)
+
+This maintains full provenance — auditors can trace a training row back to its original annotation task in the external tool.
+
+---
+
+### Positioning Note (visible on connector screen)
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Cueval does not replace your annotation tool.             │
+│                                                             │
+│  Use Label Studio, Argilla, or any tool your team prefers  │
+│  for raw data labelling. Cueval starts where they finish — │
+│  converting labelled data to training-ready instruction    │
+│  pairs, running quality checks, and closing the loop       │
+│  back from production to your next annotation sprint.      │
+└─────────────────────────────────────────────────────────────┘
+```
+
+Shown at top of connector screen. Sets expectation immediately.
+
+---
+
+### Mock Data for Import Connector
+
+**Label Studio — pre-configured as connected for Legal AI Corp:**
+```javascript
+{
+  tool: "label_studio",
+  status: "connected",
+  project: "Contract NER — Legal AI Corp",
+  tasks_total: 1240,
+  tasks_complete: 1198,
+  tasks_pending: 42,
+  data_type: "ner",
+  last_sync: "2025-06-14T09:30:00Z"
+}
+```
+
+Pre-load one completed import in Legal AI Corp dataset list:
+```javascript
+{
+  name: "Contract NER Dataset",
+  rows: 1198,
+  source: "label_studio",
+  source_project: "Contract NER — Legal AI Corp",
+  imported_at: "2025-06-14T10:12:00Z",
+  rows_filtered: 42,
+  filter_reasons: { low_quality: 28, near_duplicate: 11, pii: 3 },
+  quality_score: 79
+}
+```
+
+All other tools shown as unconnected (+ Connect state).
+
+---
+
+### Implementation Notes for Claude Code (delta)
+
+91. Remove entity labelling tab from Review Queue. Update tab badge count to cover 5 tabs only.
+92. Remove entity labelling CTAs from all role dashboards.
+93. Remove entity labelling project type from project creation modal.
+94. Remove entity labelling mock data from all three tenants.
+95. [Upload Dataset ▾] becomes a dropdown with two options. On mobile-width viewports, renders as a full-width bottom sheet.
+96. Import connector: Label Studio shown as connected (green badge). All others show "+ Connect" in muted style. Clicking "+ Connect" on any other tool shows a toast: "Coming soon — email prasanna@lynkstr.com to request early access."
+97. Conversion template preview: clicking [Preview conversion] shows a modal with 5 mock rows showing Label Studio format on left → Cueval instruction pair on right. Static mock — no actual conversion logic needed.
+98. [Import Now] triggers mock import animation: progress bar + step labels (Fetching from Label Studio → Converting format → Running curation pipeline → Done). Completes in 4 seconds. Then routes to Datasets screen showing new dataset card with "Source: Label Studio" badge.
+99. Import history on dataset cards: show "Source: Label Studio" badge in muted text below row count. Clicking [View import log] opens right panel with import provenance details.
+100. Positioning note callout: always visible at top of connector screen. Same styling as Agent Boundaries callout — non-dismissable, coral left border.
