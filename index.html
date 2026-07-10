@@ -3034,6 +3034,7 @@ function entityConflictView(proj, doc){
 const IG_SNIPPETS={
   'sdk-init':'from cueval import monitor\n\n# Initialise once at app startup\nmonitor.init(\n  project_id  = "legal-ai-prod",\n  api_key     = os.environ["CUEVAL_KEY"],\n  model_ver   = "v1.2",\n  sovereign   = False\n)\n\n# Replace your existing model call\n# Before:\n# response = model.generate(instruction, context)\n\n# After:\nresponse = monitor.generate(\n  model       = model,\n  instruction = instruction,\n  context     = context,   # pass if RAG\n)\n# response is identical — no application change',
   'sdk-feedback':'# After showing response to user:\nmonitor.feedback(\n  inference_id = response.inference_id,\n  rating       = "positive" | "negative",\n  comment      = user_comment  # optional\n)',
+  'sdk-id':'import uuid\n\n# Generate the ID in YOUR application — reuse it at feedback time\ncueval_id = str(uuid.uuid4())   # or your existing request ID\n\nresponse = monitor.generate(\n  model         = model,\n  instruction   = instruction,\n  context       = context,\n  inference_id  = cueval_id,     # pass at capture time\n)\n\n# ...later, using the SAME id:\nmonitor.feedback(inference_id=cueval_id, rating="positive")',
   'sidecar-compose':'cueval-sidecar:\n  image: cueval/sidecar:latest\n  ports: ["8080:8080"]\n  environment:\n    CUEVAL_PROJECT_ID: "legal-ai-prod"\n    CUEVAL_API_KEY:    "${CUEVAL_KEY}"\n    MODEL_ENDPOINT:    "http://your-model:8000"\n    MODEL_VERSION:     "v1.2"\n    SOVEREIGN:         "false"',
   'sidecar-app':'# Only change: point to sidecar instead of model\nMODEL_URL = "http://cueval-sidecar:8080/generate"\n# API signature identical to original endpoint',
   'onprem-compose':'# Full on-premise stack\nservices:\n  cueval-api:\n  cueval-frontend:\n  cueval-worker:\n  cueval-scoring:    # local scoring models\n  ollama:            # local LLM judge\n  postgres:\n  redis:\n  minio:',
@@ -3065,6 +3066,11 @@ function igSdk(){
     +'<div class="section-h mt16">Setup checklist</div>'+igChecklist([[1,'Install Cueval SDK (pip install cueval-sdk)'],[1,'Add project ID and API key to environment'],[0,'Wrap model call with monitor.generate()'],[0,'Pass context documents if using RAG'],[0,'Notify Cueval on model version change'],[0,'Add feedback widget to application UI']])
     +'<div class="section-h mt16">Integration snippet</div>'+codeBlock('sdk-init')
     +'<div class="section-h mt16">Feedback widget snippet</div>'+codeBlock('sdk-feedback')
+    +'<div class="section-h mt16">ID generation</div>'
+    +'<div class="card" style="padding:12px"><p class="secondary" style="font-size:13px;line-height:1.7"><strong style="color:var(--text-primary)">Recommended:</strong> generate <code style="font-family:var(--font-mono);background:var(--bg-hover);padding:1px 5px;border-radius:4px">inference_id</code> in your application using your existing request ID or a UUID. Pass it to Cueval at capture time, and use the <strong>same ID</strong> at feedback time.</p>'
+    +'<p class="secondary mt8" style="font-size:13px;line-height:1.7">Do not rely on Cueval to generate and return IDs — that creates an unnecessary dependency in the feedback chain.</p></div>'
+    +codeBlock('sdk-id')
+    +'<div class="warn-banner warn-yellow mt8" style="margin:0;font-size:12px">'+ICON.warn+'<span>The ID must be unique per inference within the project. Do not reuse session IDs across multiple turns.</span></div>'
     +limBox(['Context docs must be passed explicitly — not captured automatically. Without them, factuality scoring is off.','Background embedding adds 10–50ms in a separate thread. First inference after cold start may not be embedded.','Logprobs only captured if the model returns them. Most hosted APIs do not — confidence signal likely off.','Multi-turn: pass the last 2 turns as context for better drift scoring. Single-turn scoring only by default.']);
 }
 function igSidecar(){
