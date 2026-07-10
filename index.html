@@ -247,6 +247,11 @@ textarea.input{resize:vertical;min-height:90px;font-family:var(--font-mono);font
 .empty svg{width:52px;height:52px;color:var(--text-muted)}
 .empty-title{font-weight:600;font-size:15px}
 .empty-sub{color:var(--text-secondary);max-width:340px}
+/* Compact empty / loading states for inline regions (UX redesign phase 3) */
+.empty-mini{display:flex;flex-direction:column;align-items:center;gap:9px;padding:22px;text-align:center;color:var(--text-muted);font-size:13px}
+.empty-mini svg{width:26px;height:26px;opacity:.55}
+.spinner{width:22px;height:22px;border:2.5px solid var(--border);border-top-color:var(--coral);border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
 
 /* Login */
 .login{position:fixed;inset:0;display:grid;place-items:center;overflow:hidden}
@@ -347,6 +352,18 @@ body.impersonating .shell,body.impersonating #app>.shell{margin-top:34px;height:
 .crumb-link:hover{color:var(--coral)}
 .crumb-cur{color:var(--text-primary);font-weight:500}
 .crumb-sep{color:var(--text-muted);opacity:.55}
+/* Inline jargon explainer (UX redesign phase 3) */
+.info{position:relative;display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;
+  border-radius:50%;border:1px solid var(--border-active);color:var(--text-muted);font-size:10px;font-weight:700;
+  cursor:help;vertical-align:middle;margin-left:5px;font-family:var(--font-body);line-height:1}
+.info:hover,.info:focus{color:var(--coral);border-color:var(--coral);outline:none}
+.info-pop{position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%) translateY(4px);
+  width:250px;background:var(--bg-elevated);border:1px solid var(--border-active);border-radius:10px;padding:10px 12px;
+  font-size:12px;line-height:1.55;color:var(--text-secondary);font-weight:400;text-align:left;text-transform:none;letter-spacing:normal;
+  box-shadow:0 10px 34px rgba(0,0,0,.5);opacity:0;pointer-events:none;transition:opacity var(--t-fast),transform var(--t-fast);z-index:80}
+.info-pop b{color:var(--text-primary)}
+.info:hover .info-pop,.info:focus .info-pop{opacity:1;transform:translateX(-50%) translateY(0)}
+.info-pop::after{content:"";position:absolute;top:100%;left:50%;transform:translateX(-50%);border:6px solid transparent;border-top-color:var(--border-active)}
 /* Agents (spec §33) */
 .agent-row{padding:12px 14px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--bg-surface);cursor:pointer;transition:border var(--t-fast)}
 .agent-row:hover{border-color:var(--border-active)}
@@ -649,6 +666,10 @@ let corpusSeeds = [];
 // Agentic layer (spec §33)
 let agents = [];
 let agentLog = [];
+
+// Session resume checkpoint per tenant (UX redesign phase 3 / gap §37) — in-memory,
+// survives navigation within the session (not a page reload). No content stored, only position.
+let sessionReview = {};
 
 // Live-timer registry — every setInterval/timeout that drives an on-screen
 // animation is registered here and cleared on any view change (CLAUDE.md §10:
@@ -1186,6 +1207,22 @@ function crumb(parts){
   }).join('<span class="crumb-sep">›</span>');
   return '<nav class="crumb" aria-label="Breadcrumb">'+out+'</nav>';
 }
+// Plain-language explanations for insider terms (UX redesign phase 3).
+const GLOSSARY={
+  coverage:'<b>Coverage</b> — how much of your production traffic Cueval has enough reference data to score reliably. Low coverage doesn\'t mean monitoring is off: policy and user feedback are always collected.',
+  drift:'<b>Semantic drift</b> — how far a response sits from your cluster of approved responses. It needs a corpus to compare against, so it activates once the corpus grows.',
+  rubric:'<b>Rubric</b> — the weighted set of dimensions an eval scores against (Factuality, Tone…). The weights must total 100%.',
+  gate:'<b>Release gate</b> — a pass/fail check a release must clear before it can be approved (curation score, 100% review, eval complete, sign-offs).',
+  hallucination:'<b>Hallucination</b> — a claim or figure in the response that isn\'t supported by the provided context or known sources.',
+  rag:'<b>RAG</b> — retrieval-augmented: the model was given context documents at inference time. Factuality and hallucination checks only apply to these.',
+  corpus:'<b>Corpus</b> — your set of approved responses. It\'s the reference the semantic-drift signal compares new responses against.',
+  checkpoint:'<b>Checkpoint</b> — a saved snapshot of model weights from a training run, compared against another in the Eval Harness.',
+  qualityscore:'<b>Quality score</b> — a 0–100 heuristic per row (length, duplication, PII, format, toxicity). Green ≥70, yellow 45–69, red below 45.',
+};
+function infoTip(term){ const t=GLOSSARY[term]; if(!t) return ''; return '<span class="info" tabindex="0" role="button" aria-label="What this means">i<span class="info-pop">'+t+'</span></span>'; }
+// Consistent compact empty / loading states for inline regions (UX redesign phase 3).
+function emptyMini(icon,text){ return '<div class="empty-mini">'+(icon&&ICON[icon]?ICON[icon]:'')+'<span>'+escapeHtml(text)+'</span></div>'; }
+function loadingState(msg){ return '<div class="empty-mini"><div class="spinner"></div><span>'+escapeHtml(msg||'Loading…')+'</span></div>'; }
 
 /* ---- Radar chart (Canvas 2D, ADR-6) ---- */
 function drawRadar(cv){
@@ -1347,8 +1384,11 @@ function roleBoard(role){
     const parts=[['Text',datasetPendingCount()],['OCR',ocrPendingCount()],['Audio',audioPendingCount()],['Video',videoPendingCount()],['Preference',prefPendingCount()]];
     const total=parts.reduce((a,p)=>a+p[1],0);
     let chips=parts.filter(p=>p[1]).map(p=>'<span class="pill pill-muted">'+p[0]+' '+p[1]+'</span>').join(' ')||'<span class="muted">Nothing pending 🎉</span>';
+    const res=currentTenant&&sessionReview[currentTenant.id];
+    const resuming=res&&res.index>0&&res.index<res.total;
+    const primaryBtn = resuming ? pri('Resume — '+res.label+', '+(res.index+1)+' of '+res.total,'resume-review') : pri('Open my queue','nav','review');
     const hero=heroCard('pencil', total+' item'+(total!==1?'s':'')+' in your queue', 'Worst-scoring first, across every task type.',
-      pri('Open my queue','nav','review'),
+      primaryBtn,
       '<div class="flex wrap gap6 mt16">'+chips+'</div>');
     return '<div>'+hero+'<div class="card mt16"><div class="section-h">Keyboard</div><div class="secondary" style="font-size:13px">In the queue: <span class="kbd">A</span> approve · <span class="kbd">R</span> reject · <span class="kbd">E</span> edit · <span class="kbd">S</span> skip · <span class="kbd">⌘K</span> jump anywhere</div></div></div>';
   }
@@ -1405,7 +1445,7 @@ function roleBoard(role){
 }
 function roleSide(role){
   let feed=''; getActivity().forEach(a=>{ feed+='<div style="padding:11px 0;border-bottom:1px solid var(--border)"><div style="font-size:13px"><strong>'+escapeHtml(a.who)+'</strong> <span class="secondary">'+escapeHtml(a.text)+'</span></div><div class="muted mt4" style="font-size:11px">'+escapeHtml(a.time)+'</div></div>'; });
-  const activity='<div class="section-h">Activity</div><div class="card">'+(feed||'<span class="muted">No recent activity</span>')+'</div>';
+  const activity='<div class="section-h">Activity</div><div class="card">'+(feed||emptyMini('radar','No recent activity'))+'</div>';
   // managers also see project health
   if(['Admin','ProjectManager','Architect'].includes(role)){
     let health=''; getProjects().forEach(p=>health+=projectHealthCard(p));
@@ -1548,7 +1588,7 @@ function datasetDetail(d){
   const importLine = d.importMeta ? '<div class="muted mt4" style="font-size:12px">'+ICON.arrowR+' Source: '+escapeHtml(d.importMeta.sourceLabel)+' (imported '+escapeHtml(d.importMeta.importedAt)+') · '+d.importMeta.rowsFiltered+' rows filtered by curation <button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:11px" data-action="import-log" data-id="'+d.id+'">View import log</button></div>' : '';
   const hdr='<div class="card"><div class="row-between"><div><div class="flex gap8"><span class="card-title mono">'+escapeHtml(d.name)+'</span><span class="badge-fmt">'+d.format+'</span>'+(d.importMeta?'<span class="pill pill-blue" style="font-size:10px">'+escapeHtml(d.importMeta.sourceLabel)+'</span>':'')+'</div>'
     +'<div class="secondary mt4">'+fmtNum(d.importMeta?d.importMeta.rows:d.totalRows)+' rows · '+d.flaggedRows+' flagged · uploaded '+escapeHtml(d.uploadedAt)+' by '+escapeHtml(d.uploadedBy)+'</div>'+importLine+'</div>'
-    +'<div style="text-align:right"><div class="muted" style="font-size:11px">OVERALL SCORE</div><div class="bignum '+scoreClass(d.overallScore)+'">'+d.overallScore+'</div></div></div>'
+    +'<div style="text-align:right"><div class="muted" style="font-size:11px">OVERALL SCORE'+infoTip('qualityscore')+'</div><div class="bignum '+scoreClass(d.overallScore)+'">'+d.overallScore+'</div></div></div>'
     +'<div class="grid-3 mt16" style="grid-template-columns:1.3fr 1fr 1fr"><div><div class="section-h">Languages</div>'+langBar(d.languages)
     +'<div class="flex wrap gap8 mt8">'+d.languages.map(l=>'<span class="flex gap6" style="font-size:11px"><span style="width:9px;height:9px;border-radius:2px;background:'+(LANG_COLOR[l.code]||'#888')+'"></span>'+escapeHtml(LANG_LABEL[l.code]||l.code)+' '+l.pct+'%</span>').join('')+'</div></div>'
     +'<div><div class="section-h">Score Distribution</div>'+histo+'</div>'
@@ -1625,6 +1665,20 @@ function reviewQueue(){
   rows.sort((a,b)=>a.row.qualityScore-b.row.qualityScore);
   return rows;
 }
+// Current position within the active review task (index var differs for the pref tab).
+function activeReviewPos(){
+  const tab=appState.reviewTab;
+  if(tab==='datasets') return {index:appState.reviewIndex, total:reviewQueue().length, label:'Text Review'};
+  if(tab==='ocr') return {index:appState.reviewIndex, total:ocrCorrectionQueue().length, label:'OCR Corrections'};
+  if(tab==='audio') return {index:appState.reviewIndex, total:audioCorrQueue().length, label:'Audio Corrections'};
+  if(tab==='video') return {index:appState.reviewIndex, total:videoCorrQueue().length, label:'Video Corrections'};
+  if(tab==='pref') return {index:appState.prefIndex, total:prefQueue().length, label:'Preference Ranking'};
+  return null;
+}
+function resumeBanner(){
+  const p=activeReviewPos(); if(!p || p.index<=0 || !p.total || p.index>=p.total) return '';
+  return '<div class="warn-banner mt16" style="margin:0;background:var(--bg-hover);border:1px solid var(--border);color:var(--text-secondary);font-size:13px">⏱ <span>Resumed at item '+(p.index+1)+' of '+p.total+' — picked up where you left off this session.</span><div style="flex:1"></div><button class="btn btn-sm btn-ghost" data-action="review-start-fresh">Start fresh</button></div>';
+}
 function screenReview(){
   const q=reviewQueue(); const tab=appState.reviewTab;
   const badge=n=>n?' <span class="pill pill-coral" style="padding:1px 6px">'+n+'</span>':'';
@@ -1639,18 +1693,21 @@ function screenReview(){
   const title=crumb([['Review Queue','review-tab',{tab:'datasets'}],[tabLabel]])
     +'<div class="row-between"><div><h1 class="page-h">Review Queue</h1><p class="page-sub">'+subs[tab]+'</p></div>'
     +(currentUser.role==='Reviewer'&&tab==='datasets'?'<button class="btn btn-ghost" data-action="review-batch">'+ICON.check+'Batch approval</button>':'')+'</div>'+tabBar;
+  // Checkpoint the active task position so it can be resumed from the dashboard (gap §37).
+  if(currentTenant && tab!=='seeds'){ const p=activeReviewPos(); if(p) sessionReview[currentTenant.id]={tab, index:p.index, total:p.total, label:p.label}; }
+  const rb = tab!=='seeds' ? resumeBanner() : '';
   if(tab==='ocr'){
     if(appState.annotationJobId){ const j=byId(getBulkJobs(),appState.annotationJobId); if(j) return annotationProject(j); }
     const job=getBulkJobs()[0];
     const projBtn = job ? '<button class="btn btn-ghost btn-sm" data-action="view-annotation-project" data-id="'+job.id+'">'+ICON.users+'View as Project</button>' : '';
-    return title+'<div class="row-between mt16"><span class="secondary">'+ocrPendingCount()+' regions pending correction</span>'+projBtn+'</div><div class="mt16">'+reviewOcrPane()+'</div>';
+    return title+'<div class="row-between mt16"><span class="secondary">'+ocrPendingCount()+' regions pending correction</span>'+projBtn+'</div>'+rb+'<div class="mt16">'+reviewOcrPane()+'</div>';
   }
-  if(tab==='audio') return title+'<div class="mt24">'+reviewAudioPane()+'</div>';
-  if(tab==='video') return title+'<div class="mt24">'+reviewVideoPane()+'</div>';
-  if(tab==='pref') return title+'<div class="mt24">'+reviewPrefPane()+'</div>';
+  if(tab==='audio') return title+rb+'<div class="mt24">'+reviewAudioPane()+'</div>';
+  if(tab==='video') return title+rb+'<div class="mt24">'+reviewVideoPane()+'</div>';
+  if(tab==='pref') return title+rb+'<div class="mt24">'+reviewPrefPane()+'</div>';
   if(tab==='seeds') return title+'<div class="mt24">'+reviewSeedsPane()+'</div>';
   if(!q.length) return title+'<div class="mt24">'+emptyState('check','You\'re all caught up','No rows pending review. ✅','')+'</div>';
-  const head=title;
+  const head=title+rb;
   if(appState.reviewIndex>=q.length) appState.reviewIndex=0;
   const cur=q[appState.reviewIndex]; const r=cur.row;
   const reviewed = q.length; // remaining
@@ -1686,7 +1743,7 @@ function screenEval(){
     +'<div class="grid-2"><div><label class="field-label">Release</label><div class="input" style="background:var(--bg-elevated)">'+escapeHtml(rel?rel.name:'—')+'</div></div>'
     +'<div class="flex gap8" style="align-items:flex-end"><div style="flex:1"><label class="field-label">Checkpoint A</label><div class="input" style="background:var(--bg-elevated)">ckpt-base</div></div>'
     +'<div style="flex:1"><label class="field-label">Checkpoint B</label><div class="input" style="background:var(--bg-elevated)">ckpt-candidate</div></div></div></div>'
-    +'<div class="section-h mt16">Rubric weights <span class="muted" id="rubric-total">(total 100%)</span></div>'+dims
+    +'<div class="section-h mt16">Rubric weights'+infoTip('rubric')+' <span class="muted" id="rubric-total">(total 100%)</span></div>'+dims
     +'<div class="flex gap8 mt16"><button class="btn btn-ghost btn-sm" data-action="add-dimension">'+ICON.plus+'Add Custom Dimension</button>'
     +'<div style="flex:1"></div><button class="btn btn-primary" data-action="run-eval" data-rel="'+(rel?rel.id:'')+'">'+ICON.bolt+'Run Eval</button></div></div>';
   const resultHtml = result ? evalResultView(result) : '<div class="mt16">'+emptyState('bolt','No eval run yet','Run your first eval to compare checkpoints.','<button class="btn btn-primary" data-action="run-eval" data-rel="'+(rel?rel.id:'')+'">'+ICON.bolt+'Run Eval</button>')+'</div>';
@@ -1817,7 +1874,7 @@ function openReleaseDetail(id){
   const actions = canApprove ? '<div class="flex gap8 mt16"><button class="btn btn-primary" data-action="approve-release" data-id="'+r.id+'"'+(gates.some(g=>!g.ok)?' disabled':'')+'>'+ICON.check+'Approve Release</button><button class="btn btn-ghost" data-action="request-changes" data-id="'+r.id+'">Request Changes</button></div>' : '<div class="muted mt16">Approval requires Architect / PM / Admin role.</div>';
   const html='<div class="flex gap8">'+statusPill(r.status)+'<span class="secondary">'+escapeHtml(r.createdAt)+'</span></div>'
     +'<div class="section-h mt16">Dataset</div><div class="card" style="padding:12px">'+escapeHtml(ds?ds.name:'—')+' · score '+(ds?ds.overallScore:'—')+'</div>'
-    +'<div class="section-h mt16">Release gates</div>'+gh+actions;
+    +'<div class="section-h mt16">Release gates'+infoTip('gate')+'</div>'+gh+actions;
   openPanel(html, r.name);
 }
 
@@ -2835,7 +2892,7 @@ function coveragePanel(){
     +'<div class="section-h mt16">Signal coverage</div><div class="card" style="padding:0;overflow:auto"><table class="tbl"><thead><tr><th>Signal</th><th>Coverage</th><th>Limiting factor</th></tr></thead><tbody>'+sigRows+'</tbody></table></div>'
     +'<div class="section-h mt16">How to improve coverage</div>'+improve+growth
     +'<div class="section-h mt16">What coverage means</div><div class="secondary" style="font-size:12px;line-height:1.7">Coverage is the % of your inferences where Cueval has enough reference data to produce a meaningful score. Low coverage does not mean monitoring is off — policy and user feedback are always collected. It means the automated quality signals have limited reference data for that portion of your traffic. The monitor becomes more accurate as your approved dataset grows and your team provides feedback on flags.</div>';
-  return '<details class="faq mt16" id="cov-panel"'+(appState.coverageOpen?' open':'')+'><summary style="padding:13px 16px"><span class="flex gap8" style="align-items:center">📊 <strong>Monitor Coverage: <span class="'+scoreClass(c.overallCoverage)+'">'+c.overallCoverage+'%</span></strong><span class="secondary" style="font-weight:400;font-size:13px">— '+limiting+'</span></span><span class="faq-chev">'+ICON.chevR+'</span></summary><div class="faq-body" style="padding:0 16px 16px">'+body+'</div></details>';
+  return '<details class="faq mt16" id="cov-panel"'+(appState.coverageOpen?' open':'')+'><summary style="padding:13px 16px"><span class="flex gap8" style="align-items:center">📊 <strong>Monitor Coverage: <span class="'+scoreClass(c.overallCoverage)+'">'+c.overallCoverage+'%</span></strong>'+infoTip('coverage')+'<span class="secondary" style="font-weight:400;font-size:13px">— '+limiting+'</span></span><span class="faq-chev">'+ICON.chevR+'</span></summary><div class="faq-body" style="padding:0 16px 16px">'+body+'</div></details>';
 }
 function initColdStart(){
   coldStartProjects=[{ id:'cold1', tenantId:'tenant_pravartak', name:'Prison Welfare AI (New)', connectedDaysAgo:4,
@@ -2960,7 +3017,7 @@ function reviewSeedsPane(){
   const seeds=getCorpusSeeds();
   if(!seeds.length) return emptyState('check','No corpus seeds pending','Positively-rated inferences will appear here once 50+ accumulate.','');
   let rows=seeds.slice(0,20).map((s,i)=>'<tr><td class="mono muted">'+String(i+1).padStart(3,'0')+'</td><td>'+escapeHtml(s.instrType)+'</td><td>👍 ×'+s.feedback+'</td><td>'+mediaConfPill(s.policyScore)+'</td></tr>').join('');
-  return '<div class="card"><div class="row-between"><div><div class="card-title">Corpus Seeds · '+seeds.length+' proposed entries · Batch #1</div><div class="secondary mt4" style="font-size:12px">Source: User 👍 feedback (inference embeddings only)</div></div></div>'
+  return '<div class="card"><div class="row-between"><div><div class="card-title">Corpus Seeds'+infoTip('corpus')+' · '+seeds.length+' proposed entries · Batch #1</div><div class="secondary mt4" style="font-size:12px">Source: User 👍 feedback (inference embeddings only)</div></div></div>'
     +'<div class="card mt12" style="padding:0;overflow:auto;max-height:38vh"><table class="tbl"><thead><tr><th>#</th><th>Instruction type</th><th>Feedback</th><th>Policy score</th></tr></thead><tbody>'+rows+'</tbody></table></div>'
     +'<div class="warn-banner warn-yellow mt16" style="margin:0">'+ICON.warn+'<span>You are approving <strong>embeddings, not response content</strong>. These entries will anchor the semantic-drift cluster. Review the instruction types — ensure they represent typical production usage before approving. (Type labels are derived from embedding clustering, not raw text — no content transferred.)</span></div>'
     +'<div class="flex gap8 mt16 wrap"><button class="btn btn-primary" data-action="approve-seeds">'+ICON.check+'Approve All</button><button class="btn btn-ghost" data-action="toast" data-msg="Per-entry review is mocked">Review Each</button><button class="btn btn-ghost" data-action="reject-seeds">Reject Batch</button></div></div>';
@@ -3363,7 +3420,7 @@ function screenAgents(){
 function logEntriesHtml(list){
   const f=appState.agentFilter;
   const rows=list.filter(e=>f==='all'||e.agentId===f);
-  if(!rows.length) return '<div class="muted" style="padding:16px">No matching log entries</div>';
+  if(!rows.length) return emptyMini('robot','No matching log entries');
   const icon={approve:'✅',reassign:'✅',escalate:'⚠️',reminder:'📧',insight:'💡'};
   return rows.map(e=>{ const cls=e.type==='escalate'?' escalate':e.type==='insight'?' insight':'';
     const undo = e.undoMin!=null ? '<button class="btn btn-ghost btn-sm" data-action="agent-undo" data-id="'+e.id+'">'+ICON.clone+'Undo — '+e.undoMin+' min remaining</button>' : '';
@@ -3670,6 +3727,9 @@ function dispatch(action, d){
     case 'pref-flag': { const p=byId(prefPairs,d.id); if(p&&assertTenant(p)){ p.status='ambiguous'; log.event('pref:flag',{id:d.id}); showToast('Flagged as ambiguous — escalated','info'); renderView(); } break; }
     case 'export-pref': exportPref(); break;
     case 'goto-pref': setView('review'); appState.reviewTab='pref'; appState.prefIndex=0; renderView(); break;
+    // --- Resume / start-fresh (UX redesign phase 3 / gap §37) ---
+    case 'resume-review': { const r=currentTenant&&sessionReview[currentTenant.id]; if(r){ setView('review'); appState.reviewTab=r.tab; if(r.tab==='pref') appState.prefIndex=r.index; else appState.reviewIndex=r.index; renderView(); } break; }
+    case 'review-start-fresh': { if(appState.reviewTab==='pref') appState.prefIndex=0; else appState.reviewIndex=0; if(currentTenant) delete sessionReview[currentTenant.id]; log.event('review:start-fresh',{tab:appState.reviewTab}); renderView(); break; }
     // --- Experiment lineage (spec §26) ---
     case 'exp-tab': appState.expTab=d.tab; panelExperiment(d.id); break;
     case 'lineage-search-live': break; // handled by live input listener; no-op on click
