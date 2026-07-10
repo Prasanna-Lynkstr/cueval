@@ -279,6 +279,40 @@ body.impersonating .shell,body.impersonating #app>.shell{margin-top:34px;height:
 .warn-orange{background:rgba(232,93,38,.1);border:1px solid rgba(232,93,38,.4);color:#fb923c}
 .warn-red{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.4);color:#f87171}
 
+/* Guide / About page */
+.guide{max-width:960px;margin:0 auto}
+.guide-hero{background:linear-gradient(135deg,rgba(232,93,38,.12),rgba(214,51,132,.1));border:1px solid var(--border-active);border-radius:var(--r-lg);padding:30px 28px}
+.guide-logo{width:56px;height:56px;border-radius:16px;background:var(--gradient-brand);display:grid;place-items:center;font-family:var(--font-display);font-weight:800;color:#fff;font-size:28px;box-shadow:0 8px 30px var(--coral-glow)}
+.pipe{display:flex;align-items:stretch;gap:6px;overflow-x:auto;padding-bottom:4px}
+.pipe-step{flex:1;min-width:120px;background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--r-md);padding:14px 12px;text-align:center;position:relative}
+.pipe-step .pipe-ic{width:34px;height:34px;border-radius:10px;background:var(--coral-glow);color:var(--coral);display:grid;place-items:center;margin:0 auto 8px}
+.pipe-step .pipe-ic svg{width:18px;height:18px}
+.pipe-arrow{align-self:center;color:var(--text-muted);flex-shrink:0}
+.pipe-arrow svg{width:16px;height:16px}
+.guide-mod{display:flex;gap:12px;align-items:flex-start;padding:14px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--bg-surface);transition:border var(--t-fast)}
+.guide-mod:hover{border-color:var(--border-active)}
+.guide-mod .gm-ic{width:38px;height:38px;border-radius:11px;background:var(--bg-hover);color:var(--coral);display:grid;place-items:center;flex-shrink:0}
+.guide-mod .gm-ic svg{width:19px;height:19px}
+.concept{padding:12px 0;border-bottom:1px solid var(--border)}
+.concept:last-child{border-bottom:none}
+.concept dt{font-weight:600;font-size:13px;margin-bottom:3px}
+.concept dd{color:var(--text-secondary);font-size:13px}
+.faq{border:1px solid var(--border);border-radius:var(--r-md);margin-bottom:10px;background:var(--bg-surface);overflow:hidden}
+.faq summary{list-style:none;cursor:pointer;padding:15px 18px;display:flex;align-items:center;justify-content:space-between;gap:12px;font-weight:600;font-size:14px}
+.faq summary::-webkit-details-marker{display:none}
+.faq summary:hover{background:var(--bg-hover)}
+.faq summary .faq-chev{color:var(--text-muted);transition:transform var(--t-fast);flex-shrink:0}
+.faq summary .faq-chev svg{width:18px;height:18px;display:block}
+.faq[open] summary .faq-chev{transform:rotate(90deg)}
+.faq[open] summary{color:var(--coral)}
+.faq-body{padding:0 18px 16px;color:var(--text-secondary);font-size:13px;line-height:1.7}
+.faq-body code{font-family:var(--font-mono);font-size:12px;background:var(--bg-hover);padding:1px 5px;border-radius:4px;color:var(--text-primary)}
+.role-card{padding:14px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--bg-surface)}
+.role-card.is-you{border-color:var(--coral);background:var(--coral-glow)}
+.guide-toc{position:sticky;top:0}
+.guide-toc a{display:block;padding:6px 10px;border-radius:8px;color:var(--text-secondary);font-size:13px;transition:background var(--t-fast)}
+.guide-toc a:hover{background:var(--bg-hover);color:var(--text-primary)}
+
 @media (max-width:1024px){.grid-3{grid-template-columns:repeat(2,1fr)}}
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation:none!important;transition:none!important}
@@ -793,6 +827,10 @@ const ICON = {
   scissors:S+'<circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M8.5 8L20 18M8.5 16L20 6"/></svg>',
   sparkles:S+'<path d="M12 3l1.8 4.2L18 9l-4.2 1.8L12 15l-1.8-4.2L6 9l4.2-1.8z"/><path d="M18 15l.9 2.1L21 18l-2.1.9L18 21l-.9-2.1L15 18l2.1-.9z"/></svg>',
   grid:S+'<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>',
+  help:S+'<circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 015 .3c0 1.7-2.5 2-2.5 3.7"/><path d="M12 17h.01"/></svg>',
+  book:S+'<path d="M4 5a2 2 0 012-2h13v16H6a2 2 0 00-2 2z"/><path d="M4 5v14"/><path d="M9 7h6M9 11h6"/></svg>',
+  compass:S+'<circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/></svg>',
+  route:S+'<circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="6" r="2.5"/><path d="M8.5 18H15a3 3 0 000-6H9a3 3 0 010-6h6.5"/></svg>',
 };
 
 /* ============================================================
@@ -837,6 +875,7 @@ function renderDock(){
     html+='<button class="dock-item '+(currentView===it.view?'is-active':'')+'" data-action="nav" data-view="'+it.view+'" aria-label="'+it.label+'" aria-current="'+(currentView===it.view)+'">'+ICON[it.icon]+badge+'<span class="dock-tip">'+it.label+'</span></button>';
   });
   html+='<div class="dock-spacer"></div>';
+  html+='<button class="dock-item '+(currentView==='guide'?'is-active':'')+'" data-action="nav" data-view="guide" aria-label="Platform guide & FAQ" aria-current="'+(currentView==='guide')+'">'+ICON.help+'<span class="dock-tip">Guide &amp; FAQ</span></button>';
   html+='<button class="dock-item" data-action="open-palette" aria-label="Command palette">'+ICON.cmd+'<span class="dock-tip">Search &nbsp;<span class="kbd">⌘K</span></span></button>';
   html+='<button class="dock-item" data-action="user-menu" aria-label="Account menu"><span class="dock-avatar">'+initials(currentUser.name)+'</span><span class="dock-tip">'+escapeHtml(currentUser.name)+' · '+ROLE_LABEL[currentUser.role]+'</span></button>';
   return '<nav class="dock" aria-label="Primary">'+html+'</nav>';
@@ -886,7 +925,7 @@ function renderView(){
   const c=el('canvas'); if(!c) return;
   const map = {
     dashboard:screenDashboard, projects:screenProjects, datasets:screenDatasets, documents:screenDocuments, review:screenReview,
-    eval:screenEval, experiments:screenExperiments, releases:screenReleases, settings:screenSettings,
+    eval:screenEval, experiments:screenExperiments, releases:screenReleases, settings:screenSettings, guide:screenGuide,
     tenants:screenTenants, platform:screenPlatform, billing:screenBilling, alerts:screenAlerts, config:screenConfig,
   };
   const fn = map[currentView] || screenDashboard;
@@ -1379,6 +1418,103 @@ function settingsRoles(){
     return '<td style="text-align:center"><button class="chip '+(on?'is-on':'')+'" data-action="toggle-perm" data-group="'+g+'" data-role="'+r+'" style="padding:3px 8px" aria-pressed="'+on+'">'+(on?'On':'Off')+'</button></td>'; }).join('')+'</tr>'; });
   return '<div class="card mt16" style="padding:0;overflow:auto"><table class="tbl" style="min-width:760px"><thead>'+head+'</thead><tbody>'+body+'</tbody></table></div>'
     +'<div class="flex gap8 mt16"><button class="btn btn-ghost" data-action="toast" data-msg="Custom role builder is mocked">'+ICON.plus+'Create Custom Role</button><button class="btn btn-primary" data-action="toast" data-msg="Permissions saved (mock)">Save Changes</button></div>';
+}
+
+/* ---- About Platform / Guide + FAQ ---- */
+const GUIDE_PIPELINE = [
+  ['upload','Ingest','Upload datasets, documents, or a full corpus'],
+  ['sparkles','Curate & Score','Auto quality scoring, flags, language detection'],
+  ['pencil','Human Review','Approve, reject, edit rows & correct OCR'],
+  ['beaker','Experiment','Track training runs & configs reproducibly'],
+  ['bolt','Evaluate','Compare checkpoints across a weighted rubric'],
+  ['rocket','Release','Gate-checked approval to deployment'],
+];
+const GUIDE_MODULES = [
+  ['home','Dashboard','Your role-aware home. Surfaces the highest-priority work — pending reviews, completed evals, blocked releases — plus org-level metrics and an activity feed.'],
+  ['folder','Projects','Group work by initiative (e.g. "Legal AI Assistant"). Each project has members with roles, one or more releases, and its datasets.'],
+  ['database','Datasets','The curation workbench. See every row with its quality score, flags, and language; filter, sort, inspect a row in detail, and export only the approved rows as JSONL / CSV / Axolotl / LLaMA-Factory.'],
+  ['doc','Documents','Turn raw files into training data. Upload PDFs, scans, or images; the pipeline extracts text, runs OCR on scans, detects script per region, chunks the text, and synthesises instruction pairs you can send into curation.'],
+  ['grid','Bulk Ingestion','Corpus-scale mode (1K–500K files) via S3, folder, or API push. A 3-step wizard configures processing and workers; a live dashboard shows the pipeline funnel, workers, dedup report, failures, and compute cost.'],
+  ['pencil','Review Queue','Where humans do quality control. Two tabs: Datasets (approve/reject/edit rows, worst-scoring first, keyboard shortcuts A/R/E/S) and OCR Corrections (fix low-confidence scan regions).'],
+  ['bolt','Eval Harness','Compare two checkpoints across a weighted rubric (Factuality, Instruction Following, Tone, Task Completion, Refusal Behaviour). Radar chart, score deltas, low-confidence rows routed to human review, and a token/cost tracker.'],
+  ['beaker','Experiments','A reproducible log of training runs — dataset version, training config, checkpoint, and eval score. Clone any run to reproduce or iterate.'],
+  ['rocket','Releases','A pipeline from Draft → In Review → Approved → Training → Deployed. Each release has gate checks (curation score, 100% review, eval complete, approvals) that must pass before sign-off.'],
+  ['gear','Settings','Admin-only. Organisation usage meters against plan limits, user management, and the role → permission matrix.'],
+];
+const GUIDE_CONCEPTS = [
+  ['Row','A single instruction / input / output training example. The atomic unit of a dataset.'],
+  ['Quality score','A 0–100 heuristic score per row (length, duplication, PII, format, toxicity). ≥70 green, 45–69 yellow, &lt;45 red.'],
+  ['Flag','An automatically detected issue on a row — duplicate, near-duplicate, short response, format violation, PII, toxic, or low clarity.'],
+  ['OCR region','A block of text extracted from a scanned document. Regions below 60% confidence are routed to the OCR correction queue.'],
+  ['Chunk','A segment of a document produced by a chunking strategy (structural, semantic, paragraph, or fixed size), used as the source for instruction-pair synthesis.'],
+  ['Instruction pair','A synthesised training example (instruction + output) generated from a document chunk, which can be sent into the curation pipeline.'],
+  ['Checkpoint','A snapshot of model weights from a training run, compared against another checkpoint in the Eval Harness.'],
+  ['Rubric','The weighted set of dimensions an eval scores against; the weights must total 100%.'],
+  ['Release gate','A pass/fail check a release must clear before approval (e.g. curation score &gt; 70, human review 100% complete, eval done, approvals).'],
+  ['Tenant','An isolated organisation. All your data is scoped to your tenant — no other tenant can see it. Set at login and fixed for the session.'],
+  ['Plan limits','Per-tenant monthly caps (rows, eval runs, seats, projects) by plan tier (Starter / Pro / Enterprise). Warnings appear as you approach them.'],
+];
+const GUIDE_ROLES = [
+  ['Admin','Full control of the tenant — users, roles, projects, and all data.'],
+  ['ProjectManager','Owns projects and releases; tracks status and signs off on releases.'],
+  ['Architect','Shapes datasets and training strategy; approves releases on quality grounds.'],
+  ['MLEngineer','Runs experiments and evals; configures chunking and synthesis.'],
+  ['Reviewer','Approves batches of annotated rows and manages review quality.'],
+  ['Annotator','Works a personal queue — reviews rows and corrects OCR regions.'],
+];
+const FAQS = [
+  ['What exactly is Cueval?','Cueval is an AI dataset curation and evaluation platform. It takes you from raw data all the way to a release-ready, fine-tuning dataset: ingest → clean & score → human review → experiment → eval → release approval. It is built by Lynkstr Labs.'],
+  ['Where do I start?','Pick or create a Project, then either upload a dataset directly (Datasets → Upload) or upload documents (Documents) to extract training data from PDFs and scans. Once rows exist, work the Review Queue to approve them, run an Eval to compare checkpoints, and finally move a Release through its gates.'],
+  ['How is the quality score calculated?','Every row starts at 100 and loses points for problems: short responses, exact/near duplicates, detected PII, format violations, and toxic language. The final 0–100 score is colour-coded — green ≥70, yellow 45–69, red below 45. Open any row to see the clarity / completeness / relevance breakdown.'],
+  ['What do the flags mean?','Flags are auto-detected issues: <code>duplicate</code>, <code>near-duplicate</code>, <code>short-response</code>, <code>format-violation</code>, <code>pii-detected</code>, <code>toxic</code>, and <code>low-clarity</code>. Each flag on a row explains itself when you open the row detail.'],
+  ['How does document ingestion work?','Drop in PDFs, scans, or images. Digital PDFs are text-extracted directly; scanned files go through deskew → layout detection → per-region script detection → OCR → confidence scoring. Regions below 60% confidence become OCR correction tasks. After extraction you chunk the document and can synthesise instruction pairs.'],
+  ['What is the difference between My Documents and Bulk Ingestion?','My Documents is for single or small-batch uploads you process by hand. Bulk Ingestion is corpus-scale (1K–500K files) from an S3 bucket, folder, or API push — configured through a wizard and monitored on a live dashboard with a worker pool, dedup report, and cost tracker.'],
+  ['How do OCR corrections work?','When a scan region is below the confidence threshold, it lands in Review Queue → OCR Corrections. You see the original scan on the left and the editable OCR text on the right, and can Accept, Edit & Accept, or Flag for Expert. At corpus scale, corrections roll up into an Annotation Project with per-annotator assignments and ETAs.'],
+  ['What keyboard shortcuts exist?','In the Review Queue (Datasets tab): <code>A</code> approve, <code>R</code> reject, <code>E</code> edit, <code>S</code> skip. Anywhere: <code>⌘K</code> / <code>Ctrl+K</code> opens the command palette to jump to any project, dataset, row, run, or action. <code>Esc</code> closes panels, modals, and the palette.'],
+  ['How does the Eval Harness work?','Choose two checkpoints and a rubric of weighted dimensions (totalling 100%). Running an eval produces per-dimension scores for each checkpoint, a delta, an overlaid radar chart, and a cost estimate. Rows where the judge confidence is low are routed to human review.'],
+  ['What are release gates?','A release cannot be approved until its gates pass: a dataset is uploaded, curation score exceeds 70, human review is 100% complete, an eval run has completed, and the required Architect / PM approvals are in. The release detail shows exactly which gates are outstanding.'],
+  ['Who can do what? (roles & permissions)','There are six roles — Admin, Project Manager, Architect, ML Engineer, Reviewer, Annotator — each with different permissions. Admins configure the exact role → permission matrix in Settings → Roles & Permissions. Your current role is highlighted in the Roles section above.'],
+  ['Is my data isolated from other organisations?','Yes. Cueval is multi-tenant with strict isolation — every record is scoped to your tenant, resolved at login and fixed for your session. You can never see another tenant\'s projects, datasets, or documents. Only the Lynkstr Labs Super Admin has a separate cross-tenant operator view.'],
+  ['What are plan limits and what happens if I hit them?','Each tenant has a plan (Starter / Pro / Enterprise) with monthly caps on rows, eval runs, seats, and projects. You\'ll see a yellow warning around 70–85% usage, orange above 85%, and at the limit uploads are blocked with an upgrade prompt. Usage meters live in Settings → Organisation.'],
+  ['How do I export a cleaned dataset?','On the Datasets screen, click Export. Only approved (and edited) rows are included, and you can choose the output format — JSONL, CSV, Axolotl, or LLaMA-Factory — so it drops straight into your training pipeline.'],
+  ['Is this real data or a prototype?','This is a self-contained prototype. All data lives in your browser for the session, and the AI scoring, OCR, eval, and LLM calls are realistic mocks — nothing is sent to a server. Refreshing the page resets everything to the seeded demo data.'],
+  ['How do I switch roles or organisations to explore?','Sign out and log back in with any of the demo accounts listed on the login screen (all use the password <code>demo123</code>). Each role sees a different dashboard and navigation; each organisation shows only its own data.'],
+];
+function screenGuide(){
+  const you=currentUser.role;
+  let pipe='<div class="pipe">';
+  GUIDE_PIPELINE.forEach((s,i)=>{ pipe+='<div class="pipe-step"><div class="pipe-ic">'+ICON[s[0]]+'</div><div style="font-weight:600;font-size:13px">'+escapeHtml(s[1])+'</div><div class="muted" style="font-size:11px;margin-top:3px">'+escapeHtml(s[2])+'</div></div>'
+    +(i<GUIDE_PIPELINE.length-1?'<div class="pipe-arrow">'+ICON.arrowR+'</div>':''); });
+  pipe+='</div>';
+  let mods=''; GUIDE_MODULES.forEach(m=>{ mods+='<div class="guide-mod"><div class="gm-ic">'+ICON[m[0]]+'</div><div><div style="font-weight:600">'+escapeHtml(m[1])+'</div><div class="secondary mt4" style="font-size:13px">'+escapeHtml(m[2])+'</div></div></div>'; });
+  let roles=''; GUIDE_ROLES.forEach(r=>{ const isYou=r[0]===you; roles+='<div class="role-card'+(isYou?' is-you':'')+'"><div class="flex gap8" style="justify-content:space-between"><strong>'+ROLE_LABEL[r[0]]+'</strong>'+(isYou?'<span class="pill pill-coral">You</span>':'')+'</div><div class="secondary mt4" style="font-size:13px">'+escapeHtml(r[1])+'</div></div>'; });
+  let concepts=''; GUIDE_CONCEPTS.forEach(c=>{ concepts+='<div class="concept"><dt>'+c[0]+'</dt><dd>'+c[1]+'</dd></div>'; });
+  let faqs=''; FAQS.forEach((f,i)=>{ faqs+='<details class="faq"'+(i===0?' open':'')+'><summary>'+escapeHtml(f[0])+'<span class="faq-chev">'+ICON.chevR+'</span></summary><div class="faq-body">'+f[1]+'</div></details>'; });
+  const started='<ol style="padding-left:20px;line-height:2;color:var(--text-secondary)">'
+    +'<li>Open <strong>Projects</strong> and pick or create a project.</li>'
+    +'<li>Add data: upload a dataset in <strong>Datasets</strong>, or files in <strong>Documents</strong> (then chunk &amp; synthesise pairs).</li>'
+    +'<li>Work the <strong>Review Queue</strong> — approve, reject, edit rows, and correct OCR regions.</li>'
+    +'<li>Log a run in <strong>Experiments</strong> and compare checkpoints in the <strong>Eval Harness</strong>.</li>'
+    +'<li>Move a <strong>Release</strong> through its gates and approve it.</li></ol>';
+  return '<div class="guide">'
+    // hero
+    + '<div class="guide-hero"><div class="flex gap16" style="align-items:center"><div class="guide-logo">C</div>'
+    + '<div><h1 class="page-h">About Cueval</h1><p class="page-sub">From raw data to release-ready — an AI dataset curation &amp; evaluation platform by Lynkstr Labs.</p></div></div>'
+    + '<p class="secondary mt16" style="max-width:680px">Cueval helps teams building and fine-tuning language models turn messy source data into high-quality, human-reviewed, release-ready training sets — with experiment tracking, evaluation, and gated releases, all under strict multi-tenant isolation.</p></div>'
+    // pipeline
+    + '<div class="section-h mt24 flex gap6">'+ICON.route+'The pipeline</div>'+pipe
+    // modules
+    + '<div class="section-h mt24 flex gap6">'+ICON.compass+'What each area does</div><div class="grid-2" style="align-items:start">'+mods+'</div>'
+    // getting started
+    + '<div class="grid-2 mt24" style="align-items:start"><div><div class="section-h flex gap6">'+ICON.bolt+'Getting started</div><div class="card">'+started+'</div></div>'
+    + '<div><div class="section-h flex gap6">'+ICON.users+'Roles</div><div class="stack gap8">'+roles+'</div></div></div>'
+    // concepts
+    + '<div class="section-h mt24 flex gap6">'+ICON.book+'Key concepts</div><div class="card"><dl>'+concepts+'</dl></div>'
+    // FAQ
+    + '<div class="section-h mt24 flex gap6" id="faq">'+ICON.help+'Frequently asked questions</div>'+faqs
+    + '<div class="card mt24" style="text-align:center"><div class="secondary">Still stuck? Press <span class="kbd">⌘K</span> to search everything, or explore with a different demo account.</div>'
+    + '<button class="btn btn-primary mt12" data-action="nav" data-view="dashboard">'+ICON.home+'Go to Dashboard</button></div>'
+    + '</div>';
 }
 
 /* ---- SUPER ADMIN SCREENS ---- */
@@ -2011,6 +2147,7 @@ function notifDropdown(){ const ns=getNotifications().slice(0,10);
   const btn=document.querySelector('[data-action="toggle-notif"]'); attachDropdown(btn?btn.parentElement:null, h, true); }
 function userMenu(){ const h='<div class="dropdown-head">'+escapeHtml(currentUser.name)+' · '+ROLE_LABEL[currentUser.role]+'</div>'
     +'<div class="dropdown-item"><span class="muted mono" style="font-size:12px">'+escapeHtml(currentUser.email)+'</span></div><div class="dropdown-sep"></div>'
+    +'<button class="dropdown-item" data-action="nav" data-view="guide">'+ICON.help+'Platform guide &amp; FAQ</button>'
     +'<button class="dropdown-item" data-action="logout">'+ICON.logout+'Sign out</button>';
   const btn=document.querySelector('[data-action="user-menu"]'); attachDropdown(btn?btn.parentElement:null, h, true); }
 
@@ -2028,7 +2165,7 @@ function paletteItems(q){ q=(q||'').toLowerCase(); const items=[];
     add('Documents','sparkles','Generate pairs from '+truncate(dd.name,28),'configure-synthesis',{id:dd.id}); });
   let rc=0; if(q) getDatasets().forEach(d=>d.rows.forEach(r=>{ if(rc<40 && (r.instruction||'').toLowerCase().includes(q)){ add('Rows','pencil',truncate(r.instruction,50),'open-row',{id:r.id}); rc++; } }));
   getBulkJobs().forEach(j=>add('Bulk Jobs','grid',j.name,'bulk-open',{id:j.id}));
-  [['Upload dataset','upload-dataset',null],['Upload document','upload-document',null],['Correct OCR regions','goto-ocr',null],['Start bulk ingestion job','bulk-start',null],['View bulk job status','bulk-status',null],['View deduplication report','bulk-status',null],['View annotation project','goto-annotation',null],['Run eval','nav','eval'],['New project','new-project',null],['New experiment','new-experiment',null]].forEach(a=>add('Actions','plus',a[0],a[1],a[2]?{view:a[2]}:{}));
+  [['Upload dataset','upload-dataset',null],['Upload document','upload-document',null],['Correct OCR regions','goto-ocr',null],['Start bulk ingestion job','bulk-start',null],['View bulk job status','bulk-status',null],['View deduplication report','bulk-status',null],['View annotation project','goto-annotation',null],['Run eval','nav','eval'],['New project','new-project',null],['New experiment','new-experiment',null],['About platform / Guide','nav','guide'],['Open FAQ','nav','guide']].forEach(a=>add('Actions','plus',a[0],a[1],a[2]?{view:a[2]}:{}));
   const filtered = q ? items.filter(i=>i.label.toLowerCase().includes(q)||i.group.toLowerCase().includes(q)) : items.slice(0,12);
   return filtered.slice(0,40);
 }
