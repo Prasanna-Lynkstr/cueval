@@ -335,6 +335,18 @@ body.impersonating .shell,body.impersonating #app>.shell{margin-top:34px;height:
 .limbox{background:rgba(234,179,8,.08);border:1px solid rgba(234,179,8,.3);border-radius:var(--r-md);padding:12px 14px;font-size:12px;line-height:1.7}
 .limbox li{margin-left:4px;color:#facc15}
 .callout-amber{background:rgba(232,93,38,.08);border:1px solid rgba(232,93,38,.4);border-radius:var(--r-md);padding:16px}
+/* Agents (spec §33) */
+.agent-row{padding:12px 14px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--bg-surface);cursor:pointer;transition:border var(--t-fast)}
+.agent-row:hover{border-color:var(--border-active)}
+.agent-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0;display:inline-block}
+.agent-dot.running{background:var(--green);animation:agpulse 2s ease-in-out infinite}
+.agent-dot.waiting{background:var(--yellow)}.agent-dot.blocked{background:var(--red)}.agent-dot.idle{background:var(--text-muted)}
+@keyframes agpulse{0%,100%{box-shadow:0 0 0 0 rgba(34,197,94,.4)}50%{box-shadow:0 0 0 5px rgba(34,197,94,0)}}
+.log-entry{padding:12px 0;border-bottom:1px solid var(--border);animation:feedIn 400ms ease-out}
+.log-entry.escalate{background:rgba(234,179,8,.06);border-radius:8px;padding:12px;margin-bottom:2px}
+.log-entry.insight{background:rgba(59,130,246,.06);border-radius:8px;padding:12px;margin-bottom:2px}
+.boundary-box{background:var(--bg-surface);border:1px solid var(--border);border-left:3px solid var(--coral);border-radius:var(--r-md);padding:16px}
+.agent-lock{opacity:.4;pointer-events:none}
 
 @media (max-width:1024px){.grid-3{grid-template-columns:repeat(2,1fr)}}
 @media (prefers-reduced-motion:reduce){
@@ -600,6 +612,8 @@ const appState = {
   expTab:'timeline', lineageRowQuery:'', // experiment lineage (§26)
   monitorView:'dashboard', monitorDraft:null, // monitor config (§29)
   igTab:'sdk', igDisclaimers:true, igVisited:false, // integration guide (§32)
+  coverageOpen:false, // coverage indicator (§30)
+  agentFilter:'all', agentProjFilter:'all', // agents log filters (§33)
 };
 // Document-ingestion collections (populated in initMockData — after Section E)
 let documents = [];
@@ -619,6 +633,9 @@ let entityDocs = [];
 // Cold-start monitor + corpus seeding (spec §31)
 let coldStartProjects = [];
 let corpusSeeds = [];
+// Agentic layer (spec §33)
+let agents = [];
+let agentLog = [];
 
 // Live-timer registry — every setInterval/timeout that drives an on-screen
 // animation is registered here and cleared on any view change (CLAUDE.md §10:
@@ -669,6 +686,8 @@ function prefPendingCount(){ return getPrefPairs().filter(p=>p.status==='pending
 function entityPendingCount(){ return getEntityDocs().filter(d=>d.status==='pending').length; }
 function findInference(id){ return byId(inferences,id) || null; }
 function getColdStart(){ return scoped(coldStartProjects)[0] || null; }
+function getAgents(){ return scoped(agents); }
+function getAgentLog(){ return scoped(agentLog); }
 function getCorpusSeeds(){ return scoped(corpusSeeds); }
 // Corpus Seeds is an approval decision, not a review task (note 67/68) — ML/Architect/Admin only.
 function canSeeCorpusSeeds(){ return ['MLEngineer','Architect','Admin','SuperAdmin'].includes(currentUser.role) && getCorpusSeeds().length>=50; }
@@ -947,6 +966,7 @@ const ICON = {
   compass:S+'<circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/></svg>',
   route:S+'<circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="6" r="2.5"/><path d="M8.5 18H15a3 3 0 000-6H9a3 3 0 010-6h6.5"/></svg>',
   radar:S+'<path d="M12 12l6-3"/><path d="M12 3a9 9 0 109 9"/><path d="M12 8a4 4 0 104 4"/><circle cx="12" cy="12" r="1" fill="currentColor"/></svg>',
+  robot:S+'<rect x="4" y="8" width="16" height="11" rx="2"/><path d="M12 8V4M9 4h6"/><circle cx="9" cy="13" r="1" fill="currentColor"/><circle cx="15" cy="13" r="1" fill="currentColor"/><path d="M9.5 16h5"/></svg>',
   tag:S+'<path d="M3 11l8-8 10 10-8 8z"/><circle cx="8" cy="8" r="1.4" fill="currentColor"/></svg>',
   scale:S+'<path d="M12 3v18M7 21h10M6 7l-3 6h6zM18 7l-3 6h6zM6 7l6-2 6 2"/></svg>',
 };
@@ -962,6 +982,7 @@ const TENANT_DOCK = [
   {view:'review', icon:'pencil', label:'Review Queue'},
   {view:'eval', icon:'bolt', label:'Eval Harness'},
   {view:'monitor', icon:'radar', label:'Monitor'},
+  {view:'agents', icon:'robot', label:'Agents'},
   {view:'experiments', icon:'beaker', label:'Experiments'},
   {view:'releases', icon:'rocket', label:'Releases'},
   {view:'settings', icon:'gear', label:'Settings', admin:true},
@@ -1046,7 +1067,7 @@ function renderView(){
   const c=el('canvas'); if(!c) return;
   const map = {
     dashboard:screenDashboard, projects:screenProjects, datasets:screenDatasets, documents:screenDocuments, review:screenReview,
-    eval:screenEval, monitor:screenMonitor, experiments:screenExperiments, releases:screenReleases, settings:screenSettings, guide:screenGuide,
+    eval:screenEval, monitor:screenMonitor, agents:screenAgents, experiments:screenExperiments, releases:screenReleases, settings:screenSettings, guide:screenGuide,
     tenants:screenTenants, platform:screenPlatform, billing:screenBilling, alerts:screenAlerts, config:screenConfig,
   };
   const fn = map[currentView] || screenDashboard;
@@ -1056,6 +1077,7 @@ function renderView(){
   // Kick live animation only when the bulk dashboard is actually on screen.
   if(currentView==='documents' && appState.docTab==='bulk' && appState.bulkView==='dashboard'){ startBulkAnimation(); }
   if(currentView==='monitor'){ startMonitorAnimation(); }
+  if(currentView==='agents'){ startAgentAnimation(); }
 }
 
 /* ---- Right panel ---- */
@@ -1083,6 +1105,7 @@ function afterRender(){
   document.querySelectorAll('canvas[data-donut]').forEach(cv=>drawDonut(cv));
   attachEntitySelection();
   const dd=el('ig-disc'); if(dd) dd.ontoggle=()=>{ appState.igDisclaimers=dd.open; }; // persist disclaimer state (note 76)
+  const cov=el('cov-panel'); if(cov) cov.ontoggle=()=>{ appState.coverageOpen=cov.open; }; // persist coverage expand (note 56)
 }
 // Entity labelling: capture text selection offsets relative to the document container (note 40)
 function attachEntitySelection(){
@@ -1193,6 +1216,18 @@ function myWorkCard(){
   const role=currentUser.role; const pend=pendingCount();
   const ocrPend=ocrPendingCount(); const docs=getDocuments();
   const readyDoc=docs.find(d=>d.status==='ready-chunk'); const flaggedDoc=docs.filter(d=>d.regionsFlagged>0).sort((a,b)=>b.regionsFlagged-a.regionsFlagged)[0];
+  // Agent-aware CTAs take top priority when agents are active (spec §33) — Annotators see none
+  if(getAgents().length && role!=='Annotator'){
+    const amap={
+      MLEngineer:['Curation Agent auto-approved 847 rows','23 need your review','Review 23 rows','nav','view','review'],
+      ProjectManager:['Release Agent blocked','Architect approval 2 days overdue','Send escalation','nav','view','releases'],
+      Architect:['Dataset Improvement Agent found 3 coverage gaps','review suggested corpus additions','Review insights','nav','view','agents'],
+      Admin:['Annotation Router reassigned 34 rows','moved due to SLA risk','View reassignments','nav','view','agents'],
+      Reviewer:['Agents routed 23 rows to your queue','flagged for human review','Open queue','nav','view','review'],
+    };
+    const am=amap[role]; if(am){ const da=am[4]?' data-'+am[4]+'="'+escapeAttr(am[5])+'"':'';
+      return '<div class="card" style="border-color:var(--coral)"><div class="section-h flex gap6">'+ICON.robot+'My Work Today</div><div class="card-title">'+escapeHtml(am[0])+'</div><div class="secondary mt4">'+escapeHtml(am[1])+'</div><button class="btn btn-primary mt16" data-action="'+am[3]+'"'+da+'>'+escapeHtml(am[2])+ICON.arrowR+'</button></div>'; }
+  }
   // Bulk-job-aware CTAs take priority when a live bulk job exists (spec §20)
   const bulk=getBulkJobs().find(j=>j.status==='in_progress');
   if(bulk){
@@ -2578,6 +2613,46 @@ function getMonitorConfig(){ return currentTenant ? monitorConfigs[currentTenant
 function signalWeightTotal(signals){ return signals.filter(s=>!s.unavailable).reduce((a,s)=>a+s.weight,0); }
 // Cold-start project + corpus seeds mock (spec §31)
 const CORPUS_SEED_TYPES=['Contract clause query','Section lookup','Summarisation request','Entity extraction','Policy question','Definition request'];
+// Coverage indicator (spec §30)
+const COVERAGE_DATA={
+  tenant_pravartak:{ overallCoverage:84, inferenceTypes:{rag:91,finetuneOnly:7,openGeneration:2}, corpusSize:5203, feedbackRate:6.8, logprobsAvailable:false, monthlyGrowth:410,
+    improvements:[['Enable logprob access on the model endpoint','Confidence calibration: 0% → full coverage','View endpoint configuration →','configure-monitor',''],['Corpus growing well — continue annotation','Semantic drift coverage strengthens as the corpus grows','Go to Datasets →','nav','datasets']] },
+  tenant_legalai:{ overallCoverage:68, inferenceTypes:{rag:74,finetuneOnly:18,openGeneration:8}, corpusSize:4203, feedbackRate:3.2, logprobsAvailable:false, monthlyGrowth:312,
+    improvements:[['Provide context documents at inference time','Factuality + Hallucination coverage: 71% → 89% for the 18% fine-tune traffic','View integration guide →','view-integration-guide',''],['Add 2,000 more approved responses to corpus','Semantic drift coverage: 61% → 78%','Go to Datasets →','nav','datasets'],['Increase feedback widget visibility — 3.2% rate is low','Add the feedback widget to your application','Copy feedback widget snippet →','ig-copy-feedback','']] },
+  tenant_healthbot:{ overallCoverage:41, inferenceTypes:{rag:45,finetuneOnly:40,openGeneration:15}, corpusSize:890, feedbackRate:1.8, logprobsAvailable:false, monthlyGrowth:120, upgrade:true,
+    improvements:[['Corpus too small — minimum 5,000 responses recommended','Semantic drift coverage is limited below 1,000 entries','Go to Datasets →','nav','datasets'],['Most inferences are fine-tune only — context not provided','Provide context at inference for RAG scoring','View integration guide →','view-integration-guide',''],['Upgrade plan to access full corpus size limits','Starter plan caps your corpus and monitoring','Upgrade Plan →','nav','settings','upgrade']] },
+};
+function getCoverage(){ return currentTenant ? COVERAGE_DATA[currentTenant.id] : null; }
+function driftCoverage(corpusSize){ if(corpusSize<1000) return 30; if(corpusSize<5000) return 61; if(corpusSize<10000) return 78; return 91; }
+function coverageColor(pct){ return pct>80?'green':pct>=60?'yellow':pct>=40?'orange':'red'; }
+function coveragePanel(){
+  const c=getCoverage(); if(!c) return '';
+  const lvl=coverageColor(c.overallCoverage);
+  const barColor= lvl==='green'?'var(--green)':lvl==='yellow'?'var(--yellow)':lvl==='orange'?'var(--coral)':'var(--red)';
+  const limiting = c.overallCoverage>80?'Corpus mature — most signals fully active':'Factuality + Hallucination checks limited by corpus size';
+  // inference type breakdown
+  const ragCov=89, ftCov=51, genCov=31; const it=c.inferenceTypes;
+  const typeRows=[['RAG (context provided)',it.rag,ragCov,'Context'],['Fine-tune only',it.finetuneOnly,ftCov,'Corpus'],['Open generation',it.openGeneration,genCov,'Policy']]
+    .map(r=>'<tr><td>'+r[0]+'</td><td class="mono">'+r[1]+'%</td><td class="mono '+scoreClass(r[2])+'">'+r[2]+'% '+(r[2]>80?'✅':r[2]>=60?'🟡':'🔴')+'</td><td class="secondary">'+r[3]+'</td></tr>').join('');
+  const ragPct=it.rag/100; const halFac=Math.round(ragPct*89+ (1-ragPct)*30); // simplified signal coverage from rag share
+  const dc=driftCoverage(c.corpusSize);
+  const sigRows=[['Policy compliance',100,'Rules configured'],['User feedback',100,'Always collected'],['Hallucination',71,'RAG inferences only'],['Factuality',71,'RAG inferences only'],['Semantic drift',dc,'Corpus has '+fmtNum(c.corpusSize)+' responses — improves as it grows'],['Confidence calib.',0,'Logprobs unavailable']]
+    .map(r=>'<tr><td>'+r[0]+'</td><td class="mono '+scoreClass(r[1])+'">'+r[1]+'% '+(r[1]>80?'✅':r[1]>=60?'🟡':'🔴')+'</td><td class="secondary">'+escapeHtml(r[2])+'</td></tr>').join('');
+  let improve=''; c.improvements.forEach(im=>{ const isUp=im[5]==='upgrade'; const da=im[4]?' data-view="'+im[4]+'"':'';
+    improve+='<div class="card mt8" style="padding:12px'+(isUp?';background:var(--coral-glow);border-color:var(--coral)':'')+'"><div style="font-weight:600;font-size:13px">✦ '+escapeHtml(im[0])+'</div><div class="secondary mt4" style="font-size:12px">'+escapeHtml(im[1])+'</div>'
+      +'<button class="btn btn-sm '+(isUp?'btn-primary':'btn-ghost')+' mt8" data-action="'+im[3]+'"'+da+'>'+escapeHtml(im[2])+'</button></div>'; });
+  const growthPct=Math.min(100,Math.round(c.corpusSize/10000*100));
+  const months=Math.max(1,Math.ceil((10000-c.corpusSize)/Math.max(1,c.monthlyGrowth)));
+  const growth='<div class="section-h mt16">Corpus growth</div><div class="card" style="padding:12px"><div class="secondary" style="font-size:12px">Approved responses in corpus</div>'
+    +'<div class="mt8" style="position:relative">'+meter(growthPct,'var(--gradient-brand)')+'<div style="position:absolute;top:-2px;left:100%;transform:translateX(-100%);width:2px;height:12px;background:var(--text-muted)" title="Recommended: 10,000"></div></div>'
+    +'<div class="row-between mt4" style="font-size:12px"><span class="mono">'+fmtNum(c.corpusSize)+' / 10,000 recommended</span><span class="muted">+'+c.monthlyGrowth+' this month · full coverage in ~'+months+' months</span></div>'
+    +'<button class="btn btn-ghost btn-sm mt8" data-action="goto-entity">'+ICON.bolt+'Accelerate → Run annotation sprint</button></div>';
+  const body='<div class="section-h">Inference type breakdown</div><div class="card" style="padding:0;overflow:auto"><table class="tbl"><thead><tr><th>Type</th><th>% of traffic</th><th>Coverage</th><th>Basis</th></tr></thead><tbody>'+typeRows+'</tbody></table></div>'
+    +'<div class="section-h mt16">Signal coverage</div><div class="card" style="padding:0;overflow:auto"><table class="tbl"><thead><tr><th>Signal</th><th>Coverage</th><th>Limiting factor</th></tr></thead><tbody>'+sigRows+'</tbody></table></div>'
+    +'<div class="section-h mt16">How to improve coverage</div>'+improve+growth
+    +'<div class="section-h mt16">What coverage means</div><div class="secondary" style="font-size:12px;line-height:1.7">Coverage is the % of your inferences where Cueval has enough reference data to produce a meaningful score. Low coverage does not mean monitoring is off — policy and user feedback are always collected. It means the automated quality signals have limited reference data for that portion of your traffic. The monitor becomes more accurate as your approved dataset grows and your team provides feedback on flags.</div>';
+  return '<details class="faq mt16" id="cov-panel"'+(appState.coverageOpen?' open':'')+'><summary style="padding:13px 16px"><span class="flex gap8" style="align-items:center">📊 <strong>Monitor Coverage: <span class="'+scoreClass(c.overallCoverage)+'">'+c.overallCoverage+'%</span></strong><span class="secondary" style="font-weight:400;font-size:13px">— '+limiting+'</span></span><span class="faq-chev">'+ICON.chevR+'</span></summary><div class="faq-body" style="padding:0 16px 16px">'+body+'</div></details>';
+}
 function initColdStart(){
   coldStartProjects=[{ id:'cold1', tenantId:'tenant_pravartak', name:'Prison Welfare AI (New)', connectedDaysAgo:4,
     corpusEmbeddings:47, dailyRate:38, driftActivation:'12 days',
@@ -2659,6 +2734,7 @@ function screenMonitor(){
     +'<div class="warn-banner mt16" style="background:var(--bg-hover);border:1px solid var(--border);color:var(--text-secondary);font-size:12px">'+ICON.info+'<span>Cueval receives embeddings and quality signals only — raw instruction &amp; response text stays on your infrastructure unless a flagged item is explicitly transferred for review.</span></div>'
     +(cs?coldStartPanel(cs):'')
     +'<div class="mt24">'+stripHtml+'</div>'
+    +coveragePanel()
     +'<div class="grid-2 mt16" style="align-items:start">'+chart+donut+'</div>'
     +'<div class="mt16">'+feed+'</div>'
     +'<div class="grid-2 mt16" style="align-items:start">'+cmpCard+'<div>'+fb+'</div></div>';
@@ -2769,7 +2845,7 @@ function panelInference(id){
     +'<div class="muted mt8" style="font-size:12px">Context provided: '+x.contextChunks+' document chunks</div>'
     +'<div class="section-h mt16">Model response</div><div class="card" style="padding:12px">'+escapeHtml(x.response)+'</div>'+hall
     +'<div class="section-h mt16">Score breakdown</div>'+inferenceBreakdown(x)
-    +'<div class="warn-banner warn-yellow mt12" style="margin-bottom:0;font-size:12px;align-items:flex-start">'+ICON.info+'<span>Scores approximate quality based on 5 signals. A high score does not guarantee correctness; a low score does not guarantee the response is wrong. Human review makes the final determination.</span></div>'
+    +'<div class="warn-banner warn-yellow mt12" style="margin-bottom:0;font-size:12px;align-items:flex-start">'+ICON.info+'<span>Scores reflect what Cueval can verify against known data. Responses may be correct even when flagged, and incorrect even when not flagged. Human review makes the final call.</span></div>'
     +'<div class="section-h mt16">User feedback</div><div class="secondary">'+(x.feedback||'Not yet received')+'</div>'
     +'<div class="flex gap8 mt16 wrap">'+(x.addedToTraining?'<span class="pill pill-green">'+ICON.check+'Added to training set</span>':'<button class="btn btn-primary btn-sm" data-action="add-to-training" data-id="'+x.id+'">'+ICON.plus+'Add to Training Set</button>')
     +'<button class="btn btn-ghost btn-sm" data-action="request-human-review" data-id="'+x.id+'">'+ICON.users+'Request Human Review</button>'
@@ -2831,22 +2907,25 @@ function updateMonitorTotals(){
   const tot=el('mon-total'); if(tot){ tot.textContent='Current total: '+total+'% '+(total===100?'✅':'⚠️'); tot.className=(total===100?'score-good':'score-bad')+' mono'; }
   const save=el('mon-save'); if(save){ save.disabled = total!==100; }
 }
+// Score breakdown with "Checked against" source line per signal (spec §30, note 60)
 function inferenceBreakdown(x){
   const hallScore = x.flags.includes('Hallucination')?28:80+Math.round((x.factuality-70)/3);
   const drift = 60+Math.round((x.score-60)/4);
   const dot=v=>v==null?'':(v>80?'✅':v>=60?'🟡':'🔴');
   const rows=[
-    ['Factuality (NLI)', x.factuality, 'scored', x.factuality<50?'2 claims contradicted':'Consistent with context'],
-    ['Hallucination', Math.max(0,Math.min(100,hallScore)), 'scored', x.flags.includes('Hallucination')?'Figure not found in context':'No fabrication detected'],
-    ['Policy Compliance', x.policy, 'scored', x.policy>85?'All rules passed':'Policy check flagged'],
-    ['Confidence Calib.', null, 'skipped', 'Logprobs unavailable'],
-    ['Semantic Drift', Math.max(0,Math.min(100,drift)), 'scored', 'Moderate drift from cluster'],
-    ['User Feedback', null, x.feedback?'scored':'pending', x.feedback?'':'No feedback yet'],
+    ['Factuality', x.factuality, x.contextChunks+' context chunks at inference time', x.factuality<50?'2 claims contradicted, 1 neutral':'Claims consistent with context'],
+    ['Hallucination', Math.max(0,Math.min(100,hallScore)), 'Context chunks + domain entity list', x.flags.includes('Hallucination')?'"₹45 crore" absent from all sources':'No fabricated entities detected'],
+    ['Policy', x.policy, '12 configured rules', x.policy>85?'All passed except tone threshold':'Policy check flagged'],
+    ['Confidence', null, 'Logprobs not available from endpoint', 'Cannot score — signal disabled'],
+    ['Semantic Drift', Math.max(0,Math.min(100,drift)), (getCoverage()?fmtNum(getCoverage().corpusSize):'4,203')+' approved responses in corpus', 'Moderate distance from cluster centre'],
+    ['User Feedback', null, 'No feedback received yet', ''],
   ];
-  let body=rows.map(r=>{ const st=r[2]==='scored'?'✅ scored':r[2]==='pending'?'⏳ pending':'⬜ skipped';
-    return '<tr><td>'+escapeHtml(r[0])+'</td><td class="mono">'+(r[1]==null?'—':r[1]+'% '+dot(r[1]))+'</td><td class="muted" style="font-size:11px">'+st+'</td><td class="muted" style="font-size:11px">'+escapeHtml(r[3])+'</td></tr>'; }).join('');
-  body+='<tr style="font-weight:600;background:var(--bg-hover)"><td>Weighted Overall</td><td class="mono">'+x.score+'% '+dot(x.score)+'</td><td></td><td></td></tr>';
-  return '<div class="card" style="padding:0;overflow:hidden"><table class="tbl"><thead><tr><th>Signal</th><th>Score</th><th>Sample?</th><th>Notes</th></tr></thead><tbody>'+body+'</tbody></table></div>';
+  let body=rows.map(r=>{
+    const scoreCell = r[1]==null ? '—   ⬜' : (r[1]+'% '+dot(r[1]));
+    return '<tr><td style="vertical-align:top">'+escapeHtml(r[0])+'</td><td class="mono" style="vertical-align:top;white-space:nowrap">'+scoreCell+'</td>'
+      +'<td class="muted" style="font-size:11px;line-height:1.5">'+escapeHtml(r[2])+(r[3]?'<div>'+escapeHtml(r[3])+'</div>':'')+'</td></tr>'; }).join('');
+  body+='<tr style="font-weight:600;background:var(--bg-hover)"><td>Weighted Overall</td><td class="mono">'+x.score+'% '+dot(x.score)+'</td><td></td></tr>';
+  return '<div class="card" style="padding:0;overflow:hidden"><table class="tbl"><thead><tr><th>Signal</th><th>Score</th><th>Checked against</th></tr></thead><tbody>'+body+'</tbody></table></div>';
 }
 function addToTrainingSet(id){
   const x=findInference(id); if(!x||!assertTenant(x)) return;
@@ -3128,6 +3207,119 @@ function openIntegrationGuide(){ if(!appState.igVisited){ appState.igDisclaimers
 function closeIntegrationGuide(){ el('overlays').innerHTML=''; }
 
 /* ============================================================
+   SECTION I-AGT — AGENTIC LAYER (spec §33)
+   ============================================================ */
+function initAgents(){
+  agents=[
+    { id:'curation_agent', tenantId:'tenant_pravartak', name:'Curation Agent', status:'running', project:'Legal AI Assistant', lastAction:'4 min ago', lastActionSummary:'Auto-approved 847 rows. Routed 23 to review.', actionsToday:3, escalationsToday:0 },
+    { id:'annotation_router', tenantId:'tenant_pravartak', name:'Annotation Router', status:'running', project:'All projects', lastAction:'12 min ago', lastActionSummary:'Reassigned 34 rows from Priya S (SLA risk).', actionsToday:7, escalationsToday:1 },
+    { id:'eval_trigger', tenantId:'tenant_pravartak', name:'Eval Trigger Agent', status:'waiting', project:'Legal AI Assistant', lastActionSummary:'Will run eval on checkpoint v1.3 when dataset v1.3 is approved.', waitingOn:'Dataset v1.3 approval' },
+    { id:'inference_monitor_agent', tenantId:'tenant_pravartak', name:'Inference Monitor Agent', status:'running', project:'All projects', lastAction:'2 min ago', lastActionSummary:'Hallucination cluster detected → created sprint #12.', actionsToday:12, escalationsToday:1 },
+    { id:'release_agent', tenantId:'tenant_pravartak', name:'Release Agent', status:'blocked', project:'Legal AI v1.2', lastActionSummary:'Sent reminder to architect@cueval.ai', blockedReason:'Architect approval pending 2 days', escalatesIn:'24 hours to Admin' },
+    { id:'dataset_improvement', tenantId:'tenant_pravartak', name:'Dataset Improvement Agent', status:'idle', project:'Medical QA', lastActionSummary:'15% of production query types have < 10 corpus entries.', nextRun:'Tomorrow 06:00' },
+  ];
+  agentLog=[
+    { id:'al1', tenantId:'tenant_pravartak', agentId:'curation_agent', agent:'Curation Agent', time:'14:32', type:'approve', title:'AUTO-APPROVED', detail:'Legal AI v1.3 dataset — 847 rows (score > 85%, flags < 5%)', reasoning:'Threshold met, no PII detected, no toxicity', undoMin:8, cta:['View rows','nav','datasets'] },
+    { id:'al2', tenantId:'tenant_pravartak', agentId:'annotation_router', agent:'Annotation Router', time:'14:28', type:'reassign', title:'REASSIGNED', detail:'34 rows moved from Priya S → Auto-assign pool', reasoning:'Priya S at 12% daily pace vs 28% required. SLA breach in 1.4 days at current rate.', undoMin:4, cta:['View batch','nav','review'] },
+    { id:'al3', tenantId:'tenant_pravartak', agentId:'inference_monitor_agent', agent:'Inference Monitor Agent', time:'14:21', type:'escalate', title:'ESCALATED', detail:'Hallucination cluster: 7 similar inferences in 90 min. All cite "Section 44(b)" — not present in corpus.', reasoning:'Action taken: Created annotation sprint #12. Requires ML Engineer to confirm sprint scope.', undoMin:null, cta:['Review sprint','nav','review'] },
+    { id:'al4', tenantId:'tenant_pravartak', agentId:'release_agent', agent:'Release Agent', time:'13:58', type:'reminder', title:'REMINDER SENT', detail:'Architect approval pending 2 days for Legal AI v1.2', reasoning:'Sent reminder to architect@cueval.ai. Escalates to Admin if no response in 24 hours.', undoMin:null, cta:['View release','nav','releases'] },
+    { id:'al5', tenantId:'tenant_pravartak', agentId:'dataset_improvement', agent:'Dataset Improvement Agent', time:'06:00', type:'insight', title:'INSIGHT', detail:'Medical QA: 15% of production query types have < 10 corpus entries. Top gap: "drug interaction queries".', reasoning:'Recommendation: Add 150 examples to close coverage gap. Estimated eval improvement: +6–9% on factuality.', undoMin:null, cta:['Create annotation task','goto-entity',''] },
+    { id:'al6', tenantId:'tenant_pravartak', agentId:'curation_agent', agent:'Curation Agent', time:'11:40', type:'approve', title:'AUTO-APPROVED', detail:'Removed 12 exact duplicates from Legal AI v1.3', reasoning:'SHA256 match, identical instruction+output', undoMin:null, cta:['View rows','nav','datasets'] },
+    { id:'al7', tenantId:'tenant_pravartak', agentId:'annotation_router', agent:'Annotation Router', time:'10:15', type:'reassign', title:'REASSIGNED', detail:'18 Tamil rows → Priya S (specialist match)', reasoning:'Language-specialist routing; Priya S handles Tamil at 2x pace', undoMin:null, cta:['View batch','nav','review'] },
+    { id:'al8', tenantId:'tenant_pravartak', agentId:'inference_monitor_agent', agent:'Inference Monitor Agent', time:'09:30', type:'insight', title:'INSIGHT', detail:'Flag rate down 2.9% since v1.2 deploy — factuality improvements holding', reasoning:'No action needed. Trend positive over 14-day window.', undoMin:null, cta:['View monitor','nav','monitor'] },
+    { id:'al9', tenantId:'tenant_pravartak', agentId:'curation_agent', agent:'Curation Agent', time:'08:50', type:'escalate', title:'ESCALATED', detail:'PII detected in 6% of a new batch (> 5% threshold)', reasoning:'Escalated to ML Engineer — bulk PII redaction requires human approval.', undoMin:null, cta:['Review batch','nav','review'] },
+    { id:'al10', tenantId:'tenant_pravartak', agentId:'release_agent', agent:'Release Agent', time:'08:00', type:'reminder', title:'REMINDER SENT', detail:'PM sign-off pending for Legal AI v1.1', reasoning:'Sent reminder to pm@cueval.ai', undoMin:null, cta:['View release','nav','releases'] },
+    { id:'al11', tenantId:'tenant_pravartak', agentId:'dataset_improvement', agent:'Dataset Improvement Agent', time:'06:00', type:'insight', title:'INSIGHT', detail:'Legal AI corpus growth on track — +410 approved responses this month', reasoning:'Semantic drift coverage improving. No action needed.', undoMin:null, cta:['View coverage','nav','monitor'] },
+    { id:'al12', tenantId:'tenant_pravartak', agentId:'annotation_router', agent:'Annotation Router', time:'05:30', type:'approve', title:'AUTO-APPROVED', detail:'Batch B-2025-06-15 — 210 rows cleared review SLA', reasoning:'All rows reviewed within target; batch closed automatically', undoMin:null, cta:['View batch','nav','review'] },
+  ];
+  log.info('[boot] agents ready — '+agents.length+' agents, '+agentLog.length+' log entries');
+}
+const AGENT_STATUS_LABEL={ running:'Running', waiting:'Waiting', blocked:'Blocked', idle:'Idle' };
+function screenAgents(){
+  const ags=getAgents(); const sov=isSovereign();
+  const head='<div class="row-between"><div><h1 class="page-h">Agents</h1><p class="page-sub">Autonomous actions & orchestration — every action logged, bounded, reversible</p></div>'+(sov?'<span class="pill pill-blue" title="All agent reasoning runs on your infrastructure. No agent decisions leave your network.">🔒 Sovereign</span>':'')+'</div>';
+  if(!ags.length) return head+'<div class="mt24">'+emptyState('robot','No agents configured','This tenant has no autonomous agents running yet.','')+'</div>';
+  // roster
+  let roster=''; ags.forEach(a=>{ roster+='<div class="agent-row" data-action="open-agent" data-id="'+a.id+'">'
+    +'<div class="flex gap8" style="justify-content:space-between"><span class="flex gap8" style="align-items:center"><span class="agent-dot '+a.status+'"></span><strong style="font-size:13px">'+escapeHtml(a.name)+'</strong></span><span class="secondary" style="font-size:11px">'+AGENT_STATUS_LABEL[a.status]+' · '+escapeHtml(a.project)+'</span></div>'
+    +(a.lastAction?'<div class="muted mt4" style="font-size:11px">Last action: '+escapeHtml(a.lastAction)+'</div>':'')
+    +'<div class="secondary mt4" style="font-size:12px">'+escapeHtml(a.lastActionSummary||'')+'</div>'
+    +(a.blockedReason?'<div class="score-bad mt4" style="font-size:12px">'+escapeHtml(a.blockedReason)+' — escalates in '+escapeHtml(a.escalatesIn||'')+'</div>':'')
+    +(a.waitingOn?'<div class="score-mid mt4" style="font-size:12px">Waiting on: '+escapeHtml(a.waitingOn)+'</div>':'')
+    +(a.nextRun?'<div class="muted mt4" style="font-size:11px">Next run: '+escapeHtml(a.nextRun)+'</div>':'')
+    +(sov?'<div class="mt4"><span class="pill pill-blue" style="font-size:10px">🔒 Sovereign</span></div>':'')+'</div>'; });
+  // action log
+  const logData=getAgentLog(); let logHtml=logEntriesHtml(logData);
+  const filterProjs=['all'].concat([...new Set(ags.map(a=>a.project))]);
+  const logHeader='<div class="row-between"><span class="section-h" style="margin:0">Agent action log</span><div class="flex gap6">'
+    +'<select class="input" style="width:auto;padding:5px 8px;font-size:12px" data-action="agent-filter"><option value="all">All agents</option>'+ags.map(a=>'<option value="'+a.id+'"'+(appState.agentFilter===a.id?' selected':'')+'>'+escapeHtml(a.name)+'</option>').join('')+'</select></div></div>';
+  const boundaries='<div class="boundary-box mt16"><div class="section-h" style="margin-bottom:10px">Agent boundaries — hardcoded, non-configurable</div>'
+    +['Agents cannot approve a release for production','Agents cannot redact or delete PII without approval','Agents cannot resolve high-conflict annotations','Agents cannot bulk-delete > 500 rows without approval','Agents cannot take action without logging reasoning','In sovereign mode: no agent reasoning leaves the network']
+      .map(t=>'<div style="padding:3px 0;font-size:13px"><span class="score-bad">✗</span> '+escapeHtml(t)+'</div>').join('')
+    +'<div class="secondary mt8" style="font-size:12px">Every agent action is reversible for at least 10 minutes. Every escalation includes full reasoning for human review.</div></div>';
+  return head+'<div class="mt24" style="display:grid;grid-template-columns:340px 1fr;gap:20px;align-items:start">'
+    +'<div><div class="section-h">Active agents</div><div class="stack gap8">'+roster+'</div>'+boundaries+'</div>'
+    +'<div class="card"><div id="agent-log-head">'+logHeader+'</div><div id="agent-log" style="max-height:64vh;overflow:auto">'+logHtml+'</div></div></div>';
+}
+function logEntriesHtml(list){
+  const f=appState.agentFilter;
+  const rows=list.filter(e=>f==='all'||e.agentId===f);
+  if(!rows.length) return '<div class="muted" style="padding:16px">No matching log entries</div>';
+  const icon={approve:'✅',reassign:'✅',escalate:'⚠️',reminder:'📧',insight:'💡'};
+  return rows.map(e=>{ const cls=e.type==='escalate'?' escalate':e.type==='insight'?' insight':'';
+    const undo = e.undoMin!=null ? '<button class="btn btn-ghost btn-sm" data-action="agent-undo" data-id="'+e.id+'">'+ICON.clone+'Undo — '+e.undoMin+' min remaining</button>' : '';
+    const cta = e.cta ? '<button class="btn btn-ghost btn-sm" data-action="'+e.cta[1]+'"'+(e.cta[2]?' data-view="'+e.cta[2]+'"':'')+'>'+escapeHtml(e.cta[0])+'</button>' : '';
+    return '<div class="log-entry'+cls+'"><div class="flex gap8" style="justify-content:space-between"><span class="flex gap8"><span class="mono muted" style="font-size:12px">'+escapeHtml(e.time)+'</span><strong style="font-size:13px">'+escapeHtml(e.agent)+'</strong></span><span style="font-size:12px">'+(icon[e.type]||'')+' '+escapeHtml(e.title)+'</span></div>'
+      +'<div class="mt4" style="font-size:13px">'+escapeHtml(e.detail)+'</div>'
+      +'<div class="secondary mt4" style="font-size:12px">Reasoning: '+escapeHtml(e.reasoning)+'</div>'
+      +'<div class="flex gap8 mt8">'+cta+undo+'</div></div>'; }).join('');
+}
+function openAgentConfig(id){
+  const a=byId(getAgents(),id); if(!a||!assertTenant(a)) return;
+  const sov=isSovereign();
+  const chk=(on,label,lock)=>'<div class="flex gap8'+(lock?' agent-lock':'')+'" style="padding:5px 0;font-size:13px" '+(lock?'title="This limit is hardcoded and cannot be changed"':'data-action="agent-cfg-toggle"')+'><span style="color:'+(on?'var(--green)':'var(--text-muted)')+'">'+(lock?'🔒':(on?'☑':'☐'))+'</span><span>'+escapeHtml(label)+'</span></div>';
+  const body='<div class="section-h">Permitted actions</div>'
+    +chk(true,'Auto-approve rows where score > 85% and no flags')+chk(true,'Route flagged rows to review queue')+chk(true,'Remove exact duplicates automatically')
+    +chk(false,'Remove near-duplicates automatically   ← human only',true)+chk(false,'Redact PII automatically   ← human only',true)+chk(true,'Notify team on completion')
+    +'<div class="section-h mt16">Escalation rules</div><div class="secondary" style="font-size:13px">Escalate to <strong>ML Engineer</strong> when: PII in &gt; 5% of rows · any toxicity · overall score &lt; 60% · near-duplicate rate &gt; 40%</div>'
+    +'<div class="section-h mt16">Confidence threshold</div><div class="secondary" style="font-size:13px">Below 70% confidence on any decision → escalate. Agent explains reasoning in every escalation.</div>'
+    +'<div class="section-h mt16">Audit</div>'+chk(true,'Log every action with full reasoning')+chk(true,'Require human confirmation for bulk deletions > 100')
+    +'<div class="section-h mt16">Hardcoded limits (non-configurable)</div>'
+    +chk(false,'Final release approval: always human',true)+chk(false,'PII redaction above 5% of dataset: always human',true)+chk(false,'Bulk deletion > 500 rows: always human',true)+chk(false,'Any unlogged action in sovereign deployment: blocked by design',true)
+    +(sov?'<div class="warn-banner mt16" style="margin:0;background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.3);color:#93c5fd;font-size:12px">🔒 Sovereign mode: all agent reasoning runs on-premise. No agent decisions sent to Cueval cloud.</div>':'');
+  openModal('<div class="modal-head"><strong>Configure: '+escapeHtml(a.name)+(sov?' &nbsp;<span class="pill pill-blue" style="font-size:10px">🔒 Sovereign</span>':'')+'</strong><button class="icon-btn" data-action="close-modal">'+ICON.x+'</button></div>'
+    +'<div class="modal-body">'+body+'</div>'
+    +'<div class="modal-foot"><button class="btn btn-ghost" data-action="close-modal">Cancel</button><button class="btn btn-primary" data-action="toast" data-msg="Agent configuration saved (mock)">'+ICON.check+'Save Configuration</button></div>');
+}
+function agentUndo(id){ const e=byId(agentLog,id); if(!e) return; agentLog=agentLog.filter(x=>x.id!==id); log.event('agent:undo',{id}); showToast('Action undone','ok'); renderView(); }
+// Live log — prepend a synthetic entry every 45s (note 83)
+const AGENT_SYNTH=[
+  {agentId:'curation_agent',agent:'Curation Agent',type:'approve',title:'AUTO-APPROVED',detail:'Cleared 120 rows above quality threshold',reasoning:'Score > 85%, no flags',undoMin:10,cta:['View rows','nav','datasets']},
+  {agentId:'annotation_router',agent:'Annotation Router',type:'reassign',title:'REASSIGNED',detail:'Balanced 15 rows across annotator pool',reasoning:'Load levelling to meet SLA',undoMin:10,cta:['View batch','nav','review']},
+  {agentId:'inference_monitor_agent',agent:'Inference Monitor Agent',type:'insight',title:'INSIGHT',detail:'No new failure clusters in the last hour',reasoning:'Production quality stable',undoMin:null,cta:['View monitor','nav','monitor']},
+];
+let agentSynthTick=0;
+function startAgentAnimation(){
+  clearScreenTimers();
+  registerTimer(setInterval(()=>{
+    if(currentView!=='agents'){ clearScreenTimers(); return; }
+    agentSynthTick++; const t=AGENT_SYNTH[agentSynthTick%AGENT_SYNTH.length];
+    agentLog.unshift({ id:'al_syn'+agentSynthTick, tenantId:currentTenant.id, ...t, time:'now' });
+    // cap at 20 visible for this tenant (note 83)
+    const mine=agentLog.filter(x=>x.tenantId===currentTenant.id);
+    if(mine.length>20){ const drop=mine[mine.length-1]; const i=agentLog.indexOf(drop); if(i>=0) agentLog.splice(i,1); }
+    const box=el('agent-log'); if(box) box.innerHTML=logEntriesHtml(getAgentLog());
+  }, 45000));
+  // undo countdown — decrement minutes each 60s, drop undo at 0 (note 84)
+  registerTimer(setInterval(()=>{
+    if(currentView!=='agents'){ clearScreenTimers(); return; }
+    let changed=false; agentLog.forEach(e=>{ if(e.undoMin!=null){ e.undoMin--; changed=true; if(e.undoMin<=0) e.undoMin=null; } });
+    if(changed){ const box=el('agent-log'); if(box) box.innerHTML=logEntriesHtml(getAgentLog()); }
+  }, 60000));
+  log.event('agents:animate',{});
+}
+
+/* ============================================================
    SECTION J — AUTH, DROPDOWNS, PALETTE, MODALS
    ============================================================ */
 function doLogin(email, pass){
@@ -3211,7 +3403,7 @@ function paletteItems(q){ q=(q||'').toLowerCase(); const items=[];
   getAudioFiles().forEach(f=>add('Audio','bolt',f.name,'open-audio',{id:f.id}));
   getVideoFiles().forEach(f=>add('Video','image',f.name,'open-video',{id:f.id}));
   getEntityProjects().forEach(p=>add('Entity Labelling','tag',p.name,'nav-entity',{id:p.id}));
-  [['Upload dataset','upload-dataset',null],['Upload document','upload-document',null],['Correct OCR regions','goto-ocr',null],['Start bulk ingestion job','bulk-start',null],['View bulk job status','bulk-status',null],['View deduplication report','bulk-status',null],['View annotation project','goto-annotation',null],['Run eval','nav','eval'],['New project','new-project',null],['New experiment','new-experiment',null],['About platform / Guide','nav','guide'],['Open FAQ','nav','guide'],['Upload audio','upload-audio',null],['Upload video','upload-video',null],['Correct audio segments','goto-audio-corr',null],['Review video frames','goto-video-corr',null],['Open inference monitor','nav','monitor'],['Configure monitor','configure-monitor',null],['View integration guide','view-integration-guide',null],['Rank preferences (RLHF)','goto-pref',null],['Label entities','goto-entity',null]].forEach(a=>add('Actions','plus',a[0],a[1],a[2]?{view:a[2]}:{}));
+  [['Upload dataset','upload-dataset',null],['Upload document','upload-document',null],['Correct OCR regions','goto-ocr',null],['Start bulk ingestion job','bulk-start',null],['View bulk job status','bulk-status',null],['View deduplication report','bulk-status',null],['View annotation project','goto-annotation',null],['Run eval','nav','eval'],['New project','new-project',null],['New experiment','new-experiment',null],['About platform / Guide','nav','guide'],['Open FAQ','nav','guide'],['Upload audio','upload-audio',null],['Upload video','upload-video',null],['Correct audio segments','goto-audio-corr',null],['Review video frames','goto-video-corr',null],['Open inference monitor','nav','monitor'],['View agents','nav','agents'],['Configure monitor','configure-monitor',null],['View integration guide','view-integration-guide',null],['Rank preferences (RLHF)','goto-pref',null],['Label entities','goto-entity',null]].forEach(a=>add('Actions','plus',a[0],a[1],a[2]?{view:a[2]}:{}));
   const filtered = q ? items.filter(i=>i.label.toLowerCase().includes(q)||i.group.toLowerCase().includes(q)) : items.slice(0,12);
   return filtered.slice(0,40);
 }
@@ -3350,6 +3542,11 @@ function dispatch(action, d){
     case 'ig-tab': appState.igTab=d.tab; renderIntegrationGuide(); break;
     case 'ig-copy': copyText(IG_SNIPPETS[d.key]||''); break;
     case 'ig-download-compose': download('docker-compose.yml', IG_COMPOSE_FULL, 'text/yaml'); log.event('ig:download-compose',{}); showToast('docker-compose.yml downloaded','ok'); break;
+    case 'ig-copy-feedback': copyText(IG_SNIPPETS['sdk-feedback']); break;
+    // --- Agentic layer (spec §33) ---
+    case 'open-agent': openAgentConfig(d.id); break;
+    case 'agent-undo': agentUndo(d.id); break;
+    case 'agent-cfg-toggle': break; // permitted-action toggles are illustrative in this prototype
     // --- Preference ranking (spec §24) ---
     case 'pref-choose': { const p=byId(prefPairs,d.id); if(p&&assertTenant(p)){ p.chosen=d.choice; renderView(); } break; }
     case 'pref-dim': { const p=byId(prefPairs,d.id); if(p&&assertTenant(p)){ p.dims[d.dim]=p.dims[d.dim]===d.v?null:d.v; renderView(); } break; }
@@ -3971,6 +4168,7 @@ document.addEventListener('input', e=>{
   else if(a==='mon-tier2'){ const c=monitorDraft(); if(!c) return; c.tier2=+t.value; const l=el('mon-tier2'); if(l) l.textContent=c.tier2+'%'; const cost=el('mon-cost'); if(cost) cost.textContent=estMonitorCost(c); }
   else if(a==='mon-field'){ const c=monitorDraft(); if(c) c[t.dataset.key]=t.value; }
   else if(a==='lineage-search-live'){ appState.lineageRowQuery=t.value; }
+  else if(a==='agent-filter'){ appState.agentFilter=t.value; const box=el('agent-log'); if(box) box.innerHTML=logEntriesHtml(getAgentLog()); }
 });
 
 document.addEventListener('keydown', e=>{
@@ -4039,6 +4237,7 @@ function initMockData(){
   initInferences();// inference monitor mock data (spec §23)
   initMonitorConfigs();// monitor configuration per tenant (spec §29)
   initColdStart(); // cold-start monitor + corpus seeds (spec §31)
+  initAgents();    // agentic layer (spec §33)
   initPrefPairs(); // RLHF preference pairs (spec §24)
   initEntity();    // entity labelling projects (spec §25)
 }

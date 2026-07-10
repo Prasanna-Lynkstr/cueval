@@ -3044,3 +3044,529 @@ Referenced in all three integration tabs. Show as a standalone callout:
 78. [Download Full Compose File] button in On-Premise tab: triggers download of a mock docker-compose.yml file with all services listed. Use Blob + createObjectURL same as dataset export.
 79. Known limitations in each tab: rendered as amber warning box with ⚠️ icon. Each limitation is a separate line. Not collapsible.
 80. On-Premise tab: 🔒 Sovereign badge in tab label itself — visible before clicking the tab.
+
+---
+
+## 30. SCORING TRANSPARENCY & COVERAGE INDICATOR
+
+### Overview
+Two additions to the Inference Monitor that set accurate expectations:
+1. "Checked against" source line per signal in inference detail
+2. Coverage indicator on the Monitor screen showing how reliably Cueval can score this project's inferences
+
+---
+
+### Updated Inference Detail Score Breakdown
+
+Replace the existing score breakdown table in the inference detail right panel with this version:
+
+```
+Score Breakdown
+──────────────────────────────────────────────────────────────
+Signal            Score    Checked Against                    
+──────────────────────────────────────────────────────────────
+Factuality        31% 🔴   3 context chunks at inference time
+                           (2 claims contradicted, 1 neutral) 
+
+Hallucination     28% 🔴   Context chunks + domain entity list
+                           "₹45 crore" absent from all sources
+
+Policy            92% ✅   12 configured rules
+                           All passed except tone threshold
+
+Confidence        —   ⬜   Logprobs not available from endpoint
+                           Cannot score — signal disabled
+
+Semantic Drift    71% 🟡   4,203 approved responses in corpus
+                           Moderate distance from cluster centre
+
+User Feedback     —   ⏳   No feedback received yet
+──────────────────────────────────────────────────────────────
+Weighted Overall  43% 🔴
+──────────────────────────────────────────────────────────────
+
+ℹ️  Scores reflect what Cueval can verify against known data.
+    Responses may be correct even when flagged, and incorrect
+    even when not flagged. Human review makes the final call.
+```
+
+"Checked against" text is greyed out secondary text under each signal row. Not prominent — informational only. Reviewers who want to understand a flag can read it. Those who just want to act don't need to.
+
+---
+
+### Coverage Indicator
+
+New panel on the Inference Monitor main screen. Positioned below the top strip metrics, above the live feed. Collapsible — collapsed by default, expandable with one click.
+
+**Collapsed state (always visible):**
+```
+📊 Monitor Coverage: 68%  — Factuality + Hallucination checks limited by corpus size  [▾ Details]
+```
+
+Color coded: green >80%, yellow 60–80%, orange 40–60%, red <40%.
+
+**Expanded state:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Monitor Coverage    What Cueval can reliably score         │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  INFERENCE TYPE BREAKDOWN                                   │
+│                                                             │
+│  Type                    % of traffic   Coverage   Basis   │
+│  RAG (context provided)  74%            89% ✅     Context │
+│  Fine-tune only          18%            51% 🟡     Corpus  │
+│  Open generation         8%             31% 🔴     Policy  │
+│                                                             │
+│  Overall weighted coverage: 68%                            │
+│                                                             │
+├─────────────────────────────────────────────────────────────┤
+│  SIGNAL COVERAGE                                            │
+│                                                             │
+│  Signal              Coverage   Limiting factor            │
+│  Policy compliance   100% ✅     Rules configured           │
+│  User feedback       100% ✅     Always collected           │
+│  Hallucination       71%  🟡     RAG inferences only        │
+│  Factuality          71%  🟡     RAG inferences only        │
+│  Semantic drift      61%  🟡     Corpus has 4,203 responses │
+│                                 Improves as corpus grows   │
+│  Confidence calib.   0%   🔴     Logprobs unavailable       │
+│                                                             │
+├─────────────────────────────────────────────────────────────┤
+│  HOW TO IMPROVE COVERAGE                                    │
+│                                                             │
+│  ✦ Provide context documents at inference time             │
+│    → Factuality + Hallucination coverage: 71% → 89%        │
+│                                                             │
+│  ✦ Add 2,000 more approved responses to corpus             │
+│    → Semantic drift coverage: 61% → 78%                    │
+│    Current corpus: 4,203  Recommended minimum: 10,000      │
+│    [Go to Datasets →]                                       │
+│                                                             │
+│  ✦ Enable logprob access on model endpoint                 │
+│    → Confidence calibration: 0% → full coverage            │
+│    [View endpoint configuration →]                         │
+│                                                             │
+│  ✦ Collect more user feedback                              │
+│    → Add feedback widget to your application               │
+│    Current feedback rate: 3.2% of inferences               │
+│    Recommended: > 8%                                        │
+│    [Copy feedback widget snippet →]                         │
+│                                                             │
+├─────────────────────────────────────────────────────────────┤
+│  WHAT COVERAGE MEANS                                        │
+│                                                             │
+│  Coverage is the % of your inferences where Cueval has     │
+│  enough reference data to produce a meaningful score.      │
+│                                                             │
+│  Low coverage does not mean monitoring is off — policy     │
+│  and user feedback are always collected. It means the      │
+│  automated quality signals have limited reference data     │
+│  for that portion of your inference traffic.               │
+│                                                             │
+│  The monitor becomes more accurate as your approved        │
+│  dataset grows and your team provides feedback on flags.   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### Coverage Calculation Logic (mock)
+
+```javascript
+function calculateCoverage(project) {
+  const ragPct = project.inferenceTypes.rag / project.totalInferences
+  const ftPct  = project.inferenceTypes.finetuneOnly / project.totalInferences
+  const genPct = project.inferenceTypes.openGeneration / project.totalInferences
+
+  const ragCoverage = 0.89     // high — context always available
+  const ftCoverage  = 0.51     // medium — corpus-dependent
+  const genCoverage = 0.31     // low — policy + feedback only
+
+  return (ragPct * ragCoverage)
+       + (ftPct  * ftCoverage)
+       + (genPct * genCoverage)
+}
+
+// Semantic drift coverage scales with corpus size:
+function driftCoverage(corpusSize) {
+  if (corpusSize < 1000)  return 0.30
+  if (corpusSize < 5000)  return 0.61
+  if (corpusSize < 10000) return 0.78
+  return 0.91
+}
+```
+
+---
+
+### Mock Coverage Data Per Tenant
+
+**IITM Pravartak:**
+```javascript
+{
+  overallCoverage: 84,
+  inferenceTypes: { rag: 91, finetuneOnly: 7, openGeneration: 2 },
+  corpusSize: 5203,
+  feedbackRate: 6.8,
+  logprobsAvailable: false,
+  improvements: [
+    "Enable logprob access → +8% coverage",
+    "Corpus growing well — continue annotation"
+  ]
+}
+```
+
+**Legal AI Corp:**
+```javascript
+{
+  overallCoverage: 68,
+  inferenceTypes: { rag: 74, finetuneOnly: 18, openGeneration: 8 },
+  corpusSize: 4203,
+  feedbackRate: 3.2,
+  logprobsAvailable: false,
+  improvements: [
+    "Provide context at inference time for 18% fine-tune traffic",
+    "Add 2,000 more approved responses to corpus",
+    "Increase feedback widget visibility — 3.2% rate is low"
+  ]
+}
+```
+
+**HealthBot India:**
+```javascript
+{
+  overallCoverage: 41,
+  inferenceTypes: { rag: 45, finetuneOnly: 40, openGeneration: 15 },
+  corpusSize: 890,
+  feedbackRate: 1.8,
+  logprobsAvailable: false,
+  improvements: [
+    "Corpus too small — minimum 5,000 responses recommended",
+    "Most inferences are fine-tune only — context not provided",
+    "Upgrade plan to access full corpus size limits"
+  ]
+}
+```
+
+HealthBot India at 41% coverage with upgrade CTA visible in the improvements section.
+
+---
+
+### Corpus Growth Tracker (inside Coverage panel)
+
+Small progress bar showing corpus growth trajectory:
+
+```
+Approved responses in corpus:
+Legal AI Corp    ████████░░░░░░░  4,203 / 10,000 recommended
+                 +312 this month  At current rate: full coverage in 18 months
+                 [Accelerate → Run annotation sprint]
+```
+
+[Accelerate] button opens annotation queue filtered to this project — direct path to growing the corpus faster.
+
+---
+
+### Implementation Notes for Claude Code
+
+56. Coverage indicator collapsed by default. Click [▾ Details] expands with smooth height animation (300ms).
+57. Overall coverage number in collapsed state updates color dynamically: >80% green, 60–80% yellow, 40–60% orange, <40% red.
+58. "How to improve coverage" items each have a specific CTA that navigates to the relevant screen. Navigation uses existing routing — no new screens needed.
+59. Corpus growth progress bar animates fill on expand. Show recommended target (10,000) as a vertical marker on the bar.
+60. "Checked against" text in inference detail is secondary grey text — font size 11px, not competing with the score itself.
+61. HealthBot India coverage panel prominently shows upgrade CTA in the improvements list — styled differently (coral background) from regular improvement suggestions.
+62. Coverage percentage in collapsed state recalculates when switching between projects in top bar — animates number change.
+63. "What Coverage Means" section uses plain language — no technical jargon. Targeted at PM and Admin roles who may not have ML background.
+
+---
+
+
+---
+
+## 33. DELTA — AGENTIC LAYER (PHASE 3+)
+
+### Overview
+Agentic Cueval adds an orchestration layer above existing services. The platform monitors conditions, takes permitted actions autonomously, and surfaces humans only when genuine judgment is required. Every agent action is logged, bounded, reversible where possible, and auditable. This section specifies what to show in the prototype — the UI concept — not the production implementation.
+
+---
+
+### New Dock Icon
+Add between Monitor and Experiments:
+```
+🤖  Agents  — autonomous actions and orchestration log
+```
+
+---
+
+### Agents Screen
+
+Two panels: left = active agents and their status, right = live action log.
+
+**Left panel — Agent roster:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Active Agents                                              │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  🟢  Curation Agent         Running    Legal AI v1.3       │
+│       Last action: 4 min ago                               │
+│       Auto-approved 847 rows. Routed 23 to review.         │
+│                                                             │
+│  🟢  Annotation Router      Running    All projects        │
+│       Last action: 12 min ago                              │
+│       Reassigned 34 rows from Priya S (SLA risk).         │
+│                                                             │
+│  🟡  Eval Trigger Agent     Waiting    Legal AI v1.3       │
+│       Trigger: dataset approval (pending)                  │
+│       Will run eval on checkpoint v1.3 when approved.     │
+│                                                             │
+│  🟢  Inference Monitor Agent Running   All projects        │
+│       Last action: 2 min ago                              │
+│       Hallucination cluster detected → created sprint.    │
+│                                                             │
+│  🔴  Release Agent          Blocked    Legal AI v1.2       │
+│       Blocked: Architect approval pending 2 days          │
+│       Sent reminder to architect@cueval.ai                │
+│                                                             │
+│  ⚪  Dataset Improvement     Idle       Medical QA         │
+│       Agent                                                │
+│       Next scheduled analysis: 06:00 tomorrow             │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+Status colours:
+- 🟢 Running — actively monitoring or just acted
+- 🟡 Waiting — trigger condition not yet met
+- 🔴 Blocked — escalation required, cannot proceed
+- ⚪ Idle — scheduled, no current activity
+
+Each agent row expandable → shows full config and permission set.
+
+---
+
+**Right panel — Live action log:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Agent Action Log    [Filter by agent ▾] [Filter by project ▾]│
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  14:32  Curation Agent  ✅ AUTO-APPROVED                    │
+│  Legal AI v1.3 dataset — 847 rows (score > 85%, flags < 5%)│
+│  Reasoning: threshold met, no PII detected, no toxicity    │
+│  [View rows] [Undo — 8 min remaining]                      │
+│  ─────────────────────────────────────────────────────────  │
+│  14:28  Annotation Router  ✅ REASSIGNED                    │
+│  34 rows moved from Priya S → Auto-assign pool             │
+│  Reasoning: Priya S at 12% daily pace vs 28% required.    │
+│  SLA breach in 1.4 days at current rate.                   │
+│  [View batch] [Undo — 4 min remaining]                     │
+│  ─────────────────────────────────────────────────────────  │
+│  14:21  Inference Monitor Agent  ⚠️ ESCALATED              │
+│  Hallucination cluster: 7 similar inferences in 90 min     │
+│  All cite "Section 44(b)" — not present in corpus          │
+│  Action taken: Created annotation sprint #12               │
+│  Requires: ML Engineer to confirm sprint scope             │
+│  [Review sprint] [Dismiss]                                 │
+│  ─────────────────────────────────────────────────────────  │
+│  13:58  Release Agent  📧 REMINDER SENT                    │
+│  Architect approval pending 2 days for Legal AI v1.2       │
+│  Sent reminder to architect@cueval.ai                      │
+│  Escalates to Admin if no response in 24 hours             │
+│  [View release] [Suppress reminders]                       │
+│  ─────────────────────────────────────────────────────────  │
+│  06:00  Dataset Improvement Agent  💡 INSIGHT              │
+│  Medical QA: 15% of production query types have < 10       │
+│  corpus entries. Top gap: "drug interaction queries"       │
+│  Recommendation: Add 150 examples to close coverage gap    │
+│  Estimated eval improvement: +6–9% on factuality          │
+│  [Create annotation task] [Dismiss insight]                │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+Key UI patterns:
+- Every action shows: what was done, reasoning, what triggered it
+- [Undo] available for reversible actions, with countdown timer
+- Escalations show clearly what human action is needed
+- Insights are suggestions, not actions — human must choose to act
+
+---
+
+### Agent Configuration (per agent, per project)
+
+Accessible from Agents screen → click any agent → [Configure]
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Configure: Curation Agent    Legal AI project              │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  PERMITTED ACTIONS                                          │
+│  ☑ Auto-approve rows where score > [85%▾] and no flags    │
+│  ☑ Route flagged rows to review queue                      │
+│  ☑ Remove exact duplicates automatically                   │
+│  ☐ Remove near-duplicates automatically   ← human only     │
+│  ☐ Redact PII automatically               ← human only     │
+│  ☑ Notify team on completion                               │
+│                                                             │
+│  ESCALATION RULES                                          │
+│  Escalate to: [ML Engineer ▾]                              │
+│  When:                                                      │
+│  ☑ PII detected in > [5%▾] of rows                        │
+│  ☑ Toxicity detected in any row                            │
+│  ☑ Overall score < [60%▾] — dataset quality too low        │
+│  ☑ Near-duplicate rate > [40%▾]                            │
+│                                                             │
+│  CONFIDENCE THRESHOLD                                       │
+│  Below [70%▾] confidence on any decision → escalate        │
+│  Agent explains reasoning in every escalation              │
+│                                                             │
+│  AUDIT                                                      │
+│  ☑ Log every action with full reasoning                    │
+│  ☑ Require human confirmation for bulk deletions > [100▾]  │
+│  ☑ Daily summary sent to: [pm@cueval.ai              ]     │
+│                                                             │
+│  SOVEREIGN MODE                                             │
+│  🔒 All agent reasoning runs on-premise                    │
+│     No agent decisions sent to Cueval cloud                │
+│                                                             │
+│  [Cancel]  [Save Configuration]                            │
+└─────────────────────────────────────────────────────────────┘
+```
+
+Hard-coded non-configurable limits (shown greyed out, non-toggleable):
+- Final release approval: always human
+- PII redaction above 5% of dataset: always human  
+- Bulk deletion > 500 rows: always human
+- Any action in sovereign deployment that isn't logged: blocked by design
+
+---
+
+### Dashboard Integration
+
+Agent-aware CTAs replace standard CTAs when agents are active:
+
+```
+ML Engineer:  "Curation Agent auto-approved 847 rows — 23 need your review"
+              [Review 23 rows] [View agent reasoning]
+
+PM:           "Release Agent blocked — Architect approval 2 days overdue"
+              [Send escalation] [View release gate]
+
+Architect:    "Dataset Improvement Agent found 3 coverage gaps"
+              [Review insights] [Create sprint]
+
+Admin:        "Annotation Router reassigned 34 rows due to SLA risk"
+              [View reassignments] [Undo all]
+
+Annotator:    No agent CTAs — annotators don't see agent activity
+```
+
+---
+
+### What Agents Cannot Do — Always Visible
+
+Shown as a static callout on the Agents screen:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Agent Boundaries — hardcoded, non-configurable             │
+├─────────────────────────────────────────────────────────────┤
+│  ✗  Agents cannot approve a release for production         │
+│  ✗  Agents cannot redact or delete PII without approval    │
+│  ✗  Agents cannot resolve high-conflict annotations        │
+│  ✗  Agents cannot bulk-delete > 500 rows without approval  │
+│  ✗  Agents cannot take action without logging reasoning    │
+│  ✗  In sovereign mode: no agent reasoning leaves network   │
+│                                                             │
+│  Every agent action is reversible for at least 10 minutes. │
+│  Every escalation includes full reasoning for human review. │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### Mock Agent Data
+
+```javascript
+agents = [
+  {
+    id: "curation_agent",
+    name: "Curation Agent",
+    status: "running",
+    project: "Legal AI Assistant",
+    lastAction: "4 min ago",
+    lastActionSummary: "Auto-approved 847 rows. Routed 23 to review.",
+    actionsToday: 3,
+    escalationsToday: 0
+  },
+  {
+    id: "annotation_router",
+    name: "Annotation Router",
+    status: "running",
+    project: "All projects",
+    lastAction: "12 min ago",
+    lastActionSummary: "Reassigned 34 rows from Priya S (SLA risk).",
+    actionsToday: 7,
+    escalationsToday: 1
+  },
+  {
+    id: "eval_trigger",
+    name: "Eval Trigger Agent",
+    status: "waiting",
+    project: "Legal AI Assistant",
+    waitingOn: "Dataset v1.3 approval",
+    scheduledAction: "Run eval on checkpoint v1.3"
+  },
+  {
+    id: "inference_monitor_agent",
+    name: "Inference Monitor Agent",
+    status: "running",
+    project: "All projects",
+    lastAction: "2 min ago",
+    lastActionSummary: "Hallucination cluster detected → created sprint #12.",
+    actionsToday: 12,
+    escalationsToday: 1
+  },
+  {
+    id: "release_agent",
+    name: "Release Agent",
+    status: "blocked",
+    project: "Legal AI v1.2",
+    blockedReason: "Architect approval pending 2 days",
+    actionTaken: "Sent reminder to architect@cueval.ai",
+    escalatesIn: "24 hours to Admin"
+  },
+  {
+    id: "dataset_improvement",
+    name: "Dataset Improvement Agent",
+    status: "idle",
+    project: "Medical QA",
+    nextRun: "Tomorrow 06:00",
+    lastInsight: "15% of production query types have < 10 corpus entries"
+  }
+]
+
+// Pre-load 12 mock action log entries mixing all agent types
+// Mix: auto-approvals, reassignments, escalations, insights, reminders
+// Each with realistic reasoning text
+```
+
+---
+
+### Implementation Notes for Claude Code (delta)
+
+81. Agents screen: two-panel layout. Left panel fixed width 340px. Right panel fills remainder and scrolls independently.
+82. Agent status dot: animate 🟢 with subtle pulse (2s infinite) when status is "running". Static for other states.
+83. Action log: prepend new mock entry every 45 seconds (setInterval). Animate slide-in from top. Max 20 entries visible, remove oldest.
+84. [Undo] button: countdown timer counts down from 10:00 in real time using setInterval. When reaches 0:00, button disappears and entry shows "Action permanent".
+85. Agent config modal: greyed-out non-configurable items rendered with opacity 0.4 and a 🔒 icon. Not interactive. Tooltip on hover: "This limit is hardcoded and cannot be changed."
+86. "Agent Boundaries" callout: always visible on agents screen, cannot be dismissed or hidden. Coral left border, dark background.
+87. Dashboard CTAs: when mock data shows active agents, replace standard CTAs with agent-aware versions. Role-based as specified.
+88. Escalation entries in log: amber background tint to distinguish from standard action entries.
+89. Insight entries in log: blue-tinted background. [Create annotation task] CTA navigates to new task form pre-filled with agent's suggestion.
+90. Sovereign mode indicator: 🔒 badge on agent config modal header and on each agent row in the roster when project is configured as sovereign.
