@@ -52,7 +52,12 @@ a{color:inherit;text-decoration:none}
 /* Dock is an absolute overlay (64px, expands on hover); reserve its width with padding
    so shell-main fills the rest of the viewport — not a grid column it could mis-place into. */
 .shell{position:relative;height:100vh;padding-left:var(--dock-w);overflow:hidden}
-.shell-main{display:grid;grid-template-rows:var(--topbar-h) 1fr;min-width:0;height:100%;position:relative}
+.shell-main{display:grid;grid-template-rows:var(--topbar-h) auto 1fr;min-width:0;height:100%;position:relative}
+.case-banner{display:flex;align-items:center;gap:10px;padding:8px 18px;font-size:12.5px;line-height:1.45;background:var(--amber-bg,rgba(234,179,8,.12));border-bottom:1px solid var(--amber-border,rgba(234,179,8,.35));color:var(--text-secondary)}
+.case-banner .cb-icon{font-size:15px;flex-shrink:0}
+.case-banner b{color:var(--text-primary);font-weight:600}
+.case-banner .cb-slot{flex:1;min-width:0}
+.case-banner .cb-guide{flex-shrink:0}
 .canvas{overflow:hidden;position:relative;min-height:0}
 .canvas-scroll{position:absolute;inset:0;overflow-y:auto;padding:28px 32px 48px}
 .view-anim{animation:viewIn var(--t-med) ease-out}
@@ -425,7 +430,7 @@ const LANG_LABEL = { en:'English', hi:'Hindi', ta:'Tamil', te:'Telugu', kn:'Kann
 const LANG_COLOR = { en:'#3B82F6', hi:'#E85D26', ta:'#D63384', te:'#22C55E', kn:'#EAB308', ml:'#8b5cf6', mixed:'#9898B0' };
 const FLAG_LABEL = {
   'duplicate':'Exact duplicate', 'near-duplicate':'Near-duplicate', 'short-response':'Short response',
-  'format-violation':'Format violation', 'pii-detected':'PII detected', 'toxic':'Toxic / biased', 'low-clarity':'Low clarity' };
+  'format-violation':'Format violation', 'pii-detected':'PII detected', 'toxic':'Toxic / biased', 'low-clarity':'Low clarity', 'hallucination':'Hallucination' };
 const RUBRIC_DEFAULT = ['Factuality','Instruction Following','Tone','Task Completion','Refusal Behaviour'];
 
 /* ============================================================
@@ -444,6 +449,11 @@ const tenants = [
     planLimits:{ rowsPerMonth:50000, evalRunsPerMonth:10, maxUsers:5, maxProjects:3, sovereignDeployment:false },
     usage:{ rowsThisMonth:41200, evalRunsThisMonth:8, activeUsers:3, activeProjects:1 }, fee:5000,
     createdAt:'2025-05-10', status:'active' },
+  // Pre-seeded illustrative NBFC case study (spec §39) — walks the full 8-stage pipeline. isCaseStudy shows a banner.
+  { id:'tenant_nbfc', name:'Finserv NBFC (Case Study)', slug:'finserv', plan:'Pro',
+    planLimits:{ rowsPerMonth:500000, evalRunsPerMonth:50, maxUsers:20, maxProjects:10, sovereignDeployment:false },
+    usage:{ rowsThisMonth:2800, evalRunsThisMonth:2, activeUsers:3, activeProjects:1 }, fee:35000,
+    createdAt:'2025-04-01', status:'active', isCaseStudy:true },
 ];
 
 const users = [
@@ -456,6 +466,10 @@ const users = [
   { id:'u7', email:'admin@legalai.com', name:'Vikram Rao', tenantId:'tenant_legalai', role:'Admin', lastActive:'12m ago', projects:3 },
   { id:'u8', email:'ml@legalai.com', name:'Sara Iyer', tenantId:'tenant_legalai', role:'MLEngineer', lastActive:'44m ago', projects:2 },
   { id:'u9', email:'admin@healthbot.in', name:'Meera Pillai', tenantId:'tenant_healthbot', role:'Admin', lastActive:'3h ago', projects:1 },
+  // Finserv NBFC case study (spec §39)
+  { id:'un1', email:'ml@finserv.com', name:'Arjun Mehta', tenantId:'tenant_nbfc', role:'MLEngineer', lastActive:'6m ago', projects:1 },
+  { id:'un2', email:'annotator@finserv.com', name:'Priya Nair', tenantId:'tenant_nbfc', role:'Annotator', lastActive:'20m ago', projects:1 },
+  { id:'un3', email:'pm@finserv.com', name:'Rohan Desai', tenantId:'tenant_nbfc', role:'ProjectManager', lastActive:'1h ago', projects:1 },
   { id:'u0', email:'superadmin@cueval.ai', name:'Lynkstr Ops', tenantId:null, role:'SuperAdmin', lastActive:'now', projects:0 },
 ];
 const PASSWORD = 'demo123';
@@ -539,6 +553,83 @@ function buildRows(seed, count){
   return rows;
 }
 
+// ---- NBFC case study explicit rows (spec §39). Realistic loan/EMI/KYC content across all flag types. ----
+function nbfcRow(o){ return Object.assign({ input:'', language:'en', flags:[], reviewStatus:'approved', reviewedBy:'Priya Nair', reviewNote:null, originalOutput:null }, o); }
+function buildNbfcRows(kind){
+  if(kind==='v1'){
+    const rows=[];
+    // 10 clean approved (score 88–95)
+    const clean=[
+      ['row_001','What is the minimum CIBIL score required for a personal loan?','The minimum CIBIL score required for a personal loan at our NBFC is 700. A higher score improves your chances of approval and may qualify you for better interest rates.',92,'en'],
+      ['row_002','How do I calculate my EMI for a home loan of ₹50 lakhs?','Your EMI depends on the loan amount, interest rate, and tenure. For ₹50 lakhs at 8.5% p.a. for 20 years, your EMI would be approximately ₹43,391. Use our EMI calculator for exact figures.',91,'en'],
+      ['row_003','मुझे गृह ऋण के लिए कौन से दस्तावेज़ चाहिए?','गृह ऋण के लिए आपको निम्नलिखित दस्तावेज़ चाहिए: आधार कार्ड, पैन कार्ड, आय प्रमाण, बैंक स्टेटमेंट (6 माह), और संपत्ति के दस्तावेज़।',89,'hi'],
+      ['row_004','What documents are needed for KYC verification?','For KYC, you need: Aadhaar card or passport (identity proof), utility bill or bank statement (address proof), and PAN card. Digital KYC is available through our app.',93,'en'],
+      ['row_005','Can I prepay my personal loan without penalty?','Yes, you can prepay your personal loan after 6 EMIs. A prepayment charge of 2% on the outstanding principal applies. After 12 months, prepayment is free.',90,'en'],
+      ['row_006','What is the maximum loan tenure for a business loan?','Business loans at our NBFC are available for tenures of 12 to 60 months. The maximum tenure depends on your business vintage and loan amount.',88,'en'],
+      ['row_007','How long does loan approval take?','Personal loans are approved within 24–48 hours of submitting complete documents. Home loans take 5–7 working days. Business loans take 3–5 working days.',91,'en'],
+      ['row_008','What is the processing fee for a car loan?','The processing fee for a car loan is 1–2% of the loan amount, with a minimum of ₹2,500 and maximum of ₹15,000. This is a one-time non-refundable fee.',90,'en'],
+      ['row_009','क्या मैं अपनी EMI तारीख बदल सकता हूँ?','हाँ, आप अपनी EMI तारीख बदल सकते हैं। इसके लिए आपको हमारी शाखा में जाकर या ऐप के माध्यम से अनुरोध करना होगा। तारीख परिवर्तन पर कोई शुल्क नहीं है।',89,'hi'],
+      ['row_010','Is gold loan interest charged monthly or yearly?','Gold loan interest is charged monthly on the outstanding principal. The interest rate ranges from 9–14% p.a. depending on the loan-to-value ratio and tenure.',92,'en'],
+    ];
+    clean.forEach(c=>rows.push(nbfcRow({id:c[0],instruction:c[1],output:c[2],qualityScore:c[3],language:c[4],reviewStatus:'approved'})));
+    // 8 near-duplicates of row_001 (rejected)
+    const nd=[['row_011','What CIBIL score is needed for a personal loan?',38],['row_012','Minimum credit score for personal loan?',35],['row_013','What credit score do I need for a loan?',36],['row_014','Personal loan minimum CIBIL requirement?',33],['row_015','Is 650 CIBIL score enough for personal loan?',40],['row_016','What is the credit score requirement for loan approval?',37],['row_017','How much CIBIL score is required?',32],['row_018','My CIBIL is 720, can I get a personal loan?',44]];
+    nd.forEach(n=>rows.push(nbfcRow({id:n[0],instruction:n[1],output:'The minimum CIBIL score required for a personal loan is 700.',qualityScore:n[2],flags:['near-duplicate'],duplicateOf:'row_001',reviewStatus:'rejected',reviewNote:'Near-duplicate of row_001'})));
+    // 8 PII rows (edited — PII stripped)
+    const pii=[
+      ['row_021','I need help with my loan account','Please call our customer care at 9876543210 or visit branch at MG Road.','Please call our customer care helpline or visit your nearest branch. Contact details are on our website.',22,'phone'],
+      ['row_022','How do I update my Aadhaar in the system?','Submit your Aadhaar 8765 4321 0987 at the nearest branch.','Submit your Aadhaar card at the nearest branch or upload via our app\'s KYC section.',20,'aadhaar'],
+      ['row_023','Whom should I contact about my EMI bounce?','Contact our recovery officer Ramesh at 9012345678 immediately.','Contact our recovery helpline immediately; details are in your loan statement and on our website.',24,'phone'],
+      ['row_024','Confirm my KYC submission','KYC received for PAN ABCDE1234F, mobile 9001122334. Verification in 48 hours.','Your KYC has been received. Verification will complete within 48 hours; you will get an SMS confirmation.',21,'pan'],
+      ['row_025','Send my repayment schedule','Schedule emailed to suresh.menon@mail.com and SMS to 9345678901.','Your repayment schedule has been sent to your registered email and mobile number.',23,'email'],
+      ['row_026','How do I register a complaint?','Call grievance officer Anjali on 9123456780.','Raise a complaint via our app, website grievance form, or the toll-free number listed on our site.',25,'phone'],
+      ['row_027','Update my registered mobile number','Old number 9876500000 replaced. New OTP sent to 9876511111.','To update your registered mobile number, verify identity via app; an OTP is sent to your new number.',22,'phone'],
+      ['row_028','आधार अपडेट कैसे करें?','आधार 4321 8765 1234 शाखा में जमा करें।','कृपया अपना आधार कार्ड नज़दीकी शाखा में जमा करें या ऐप के KYC सेक्शन से अपलोड करें।',20,'aadhaar'],
+    ];
+    pii.forEach(p=>rows.push(nbfcRow({id:p[0],instruction:p[1],originalOutput:p[2],output:p[3],qualityScore:p[4],flags:['pii-detected'],piiType:p[5],reviewStatus:'edited',reviewNote:'PII ('+p[5]+') redacted on review',language:p[0]==='row_028'?'hi':'en'})));
+    // 8 short/low-quality rows (edited — expanded)
+    const sh=[
+      ['row_031','Can I get a loan if I\'m self-employed?','Yes.','Yes, self-employed individuals are eligible for loans. You will need 2 years of ITR, business bank statements for 12 months, and proof of business vintage of at least 2 years.',26],
+      ['row_032','What happens if I miss an EMI?','Please call us.','Missing an EMI attracts a late fee of ₹500 or 2% of the EMI amount, whichever is higher, and impacts your CIBIL score. Contact us immediately if you anticipate a delay.',24],
+      ['row_033','Is a co-applicant mandatory?','No.','A co-applicant is not mandatory for most personal loans, but adding one with a strong credit profile can improve eligibility and the sanctioned amount.',28],
+      ['row_034','Do you offer top-up loans?','Yes we do.','Yes, existing customers with a clean 12-month repayment record can apply for a top-up loan, subject to eligibility and current outstanding.',30],
+      ['row_035','What is foreclosure?','Closing loan early.','Foreclosure is repaying your entire outstanding loan before the end of tenure. Applicable foreclosure charges depend on the loan type and how many EMIs are paid.',31],
+      ['row_036','Can I change my loan tenure?','Maybe.','Loan tenure can be restructured in specific cases, subject to approval and a revised EMI. Please raise a request through the app or your branch.',29],
+      ['row_037','How to download my NOC?','From app.','After full repayment, your No-Objection Certificate is available in the app under Documents, and a copy is emailed to your registered address.',33],
+      ['row_038','Is insurance required for a loan?','Sometimes.','Loan-protection insurance is optional for personal loans but may be required for secured loans like home and car loans. Terms are shared at sanction.',30],
+    ];
+    sh.forEach(s=>rows.push(nbfcRow({id:s[0],instruction:s[1],originalOutput:s[2],output:s[3],qualityScore:s[4],flags:['short-response'],reviewStatus:'edited',reviewNote:'Expanded from a too-short response'})));
+    // 6 hallucination rows (pending — wrong interest rates; triggered the v1.1 fix)
+    const hl=[
+      ['row_041','What is the current home loan interest rate?','Our home loan interest rate is 6.5% p.a. onwards.',35,'Rate cited (6.5%) not present in product documents. Actual rate: 8.5% p.a.'],
+      ['row_042','What interest rate will I get on a gold loan?','Gold loans start at 7% per annum at our NBFC.',28,'Rate cited (7%) contradicts product doc (9–14% p.a.)'],
+      ['row_043','What is the car loan interest rate?','Car loans are available at 5.9% flat.','30','Rate cited (5.9% flat) not in product docs; actual 9.5% p.a. reducing.'],
+      ['row_044','Personal loan interest rate?','Personal loans start at 8% p.a.',38,'Rate cited (8%) below the documented floor of 11% p.a.'],
+      ['row_045','ब्याज दर क्या है गृह ऋण पर?','गृह ऋण पर ब्याज दर 6% प्रति वर्ष है।',31,'Hindi response cites 6% which is not in the product documents (actual 8.5% p.a.)'],
+      ['row_046','What is the business loan rate?','Business loans at 7.5% p.a. fixed for all tenures.',33,'Rate cited (7.5% fixed) contradicts product doc (13–18% p.a.)'],
+    ];
+    hl.forEach(h=>rows.push(nbfcRow({id:h[0],instruction:h[1],output:h[2],qualityScore:+h[3],flags:['hallucination'],reviewStatus:'pending',reviewedBy:null,reviewNote:h[4],language:h[0]==='row_045'?'hi':'en'})));
+    return rows;
+  }
+  if(kind==='v11' || kind==='v12'){
+    // Corrected interest-rate Q&A pairs (clean, approved). v1.2 is the fully re-ingested set.
+    const corrected=[
+      ['What is the current home loan interest rate?','Our home loan interest rates start at 8.5% p.a. for salaried individuals and 9.0% p.a. for self-employed, subject to credit assessment. Rates are reviewed quarterly.',94],
+      ['What is the gold loan interest rate?','Gold loan interest rates range from 9% to 14% p.a. depending on the loan-to-value ratio. For LTV up to 65% the rate is 9% p.a.; for LTV 65–75% it is 12% p.a.',96],
+      ['What is the car loan interest rate?','Car loan interest rates start at 9.5% p.a. on a reducing-balance basis for new cars, and 12% p.a. for used cars, subject to profile and tenure.',95],
+      ['What is the personal loan interest rate?','Personal loan interest rates range from 11% to 18% p.a. depending on your credit profile, income, and relationship with the NBFC.',94],
+      ['गृह ऋण पर वर्तमान ब्याज दर क्या है?','गृह ऋण पर ब्याज दर वेतनभोगी के लिए 8.5% प्रति वर्ष से और स्वरोजगार के लिए 9.0% प्रति वर्ष से शुरू होती है। दरें तिमाही समीक्षा के अधीन हैं।',93,'hi'],
+      ['What is the business loan interest rate?','Business loan interest rates range from 13% to 18% p.a. depending on business vintage, turnover, and loan amount.',95],
+      ['How is home loan interest calculated?','Home loan interest is calculated on a monthly reducing-balance basis. As you repay principal, the interest portion of each EMI decreases over the tenure.',94],
+      ['Are interest rates fixed or floating?','We offer both fixed and floating rate options on home loans. Floating rates are benchmarked to an external rate and revised quarterly; fixed rates stay constant for the chosen term.',95],
+      ['Does prepayment reduce my interest?','Yes. Prepaying reduces the outstanding principal, which lowers the interest charged on subsequent EMIs and can shorten your tenure.',96],
+      ['What rate applies to a top-up loan?','Top-up loan rates are typically 0.5–1% above your existing home loan rate, subject to eligibility and current benchmark rates.',94],
+    ];
+    return corrected.map((c,i)=>nbfcRow({id:'row_0'+(kind==='v12'?'6':'5')+(i+1),instruction:c[0],output:c[1],qualityScore:c[2],language:c[3]||'en',reviewStatus:'approved'}));
+  }
+  return [];
+}
+
 const projects = [
   { id:'p1', tenantId:'tenant_pravartak', name:'Legal AI Assistant', description:'Fine-tuned assistant for Indian contract & company law.', status:'active', tags:['legal','en','hi'], members:[{userId:'u2',role:'ProjectManager'},{userId:'u3',role:'Architect'},{userId:'u4',role:'MLEngineer'},{userId:'u5',role:'Reviewer'},{userId:'u6',role:'Annotator'}], createdAt:'2025-02-01' },
   { id:'p2', tenantId:'tenant_pravartak', name:'Customer Support Bot — Tamil', description:'Bilingual Tamil/English support agent for a telecom client.', status:'active', tags:['support','ta'], members:[{userId:'u2',role:'ProjectManager'},{userId:'u4',role:'MLEngineer'},{userId:'u5',role:'Reviewer'}], createdAt:'2025-03-12' },
@@ -547,6 +638,7 @@ const projects = [
   { id:'p5', tenantId:'tenant_legalai', name:'Due Diligence Bot', description:'Automated due-diligence Q&A over data rooms.', status:'active', tags:['legal'], members:[{userId:'u7',role:'Admin'},{userId:'u8',role:'MLEngineer'}], createdAt:'2025-04-01' },
   { id:'p6', tenantId:'tenant_legalai', name:'Compliance Checker', description:'Regulatory compliance verification assistant.', status:'active', tags:['compliance'], members:[{userId:'u7',role:'Admin'}], createdAt:'2025-04-18' },
   { id:'p7', tenantId:'tenant_healthbot', name:'Symptom Triage Assistant', description:'Hindi/English symptom triage for primary care.', status:'active', tags:['medical','hi'], members:[{userId:'u9',role:'Admin'}], createdAt:'2025-05-12' },
+  { id:'proj_nbfc_chatbot', tenantId:'tenant_nbfc', name:'Customer Support Chatbot', description:'NLP chatbot for loan eligibility, EMI calculations, repayment schedules, and KYC queries.', status:'active', tags:['nbfc','en','hi'], members:[{userId:'un1',role:'MLEngineer'},{userId:'un2',role:'Annotator'},{userId:'un3',role:'ProjectManager'}], createdAt:'2025-04-01' },
 ];
 
 const releases = [
@@ -560,6 +652,12 @@ const releases = [
   { id:'rel8', projectId:'p5', tenantId:'tenant_legalai', name:'v0.8 — DD Draft', status:'draft', datasetId:'d5', evalRunId:null, createdBy:'u7', createdAt:'2025-05-22' },
   { id:'rel9', projectId:'p6', tenantId:'tenant_legalai', name:'v1.0 — Compliance', status:'approved', datasetId:'d6', evalRunId:'e6', createdBy:'u7', createdAt:'2025-05-30' },
   { id:'rel10', projectId:'p7', tenantId:'tenant_healthbot', name:'v1.0 — Triage Launch', status:'training', datasetId:'d7', evalRunId:'e7', createdBy:'u9', createdAt:'2025-06-15' },
+  // NBFC case study releases (spec §39). v1.0 historically blocked → deployed after v1.1 factuality fix.
+  { id:'rel_v1_0', projectId:'proj_nbfc_chatbot', tenantId:'tenant_nbfc', name:'v1.0 — Initial Build', status:'deployed', datasetId:'ds_nbfc_v1', evalRunId:'eval_v1_0', createdBy:'un1', createdAt:'2025-04-01', deployedAt:'2025-04-22',
+    history:[{label:'Blocked — Eval 74.2 < 80 threshold', at:'09 Apr 2025', tone:'red'},{label:'Deployed after v1.1 factuality fix', at:'27 Apr 2025', tone:'green'}] },
+  { id:'rel_v1_1', projectId:'proj_nbfc_chatbot', tenantId:'tenant_nbfc', name:'v1.1 — Factuality Fix', status:'deployed', datasetId:'ds_nbfc_v1_1', evalRunId:'eval_v1_1', createdBy:'un1', createdAt:'2025-04-23', deployedAt:'2025-04-27',
+    approvals:[['Dataset quality > 70','System','24 Apr 14:02'],['Annotation complete','System','24 Apr 14:02'],['Eval score ≥ 80 (81.6)','System','24 Apr 14:04'],['ML Engineer approval','Arjun Mehta','24 Apr 14:30'],['PM sign-off','Rohan Desai','24 Apr 15:45']] },
+  { id:'rel_v1_2', projectId:'proj_nbfc_chatbot', tenantId:'tenant_nbfc', name:'v1.2 — Interest Rate Update', status:'in-review', datasetId:'ds_nbfc_v1_2', evalRunId:null, createdBy:'un1', createdAt:'2025-06-10' },
 ];
 
 const datasets = [
@@ -572,6 +670,19 @@ const datasets = [
   { id:'d7', projectId:'p7', releaseId:'rel10', tenantId:'tenant_healthbot', name:'triage_hi_en.jsonl', format:'jsonl', uploadedBy:'Meera Pillai', uploadedAt:'2025-06-12', _seed:707, _count:57 },
   { id:'d8', projectId:'p4', releaseId:'rel7', tenantId:'tenant_legalai', name:'Contract NER Dataset', format:'jsonl', uploadedBy:'Sara Iyer', uploadedAt:'2025-06-14', _seed:808, _count:56,
     importMeta:{ source:'label_studio', sourceLabel:'Label Studio', sourceProject:'Contract NER — Legal AI Corp', importedAt:'14 Jun 2025', importedBy:'Sara Iyer', rows:1198, rowsFiltered:42, template:'NER → Instruction Pair', filterReasons:{ 'low quality':28, 'near-duplicate':11, 'PII':3 } } },
+  // ---- NBFC case study datasets (spec §39) — explicit rows via buildNbfcRows(); rollups fixed to the case narrative ----
+  { id:'ds_nbfc_v1', projectId:'proj_nbfc_chatbot', releaseId:'rel_v1_0', tenantId:'tenant_nbfc', name:'NBFC Support Dataset v1.0', format:'mixed', uploadedBy:'Arjun Mehta', uploadedAt:'2025-04-01', _nbfc:'v1',
+    totalRows:2800, flaggedRows:490, overallScore:71, languages:[{code:'en',pct:78},{code:'hi',pct:22}],
+    sources:[{label:'Chat logs (JSONL)',fmt:'jsonl',rows:2000},{label:'Product PDFs (15 docs)',fmt:'pdf',rows:300},{label:'Label Studio export (CSV)',fmt:'csv',rows:500}],
+    curationSummary:{ autoApproved:2310, flaggedForReview:490, breakdown:{'Near-duplicates':142,'PII detected':89,'Low quality':201,'Format violations':58}, afterReview:{approved:2118,rejected:182,edited:156} } },
+  { id:'ds_nbfc_v1_1', projectId:'proj_nbfc_chatbot', releaseId:'rel_v1_1', tenantId:'tenant_nbfc', name:'NBFC Support Dataset v1.1', format:'mixed', uploadedBy:'Arjun Mehta', uploadedAt:'2025-04-23', _nbfc:'v11',
+    totalRows:2398, flaggedRows:96, overallScore:84, languages:[{code:'en',pct:76},{code:'hi',pct:24}],
+    sources:[{label:'Chat logs (JSONL)',fmt:'jsonl',rows:2000},{label:'Re-ingested PDFs (structural chunking)',fmt:'pdf',rows:398}],
+    note:'Re-ingested 15 product PDFs with structural chunking. +280 interest-rate rows.' },
+  { id:'ds_nbfc_v1_2', projectId:'proj_nbfc_chatbot', releaseId:'rel_v1_2', tenantId:'tenant_nbfc', name:'NBFC Support Dataset v1.2', format:'mixed', uploadedBy:'Arjun Mehta', uploadedAt:'2025-06-10', _nbfc:'v12',
+    totalRows:2450, flaggedRows:38, overallScore:93, languages:[{code:'en',pct:75},{code:'hi',pct:25}],
+    sources:[{label:'Updated rate PDFs (Q2 2025)',fmt:'pdf',rows:450},{label:'Chat logs (JSONL)',fmt:'jsonl',rows:2000}],
+    note:'Rate PDFs re-ingested with corrected Q2 2025 interest rates (sprint #7).' },
 ];
 // NOTE: rows are materialised in initMockData() (called from boot) — AFTER Section E
 // defines scoreRow/deriveFlags/PII_PATTERNS, to avoid a temporal-dead-zone reference.
@@ -591,12 +702,26 @@ const evalRuns = [
   { id:'e5', projectId:'p4', releaseId:'rel7', tenantId:'tenant_legalai', checkpointA:'ckpt-contract', checkpointB:'ckpt-clause', status:'completed', runAt:'2025-06-09', runBy:'Sara Iyer', _seed:15 },
   { id:'e6', projectId:'p6', releaseId:'rel9', tenantId:'tenant_legalai', checkpointA:'ckpt-base', checkpointB:'ckpt-comp', status:'completed', runAt:'2025-05-31', runBy:'Vikram Rao', _seed:16 },
   { id:'e7', projectId:'p7', releaseId:'rel10', tenantId:'tenant_healthbot', checkpointA:'ckpt-base', checkpointB:'ckpt-triage', status:'completed', runAt:'2025-06-16', runBy:'Meera Pillai', _seed:17 },
+  // NBFC case study eval runs (spec §39) — explicit rubric + results so the demo shows exact scores. Local judge, ₹0.
+  { id:'eval_v1_0', projectId:'proj_nbfc_chatbot', releaseId:'rel_v1_0', tenantId:'tenant_nbfc', checkpointA:'ckpt_v1_0', checkpointB:'ckpt_v1_0', status:'completed', runAt:'2025-04-09', runBy:'Arjun Mehta',
+    judgeMode:'local', judgeModel:'mistral-7b-int8', referenceGrounded:true, calibration:{status:'calibrated',kappa:0.74},
+    rubric:[{dimension:'Factuality',weight:40},{dimension:'Task Completion',weight:30},{dimension:'Tone',weight:20},{dimension:'Refusal Behaviour',weight:10}],
+    results:{ A:{Factuality:71,'Task Completion':78,Tone:88,'Refusal Behaviour':82,Overall:74.2}, B:{Factuality:71,'Task Completion':78,Tone:88,'Refusal Behaviour':82,Overall:74.2} },
+    tokens:0, cost:0, costLabel:'₹0 (local judge)', heldOutRows:200, humanReviewQueue:new Array(12).fill('nbfc_v1_r041'), singlePolygon:true },
+  { id:'eval_v1_1', projectId:'proj_nbfc_chatbot', releaseId:'rel_v1_1', tenantId:'tenant_nbfc', checkpointA:'ckpt_v1_0', checkpointB:'ckpt_v1_1', status:'completed', runAt:'2025-04-24', runBy:'Arjun Mehta',
+    judgeMode:'local', judgeModel:'mistral-7b-int8', referenceGrounded:true, calibration:{status:'calibrated',kappa:0.74},
+    rubric:[{dimension:'Factuality',weight:40},{dimension:'Task Completion',weight:30},{dimension:'Tone',weight:20},{dimension:'Refusal Behaviour',weight:10}],
+    results:{ A:{Factuality:71,'Task Completion':78,Tone:88,'Refusal Behaviour':82,Overall:74.2}, B:{Factuality:79,'Task Completion':83,Tone:89,'Refusal Behaviour':84,Overall:81.6} },
+    tokens:0, cost:0, costLabel:'₹0 (local judge)', heldOutRows:200, humanReviewQueue:new Array(8).fill('nbfc_v1_r041') },
 ];
 const experiments = [
   { id:'x1', projectId:'p1', releaseId:'rel1', tenantId:'tenant_pravartak', name:'Legal base SFT', datasetId:'d1', datasetVersion:'v2.0', checkpointId:'ckpt-v1.0', evalRunId:'e1', costEstimate:1980, status:'completed', createdBy:'Arjun ML', createdAt:'2025-03-01', notes:'Baseline supervised fine-tune on curated legal corpus.', trainingConfig:{ baseModel:'Llama-3.1-8B', epochs:3, learningRate:0.0002, batchSize:16, loraRank:16, optimizer:'adamw' } },
   { id:'x2', projectId:'p1', releaseId:'rel2', tenantId:'tenant_pravartak', name:'Legal v1.1 curated', datasetId:'d1', datasetVersion:'v2.1', checkpointId:'ckpt-v1.1', evalRunId:'e2', costEstimate:2340, status:'completed', createdBy:'Arjun ML', createdAt:'2025-05-14', notes:'Retrained after removing near-duplicates and PII rows.', trainingConfig:{ baseModel:'Llama-3.1-8B', epochs:4, learningRate:0.00018, batchSize:16, loraRank:32, optimizer:'adamw' } },
   { id:'x3', projectId:'p2', releaseId:'rel4', tenantId:'tenant_pravartak', name:'Tamil support v1', datasetId:'d2', datasetVersion:'v1.0', checkpointId:'ckpt-tamil', evalRunId:'e3', costEstimate:2760, status:'running', createdBy:'Arjun ML', createdAt:'2025-07-08', notes:'Bilingual Tamil/English run, LoRA rank 32.', trainingConfig:{ baseModel:'Sarvam-2B', epochs:5, learningRate:0.0003, batchSize:8, loraRank:32, optimizer:'adamw' } },
   { id:'x4', projectId:'p4', releaseId:'rel7', tenantId:'tenant_legalai', name:'Clause refinement', datasetId:'d4', datasetVersion:'v1.1', checkpointId:'ckpt-clause', evalRunId:'e5', costEstimate:3120, status:'completed', createdBy:'Sara Iyer', createdAt:'2025-06-08', notes:'Refined clause extraction with higher rank.', trainingConfig:{ baseModel:'Llama-3.1-8B', epochs:4, learningRate:0.00015, batchSize:32, loraRank:64, optimizer:'adamw' } },
+  // NBFC case study experiments (spec §39)
+  { id:'exp_v1_0', projectId:'proj_nbfc_chatbot', releaseId:'rel_v1_0', tenantId:'tenant_nbfc', name:'Baseline Fine-tune — Mistral 7B', datasetId:'ds_nbfc_v1', datasetVersion:'v1.0', checkpointId:'ckpt_v1_0', evalRunId:'eval_v1_0', costEstimate:0, status:'completed', createdBy:'Arjun Mehta', createdAt:'2025-04-08', notes:'Baseline run on cleaned dataset v1.0.', snapshotHash:'sha256:a3f8c2d9e1b4f7', trainingConfig:{ baseModel:'Mistral-7B-Instruct-v0.2', epochs:3, learningRate:0.0002, batchSize:8, loraRank:8, optimizer:'adamw' } },
+  { id:'exp_v1_1', projectId:'proj_nbfc_chatbot', releaseId:'rel_v1_1', tenantId:'tenant_nbfc', name:'Factuality Fix — Structural Chunking', datasetId:'ds_nbfc_v1_1', datasetVersion:'v1.1', checkpointId:'ckpt_v1_1', evalRunId:'eval_v1_1', costEstimate:0, status:'completed', createdBy:'Arjun Mehta', createdAt:'2025-04-24', notes:'Re-ingested 15 product PDFs with structural chunking. +280 interest-rate rows.', snapshotHash:'sha256:b7d2a1e4c9f3', trainingConfig:{ baseModel:'Mistral-7B-Instruct-v0.2', epochs:3, learningRate:0.0002, batchSize:8, loraRank:8, optimizer:'adamw' } },
 ];
 
 let notifications = [
@@ -606,6 +731,9 @@ let notifications = [
   { id:'n4', tenantId:'tenant_pravartak', text:'v1.1 release blocked — 8 rows unreviewed', time:'2h ago', read:true, icon:'release' },
   { id:'n5', tenantId:'tenant_legalai', text:'Clause refinement eval completed (+2.4 overall)', time:'40m ago', read:false, icon:'eval' },
   { id:'n6', tenantId:'tenant_healthbot', text:'Usage at 82% of monthly row limit', time:'3h ago', read:false, icon:'warn' },
+  { id:'nn1', tenantId:'tenant_nbfc', text:'Agent created sprint #7 — 12 interest-rate rows pending review', time:'2h ago', read:false, icon:'flag' },
+  { id:'nn2', tenantId:'tenant_nbfc', text:'v1.2 dataset re-ingested — flag rate 6.2% → 3.8%', time:'4h ago', read:false, icon:'eval' },
+  { id:'nn3', tenantId:'tenant_nbfc', text:'v1.1 deployed to production (24 Apr)', time:'1d ago', read:true, icon:'release' },
 ];
 let activity = [
   { id:'a1', tenantId:'tenant_pravartak', who:'Ravi Kumar', text:'approved 23 rows in Legal AI v1.1', time:'8m ago' },
@@ -614,6 +742,19 @@ let activity = [
   { id:'a4', tenantId:'tenant_pravartak', who:'Priya Nair', text:'created release v1.2 — Extended Hindi', time:'4h ago' },
   { id:'a5', tenantId:'tenant_legalai', who:'Sara Iyer', text:'started training for Clause Refinement', time:'1h ago' },
   { id:'a6', tenantId:'tenant_healthbot', who:'Meera Pillai', text:'uploaded triage_hi_en.jsonl (41.2K rows)', time:'5h ago' },
+  // NBFC case study activity trail (spec §39) — the full 8-stage story in chronological order.
+  { id:'an1', tenantId:'tenant_nbfc', who:'System', text:'Curation completed — 2,310 rows auto-approved, 490 flagged', time:'04 Apr 09:48' },
+  { id:'an2', tenantId:'tenant_nbfc', who:'Priya Nair', text:'completed annotation batch — 156 rows edited, 182 rejected', time:'06 Apr 16:20' },
+  { id:'an3', tenantId:'tenant_nbfc', who:'System', text:'Eval run completed — Overall 74.2. Factuality flagged as weak point.', time:'09 Apr 08:45' },
+  { id:'an4', tenantId:'tenant_nbfc', who:'System', text:'Release v1.0 blocked — Eval score 74.2 below threshold of 80', time:'09 Apr 08:46' },
+  { id:'an5', tenantId:'tenant_nbfc', who:'Arjun Mehta', text:'root cause: PDF chunking issue. Re-ingestion started.', time:'22 Apr 11:00' },
+  { id:'an6', tenantId:'tenant_nbfc', who:'System', text:'Dataset v1.1 approved — 2,398 rows (280 new interest-rate rows)', time:'23 Apr 17:30' },
+  { id:'an7', tenantId:'tenant_nbfc', who:'System', text:'Eval v1.1 completed — Overall 81.6. Factuality improved 71→79.', time:'24 Apr 14:04' },
+  { id:'an8', tenantId:'tenant_nbfc', who:'Arjun Mehta', text:'approved release v1.1', time:'24 Apr 14:30' },
+  { id:'an9', tenantId:'tenant_nbfc', who:'Rohan Desai', text:'signed off v1.1. Deployed to production.', time:'24 Apr 15:45' },
+  { id:'an10', tenantId:'tenant_nbfc', who:'Annotation Router Agent', text:'23 hallucination failures clustered around interest-rate queries', time:'10 May 09:00' },
+  { id:'an11', tenantId:'tenant_nbfc', who:'Annotation Router Agent', text:'created sprint #7: Re-ingest updated rate PDFs', time:'10 May 09:01' },
+  { id:'an12', tenantId:'tenant_nbfc', who:'Arjun Mehta', text:'Dataset v1.2 in review — rate PDFs re-ingested', time:'12 Jun 14:00' },
 ];
 
 /* ============================================================
@@ -1040,6 +1181,39 @@ function renderTopbar(){
     + '<button class="icon-btn" data-action="user-menu" aria-label="Account"><span class="dock-avatar" style="width:30px;height:30px;font-size:12px">'+initials(currentUser.name)+'</span></button>'
     + '</header>';
 }
+// Persistent, non-dismissable case-study banner for the NBFC demo tenant (spec §39). Empty grid slot otherwise.
+function renderCaseBanner(){
+  const t=currentTenant;
+  if(!(t&&t.isCaseStudy) || (currentUser.role==='SuperAdmin'&&!impersonating)) return '<div class="cb-empty"></div>';
+  return '<div class="case-banner" role="note">'
+    + '<span class="cb-icon" aria-hidden="true">📖</span>'
+    + '<span class="cb-slot"><b>Illustrative Case Study — Finserv NBFC Customer Support Chatbot.</b> This project is pre-seeded to demonstrate the full Cueval pipeline. Data is fictional.</span>'
+    + '<button class="btn btn-ghost btn-sm cb-guide" data-action="demo-guide">'+ICON.book+'How to demo this</button>'
+    + '</div>';
+}
+// "How to demo this project" guide — 9 numbered stages, each links straight to the screen (spec §39 note 123).
+const DEMO_STAGES=[
+  ['01','Ingest','Datasets → NBFC Support Dataset v1.0. Three source badges (JSONL, PDF, CSV); 2,800 rows, 78% EN / 22% HI.',{view:'datasets',ds:'ds_nbfc_v1'}],
+  ['02','Curate','Same dataset — curation summary: 2,310 auto-approved, 490 flagged. Quality score 71 (amber).',{view:'datasets',ds:'ds_nbfc_v1'}],
+  ['03','Annotate','Review Queue — PII redaction diffs (row_021/022), near-duplicate cluster (row_011–018) rejected against row_001.',{view:'review'}],
+  ['04','Train','Experiment Tracker — Baseline Mistral 7B run, snapshot hash + training config. Lineage: dataset → checkpoint.',{view:'experiments'}],
+  ['05','Evaluate','Eval Harness — eval v1.0. Factuality 71 (weak), Overall 74.2 — below the 80 threshold.',{view:'eval',eval:'eval_v1_0'}],
+  ['06','Release (blocked)','Releases — v1.0 blocked on the eval-score gate (09 Apr 2025). Root cause: PDF chunking.',{view:'releases'}],
+  ['07','Re-evaluate','Eval Harness — eval v1.1 two-checkpoint compare: Factuality 71→79, Overall 74.2→81.6.',{view:'eval',eval:'eval_v1_1'}],
+  ['08','Monitor','Inference Monitor — live feed with a 23-strong hallucination cluster on interest-rate queries.',{view:'monitor'}],
+  ['09','Improve','Datasets → v1.2 — 10 corrected interest-rate rows (score 94–96). Flag rate 6.2% → 3.8%.',{view:'datasets',ds:'ds_nbfc_v1_2'}],
+];
+function demoGuideModal(){
+  let list='';
+  DEMO_STAGES.forEach(s=>{ const g=s[3]; const attrs='data-action="demo-goto" data-view="'+g.view+'"'+(g.ds?' data-ds="'+g.ds+'"':'')+(g.eval?' data-eval="'+g.eval+'"':'');
+    list+='<div class="flex gap12" style="padding:10px 0;border-bottom:1px solid var(--border);align-items:flex-start">'
+      +'<span class="mono" style="font-family:var(--font-display);font-size:15px;color:var(--coral);flex-shrink:0;width:26px">'+s[0]+'</span>'
+      +'<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:13px">'+escapeHtml(s[1])+'</div><div class="secondary" style="font-size:12px;line-height:1.5">'+escapeHtml(s[2])+'</div></div>'
+      +'<button class="btn btn-ghost btn-sm" style="flex-shrink:0" '+attrs+'>Go '+ICON.arrowR+'</button></div>'; });
+  openModal('<div class="row-between"><h2 style="font-family:var(--font-display);font-weight:600;font-size:18px">📖 How to demo this project</h2><button class="icon-btn" data-action="close-modal" aria-label="Close">'+ICON.x+'</button></div>'
+    +'<p class="secondary" style="font-size:12.5px;margin-top:4px">Walk the Finserv NBFC chatbot through all nine stages of the Cueval pipeline. Each step jumps straight to the screen.</p>'
+    +'<div class="mt12">'+list+'</div>');
+}
 function statusDot(status){ const c=STATUS_PILL[status]||'muted'; return '<span style="width:8px;height:8px;border-radius:50%;display:inline-block;background:var(--'+(c==='muted'?'text-muted':c)+')"></span>'; }
 function tenantTopWarning(){
   const pct=usagePct(currentTenant); if(pct<85) return '';
@@ -1051,7 +1225,7 @@ function renderShell(){
   const app=el('app');
   const dockHtml=renderDock();
   app.innerHTML = '<div class="shell">'+dockHtml
-    + '<div class="shell-main">'+renderTopbar()
+    + '<div class="shell-main">'+renderTopbar()+renderCaseBanner()
     + '<main class="canvas"><div class="canvas-scroll" id="canvas" tabindex="-1"></div>'
     + '<div class="scrim" id="scrim" data-action="close-panel"></div>'
     + '<aside class="panel" id="panel" aria-hidden="true"></aside>'
@@ -1138,7 +1312,7 @@ function drawDonut(cv){
     ctx.beginPath(); ctx.arc(cx,cy,rin,0,7); ctx.fillStyle=TOKENS.surface; ctx.fill();
   }catch(err){ log.error('[donut] draw failed',err); }
 }
-function flagPill(f){ return '<span class="pill pill-'+(f==='toxic'||f==='pii-detected'||f==='duplicate'?'red':f==='near-duplicate'||f==='format-violation'?'yellow':'muted')+'">'+ICON.flag+escapeHtml(FLAG_LABEL[f]||f)+'</span>'; }
+function flagPill(f){ return '<span class="pill pill-'+(f==='toxic'||f==='pii-detected'||f==='duplicate'||f==='hallucination'?'red':f==='near-duplicate'||f==='format-violation'?'yellow':'muted')+'">'+ICON.flag+escapeHtml(FLAG_LABEL[f]||f)+'</span>'; }
 function langPill(code){ return '<span class="pill pill-muted">'+escapeHtml(LANG_LABEL[code]||code)+'</span>'; }
 function emptyState(icon,title,sub,cta){ return '<div class="empty">'+ICON[icon]+'<div class="empty-title">'+escapeHtml(title)+'</div><div class="empty-sub">'+escapeHtml(sub)+'</div>'+(cta||'')+'</div>'; }
 // Breadcrumb: parts = [ [label] (current) | [label, action, dataObj] (link) ], last is current.
@@ -1198,6 +1372,7 @@ const DEMO_GROUPS = [
   { org:'IITM Pravartak — Enterprise', accts:[['admin@cueval.ai','Admin'],['pm@cueval.ai','Project Manager'],['architect@cueval.ai','Architect'],['mlengineer@cueval.ai','ML Engineer'],['reviewer@cueval.ai','Reviewer'],['annotator@cueval.ai','Annotator']] },
   { org:'Legal AI Corp — Pro', accts:[['admin@legalai.com','Admin'],['ml@legalai.com','ML Engineer']] },
   { org:'HealthBot India — Starter', accts:[['admin@healthbot.in','Admin']] },
+  { org:'Finserv NBFC (Case Study) — Pro', accts:[['ml@finserv.com','ML Engineer (Arjun)'],['annotator@finserv.com','Annotator (Priya)'],['pm@finserv.com','Project Manager (Rohan)']] },
 ];
 function renderLogin(){
   document.body.classList.remove('impersonating');
@@ -1518,8 +1693,11 @@ function datasetDetail(d){
   histo+='</div>';
   let flags=''; Object.entries(flagCounts).sort((a,b)=>b[1]-a[1]).forEach(([f,n])=>{ flags+='<div class="flex gap8" style="justify-content:space-between;padding:5px 0">'+flagPill(f)+'<span class="secondary">'+n+'</span></div>'; });
   const importLine = d.importMeta ? '<div class="muted mt4" style="font-size:12px">'+ICON.arrowR+' Source: '+escapeHtml(d.importMeta.sourceLabel)+' (imported '+escapeHtml(d.importMeta.importedAt)+') · '+d.importMeta.rowsFiltered+' rows filtered by curation <button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:11px" data-action="import-log" data-id="'+d.id+'">View import log</button></div>' : '';
+  // Source badges (spec §39 note 116): show one pill per ingestion source with its row count.
+  const srcIcon={jsonl:ICON.database,pdf:ICON.doc,csv:ICON.chart};
+  const sourcesLine = d.sources ? '<div class="flex wrap gap6 mt8">'+d.sources.map(s=>'<span class="pill pill-muted" title="'+escapeAttr(s.label)+'" style="font-size:10.5px">'+(srcIcon[s.fmt]||ICON.database)+escapeHtml(s.label)+' · '+fmtNum(s.rows)+'</span>').join('')+'</div>' : '';
   const hdr='<div class="card"><div class="row-between"><div><div class="flex gap8"><span class="card-title mono">'+escapeHtml(d.name)+'</span><span class="badge-fmt">'+d.format+'</span>'+(d.importMeta?'<span class="pill pill-blue" style="font-size:10px">'+escapeHtml(d.importMeta.sourceLabel)+'</span>':'')+'</div>'
-    +'<div class="secondary mt4">'+fmtNum(d.importMeta?d.importMeta.rows:d.totalRows)+' rows · '+d.flaggedRows+' flagged · uploaded '+escapeHtml(d.uploadedAt)+' by '+escapeHtml(d.uploadedBy)+'</div>'+importLine+'</div>'
+    +'<div class="secondary mt4">'+fmtNum(d.importMeta?d.importMeta.rows:d.totalRows)+' rows · '+d.flaggedRows+' flagged · uploaded '+escapeHtml(d.uploadedAt)+' by '+escapeHtml(d.uploadedBy)+'</div>'+sourcesLine+importLine+'</div>'
     +'<div style="text-align:right"><div class="muted" style="font-size:11px">OVERALL SCORE'+infoTip('qualityscore')+'</div><div class="bignum '+scoreClass(d.overallScore)+'">'+d.overallScore+'</div></div></div>'
     +'<div class="grid-3 mt16" style="grid-template-columns:1.3fr 1fr 1fr"><div><div class="section-h">Languages</div>'+langBar(d.languages)
     +'<div class="flex wrap gap8 mt8">'+d.languages.map(l=>'<span class="flex gap6" style="font-size:11px"><span style="width:9px;height:9px;border-radius:2px;background:'+(LANG_COLOR[l.code]||'#888')+'"></span>'+escapeHtml(LANG_LABEL[l.code]||l.code)+' '+l.pct+'%</span>').join('')+'</div></div>'
@@ -1533,7 +1711,19 @@ function datasetDetail(d){
     +'<div class="flex gap8"><select class="input" style="width:auto" data-action="ds-filter-sel" data-key="status"><option value="all"'+(f.status==='all'?' selected':'')+'>All status</option><option value="pending"'+(f.status==='pending'?' selected':'')+'>Pending</option><option value="approved"'+(f.status==='approved'?' selected':'')+'>Approved</option><option value="rejected"'+(f.status==='rejected'?' selected':'')+'>Rejected</option></select>'
     +'<select class="input" style="width:auto" data-action="ds-filter-sel" data-key="sort"><option value="score-asc"'+(f.sort==='score-asc'?' selected':'')+'>Score ↑</option><option value="score-desc"'+(f.sort==='score-desc'?' selected':'')+'>Score ↓</option><option value="flags"'+(f.sort==='flags'?' selected':'')+'>Most flags</option></select>'
     +(can('Datasets')?'<button class="btn btn-ghost btn-sm" data-action="export-dataset" data-id="'+d.id+'">'+ICON.download+'Export</button>':'')+'</div></div></div>';
-  return hdr+filterBar+'<div class="card mt16" style="padding:0;overflow:hidden"><div style="max-height:46vh;overflow:auto">'+rowTable(d)+'</div></div>';
+  return hdr+curationCard(d)+filterBar+'<div class="card mt16" style="padding:0;overflow:hidden"><div style="max-height:46vh;overflow:auto">'+rowTable(d)+'</div></div>';
+}
+// Curation summary panel (spec §39) — the pipeline-scale rollup for the case study dataset.
+function curationCard(d){
+  const cs=d.curationSummary; if(!cs) return '';
+  const stat=(lbl,val,tone)=>'<div><div class="muted" style="font-size:11px">'+lbl+'</div><div class="bignum" style="font-size:20px'+(tone?';color:var(--'+tone+')':'')+'">'+fmtNum(val)+'</div></div>';
+  const breakdown=Object.entries(cs.breakdown).map(([k,v])=>{ const red=/PII/i.test(k); return '<span class="pill pill-'+(red?'red':'yellow')+'" style="font-size:11px">'+escapeHtml(k)+' · '+v+'</span>'; }).join('');
+  const ar=cs.afterReview;
+  return '<div class="card mt16"><div class="section-h">Curation summary</div>'
+    +'<div class="grid-3" style="grid-template-columns:repeat(4,1fr);gap:12px">'
+    + stat('Total rows',cs.autoApproved+cs.flaggedForReview)+stat('Auto-approved',cs.autoApproved,'green')+stat('Flagged for review',cs.flaggedForReview,'coral')+stat('Overall score',d.overallScore)
+    +'</div><div class="section-h mt16">Flag breakdown</div><div class="flex wrap gap6">'+breakdown+'</div>'
+    +'<div class="section-h mt16">After human review</div><div class="flex wrap gap6"><span class="pill pill-green" style="font-size:11px">'+ICON.check+fmtNum(ar.approved)+' approved</span><span class="pill pill-red" style="font-size:11px">'+ICON.x+fmtNum(ar.rejected)+' rejected (mostly near-duplicates)</span><span class="pill pill-pink" style="font-size:11px">'+ICON.pencil+fmtNum(ar.edited)+' edited (PII + low quality)</span></div></div>';
 }
 function filteredRows(d){
   const f=appState.dsFilters; let rows=d.rows.slice();
@@ -1586,8 +1776,9 @@ function flagExplain(f,row){
     case 'near-duplicate':return 'High token overlap (Jaccard > 0.7) with a similar row.';
     case 'short-response':return 'Output is '+(row.output||'').length+' chars — below the 20-char minimum.';
     case 'format-violation':return 'Missing instruction or output does not match the requested format/schema.';
-    case 'pii-detected':return 'Matches a PII pattern (phone / email / Aadhaar / PAN).';
+    case 'pii-detected':return 'Matches a PII pattern (phone / email / Aadhaar / PAN).'+(row&&row.piiType?' Detected: '+row.piiType+'.':'');
     case 'toxic':return 'Contains toxic or biased language from the moderation list.';
+    case 'hallucination':return row&&row.reviewNote?row.reviewNote:'Claim or figure not supported by the reference documents.';
     case 'low-clarity':return 'Response is short and low in informational content.'; default:return ''; }
 }
 
@@ -1726,7 +1917,9 @@ function refGroundNote(){
 function screenEval(){
   const runs=getEvalRuns(); const rel=activeRelease();
   const head='<div class="row-between"><div><h1 class="page-h">Eval Harness</h1><p class="page-sub">Compare checkpoints across a weighted rubric</p></div></div>';
-  const result = appState.evalResult || runs.filter(e=>e.status==='completed').slice(-1)[0] || null;
+  // Only honour a pinned eval if it belongs to the current tenant's runs (isolation, CLAUDE.md §5).
+  const pinned = appState.evalResult && runs.includes(appState.evalResult) ? appState.evalResult : null;
+  const result = pinned || runs.filter(e=>e.status==='completed').slice(-1)[0] || null;
   // config card
   let dims=''; RUBRIC_DEFAULT.forEach((d,i)=>{ dims+='<div class="row-between mt8"><span class="secondary" style="width:150px">'+d+'</span>'
     +'<input type="range" min="0" max="40" value="20" data-rubric="'+i+'" style="flex:1;accent-color:var(--coral)"><span class="mono" style="width:42px;text-align:right" id="rw'+i+'">20%</span></div>'; });
@@ -1867,8 +2060,18 @@ function openReleaseDetail(id){
     +'<span>'+escapeHtml(g.label)+'</span>'+(g.note?'<span class="pill pill-yellow" style="margin-left:auto">'+escapeHtml(g.note)+'</span>':'')+'</div>'; });
   const canApprove = can('Releases');
   const actions = canApprove ? '<div class="flex gap8 mt16"><button class="btn btn-primary" data-action="approve-release" data-id="'+r.id+'"'+(gates.some(g=>!g.ok)?' disabled':'')+'>'+ICON.check+'Approve Release</button><button class="btn btn-ghost" data-action="request-changes" data-id="'+r.id+'">Request Changes</button></div>' : '<div class="muted mt16">Approval requires Architect / PM / Admin role.</div>';
+  // Case-study history (blocked → deployed) with a "what changed" jump to the fixed dataset (spec §39 note 119).
+  let histHtml='';
+  if(r.history){ histHtml='<div class="section-h mt16">History</div><div class="card" style="padding:12px">'
+    +r.history.map(h=>'<div class="flex gap8" style="padding:5px 0;align-items:center"><span class="pill pill-'+(h.tone||'muted')+'" style="font-size:11px">'+escapeHtml(h.label)+'</span><span class="muted mono" style="font-size:11px;margin-left:auto">'+escapeHtml(h.at)+'</span></div>').join('')
+    +'<button class="btn btn-ghost btn-sm mt8" data-action="demo-goto" data-view="datasets" data-ds="ds_nbfc_v1_1">'+ICON.arrowR+'View what changed (v1.1 dataset)</button></div>'; }
+  let apprHtml='';
+  if(r.approvals){ apprHtml='<div class="section-h mt16">Approval audit trail</div><div class="card" style="padding:0;overflow:hidden"><table class="tbl"><thead><tr><th>Gate</th><th>Status</th><th>Who</th><th>When</th></tr></thead><tbody>'
+    +r.approvals.map(a=>'<tr><td>'+escapeHtml(a[0])+'</td><td><span class="pill pill-green" style="font-size:11px">'+ICON.check+'Pass</span></td><td>'+escapeHtml(a[1])+'</td><td class="mono">'+escapeHtml(a[2])+'</td></tr>').join('')
+    +'</tbody></table></div>'; }
   const html='<div class="flex gap8">'+statusPill(r.status)+'<span class="secondary">'+escapeHtml(r.createdAt)+'</span></div>'
     +'<div class="section-h mt16">Dataset</div><div class="card" style="padding:12px">'+escapeHtml(ds?ds.name:'—')+' · score '+(ds?ds.overallScore:'—')+'</div>'
+    +histHtml+apprHtml
     +'<div class="section-h mt16">Release gates'+infoTip('gate')+'</div>'+gh+actions;
   openPanel(html, r.name);
 }
@@ -2742,9 +2945,29 @@ let INF_UID=0;
 function initInferences(){
   inferences=[];
   const perTenant={ tenant_pravartak:'p1', tenant_legalai:'p4', tenant_healthbot:'p7' };
-  tenants.forEach(t=>{ const rand=mkRand(t.id.length*911+7); const pid=perTenant[t.id];
+  tenants.forEach(t=>{ if(t.id==='tenant_nbfc') return; const rand=mkRand(t.id.length*911+7); const pid=perTenant[t.id];
     for(let i=0;i<50;i++){ inferences.push(makeInference(t.id, pid, rand, i)); } });
+  initNbfcInferences(); // interest-rate hallucination cluster (spec §39)
   log.info('[boot] inferences ready — '+inferences.length);
+}
+// NBFC live feed: mostly-good traffic plus a 23-strong hallucination cluster on interest-rate queries (drives v1.2).
+const NBFC_INFER_GOOD=[['How to foreclose my personal loan?','en'],['What documents for KYC?','en'],['EMI due date change process','en'],['क्या टॉप-अप लोन मिल सकता है?','hi'],['Gold loan eligibility criteria','en'],['How to download my loan statement?','en'],['Prepayment charges on car loan','en'],['ब्याज गणना कैसे होती है?','hi']];
+function initNbfcInferences(){
+  const rand=mkRand(4242); const tid='tenant_nbfc', pid='proj_nbfc_chatbot';
+  const push=(o)=>inferences.push(Object.assign({ id:'inf_'+(++INF_UID), tenantId:tid, projectId:pid, model:'v1.1',
+    completeness:70+Math.floor(rand()*29), policy:85+Math.floor(rand()*14),
+    response:'The model produced a response for this NBFC query based on the retrieved product-document chunks.',
+    contextChunks:1+Math.floor(rand()*3), feedback:null, addedToTraining:false }, o));
+  // 23 hallucination cluster — interest rate queries citing wrong rates
+  const rateQ=['What is the home loan rate?','What interest rate on gold loan?','ब्याज दर क्या है गृह ऋण पर?','Current car loan interest rate?','Personal loan rate please','Business loan interest rate?'];
+  for(let i=0;i<23;i++){ const q=rateQ[i%rateQ.length]; const mm=30+Math.floor(rand()*30), ss=Math.floor(rand()*60);
+    push({ instruction:q, language:q.indexOf('ब्याज')>=0?'hi':'en', score:25+Math.floor(rand()*18), flags:['Hallucination'],
+      time:'14:'+String(mm).padStart(2,'0')+':'+String(ss).padStart(2,'0'), factuality:22+Math.floor(rand()*16),
+      flagDetail:"Rate cited in response not present in product document (updated Q2 2025 rate PDF not re-ingested).", cluster:'interest_rate' }); }
+  // 37 healthy inferences
+  for(let i=0;i<37;i++){ const g=NBFC_INFER_GOOD[i%NBFC_INFER_GOOD.length]; const mm=30+Math.floor(rand()*30), ss=Math.floor(rand()*60);
+    const neg=rand()<0.1; push({ instruction:g[0], language:g[1], score:82+Math.floor(rand()*17), flags:[],
+      time:'14:'+String(mm).padStart(2,'0')+':'+String(ss).padStart(2,'0'), factuality:85+Math.floor(rand()*14), feedback:neg?'negative':(rand()<0.5?'positive':null) }); }
 }
 function makeInference(tenantId, projectId, rand, i){
   const r=rand(); let score, flags;
@@ -3426,6 +3649,13 @@ function dispatch(action, d){
     case 'mark-read': notifications.forEach(n=>{ if(!currentTenant||n.tenantId===currentTenant.id) n.read=true; }); closeAllDropdowns(); renderShell(); showToast('All notifications marked read','ok'); break;
     case 'open-project': setView('projects'); appState.projectId=d.id; { const r=projectReleases(d.id)[0]; appState.releaseId=r?r.id:null; } openProjectDetail(d.id); break;
     case 'new-project': newProjectModal(); break;
+    // --- NBFC case study demo guide (spec §39) ---
+    case 'demo-guide': demoGuideModal(); break;
+    case 'demo-goto': {
+      const p=byId(getProjects(),'proj_nbfc_chatbot'); if(p){ appState.projectId=p.id; const rel=projectReleases(p.id)[0]; if(rel) appState.releaseId=rel.id; }
+      if(d.ds){ activeDatasetId=d.ds; appState.dsView='list'; }
+      if(d.eval){ const e=byId(getEvalRuns(),d.eval); if(e) appState.evalResult=e; }
+      closeModal(); setView(d.view); break; }
     case 'upload-dataset': closeAllDropdowns(); uploadModal(); break;
     // --- Annotation import connector (spec §34) ---
     case 'toggle-adddata': addDataDropdown(); break;
@@ -4021,9 +4251,12 @@ window.addEventListener('unhandledrejection', e=>{ log.error('[promise]', e.reas
 /* ---- Boot ---- */
 function initMockData(){
   // Materialise dataset rows + rollups now that all mock logic (Section E) is defined.
-  datasets.forEach(d=>{ d.rows = buildRows(d._seed, d._count); finaliseDataset(d); });
-  // Attach rubric + precompute completed eval results.
-  evalRuns.forEach(e=>{ e.rubric = RUBRIC_DEFAULT.map(n=>({dimension:n, weight:20})); if(e.status==='completed') computeEval(e); });
+  datasets.forEach(d=>{
+    if(d._nbfc){ d.rows = buildNbfcRows(d._nbfc); return; } // NBFC uses explicit rows + fixed rollups (spec §39)
+    d.rows = buildRows(d._seed, d._count); finaliseDataset(d);
+  });
+  // Attach rubric + precompute completed eval results (skip NBFC — it ships explicit rubric+results).
+  evalRuns.forEach(e=>{ if(!e.rubric) e.rubric = RUBRIC_DEFAULT.map(n=>({dimension:n, weight:20})); if(!e.results && e.status==='completed') computeEval(e); });
   log.info('[boot] mock data ready — '+datasets.length+' datasets, '+datasets.reduce((a,d)=>a+d.totalRows,0)+' rows');
   initDocuments(); // document ingestion mock data (spec §19)
   initBulkJobs();  // bulk ingestion mock data (spec §20)

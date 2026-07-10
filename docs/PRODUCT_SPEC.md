@@ -3905,3 +3905,31 @@ When blocked, the Run Eval button is disabled with an explanatory tooltip, and `
 106. Switching to Cloud immediately triggers the DLP modal — do not change the selection until the modal is confirmed. Judge stays on the prior mode meanwhile.
 107. DLP modal is Escape-locked via the global keydown handler (`if(el('dlp-modal')) return;` before `closeModal()`).
 108. Reference-grounded state persists on the eval config and reflects in the eval result view (`refGroundNote`).
+
+---
+
+## §39 — NBFC Case Study Project (Pre-seeded Demo Tenant)
+
+A fourth tenant, **Finserv NBFC (Case Study)** (`tenant_nbfc`, `isCaseStudy:true`, Pro plan), is pre-seeded to walk the full 8-stage Cueval pipeline end-to-end without manual setup. Standard tenant isolation (§5) applies — its data is invisible to the other three tenants and vice-versa.
+
+### Seed data
+- **Users** (all `demo123`): `ml@finserv.com` (Arjun Mehta, ML Engineer), `annotator@finserv.com` (Priya Nair, Annotator), `pm@finserv.com` (Rohan Desai, PM). Added as a login demo-credentials group.
+- **Project** `proj_nbfc_chatbot` — Customer Support Chatbot (loan eligibility, EMI, KYC).
+- **Releases** — v1.0 (deployed, historically *blocked* on eval gate then deployed after the v1.1 fix), v1.1 (deployed, full approval audit trail), v1.2 (in-review, interest-rate update).
+- **Datasets** — v1.0 (2,800 rows, score 71, three source badges JSONL/PDF/CSV, curation summary 2,310 auto-approved / 490 flagged), v1.1 (2,398 rows, score 84), v1.2 (2,450 rows, score 93). Each carries explicit representative rows covering every flag type: clean, near-duplicate (rejected against `row_001`), PII-redacted (edit diff on the row panel), short/low-quality (expanded), and **hallucination** (wrong interest rates, pending) — plus corrected interest-rate rows in v1.1/v1.2.
+- **Experiments** — Baseline Mistral 7B (`ckpt_v1_0`) and Factuality Fix / structural chunking (`ckpt_v1_1`), with snapshot hashes and training config.
+- **Eval runs** — `eval_v1_0` Overall **74.2** (Factuality 71, below the 80 gate) and `eval_v1_1` two-checkpoint comparison **74.2 → 81.6** (Factuality 71 → 79). Local judge, ₹0, κ=0.74.
+- **Inference monitor** — NBFC live feed seeded with a **23-strong hallucination cluster** on interest-rate queries (the trigger for v1.2) plus healthy traffic.
+- **Activity feed** — the full chronological 8-stage story (curation → annotation → eval → blocked → fix → deploy → monitor cluster → agent sprint #7 → v1.2 in review).
+
+### Case-study chrome
+- **Banner** (`renderCaseBanner`): a persistent, non-dismissable amber banner rendered below the top bar for NBFC tenant users only (never for SuperAdmin's platform view or other tenants). Carries a **"How to demo this"** button.
+- **New flag type** `hallucination` — red pill, with a per-row explanation drawn from the row's reference-mismatch note.
+- **Dataset source badges** (note 116) and a **curation summary** panel on the dataset detail screen.
+- **Demo-flow guide modal** (`demoGuideModal`, note 123) — nine numbered stages, each with a "Go →" button (`demo-goto`) that selects the NBFC project and jumps straight to the relevant screen / dataset / eval.
+- **Release detail** shows the v1.0 blocked → deployed **history** (with a "view what changed" jump to the v1.1 dataset) and the v1.1 **approval audit trail**.
+
+### Implementation notes
+- NBFC datasets ship explicit rows (`buildNbfcRows`) and fixed narrative rollups; `initMockData` skips `buildRows`/`finaliseDataset`/`computeEval` for them so seeded scores/results are preserved verbatim.
+- `screenEval` only honours a pinned `appState.evalResult` if it belongs to the current tenant's runs (isolation hardening).
+- Represented through existing screens rather than bespoke widgets: the two-checkpoint radar (already two-polygon), the flag-rate trend chart, and the PII edit diff (existing row-panel diff). The agent sprint #7 is told through the activity trail; the NBFC Agents screen uses the standard empty state.
