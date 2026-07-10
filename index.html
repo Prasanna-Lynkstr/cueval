@@ -291,6 +291,7 @@ body.impersonating .shell,body.impersonating #app>.shell{margin-top:34px;height:
 
 .radar-wrap{display:grid;place-items:center}
 .delta-up{color:var(--green)}.delta-down{color:var(--red)}
+.tbl td.hi-var{background:var(--amber-bg,rgba(234,179,8,.14))}
 
 .warn-banner{display:flex;align-items:center;gap:10px;padding:11px 15px;border-radius:11px;font-size:13px;font-weight:500;margin-bottom:16px}
 .warn-yellow{background:rgba(234,179,8,.1);border:1px solid rgba(234,179,8,.35);color:#facc15}
@@ -608,7 +609,7 @@ function buildNbfcRows(kind){
       ['row_045','ब्याज दर क्या है गृह ऋण पर?','गृह ऋण पर ब्याज दर 6% प्रति वर्ष है।',31,'Hindi response cites 6% which is not in the product documents (actual 8.5% p.a.)'],
       ['row_046','What is the business loan rate?','Business loans at 7.5% p.a. fixed for all tenures.',33,'Rate cited (7.5% fixed) contradicts product doc (13–18% p.a.)'],
     ];
-    hl.forEach(h=>rows.push(nbfcRow({id:h[0],instruction:h[1],output:h[2],qualityScore:+h[3],flags:['hallucination'],reviewStatus:'pending',reviewedBy:null,reviewNote:h[4],language:h[0]==='row_045'?'hi':'en'})));
+    hl.forEach(h=>rows.push(nbfcRow({id:h[0],instruction:h[1],output:h[2],qualityScore:+h[3],flags:['hallucination'],halType:'Contradiction',reviewStatus:'pending',reviewedBy:null,reviewNote:h[4],language:h[0]==='row_045'?'hi':'en'})));
     return rows;
   }
   if(kind==='v11' || kind==='v12'){
@@ -707,11 +708,13 @@ const evalRuns = [
     judgeMode:'local', judgeModel:'mistral-7b-int8', referenceGrounded:true, calibration:{status:'calibrated',kappa:0.74},
     rubric:[{dimension:'Factuality',weight:40},{dimension:'Task Completion',weight:30},{dimension:'Tone',weight:20},{dimension:'Refusal Behaviour',weight:10}],
     results:{ A:{Factuality:71,'Task Completion':78,Tone:88,'Refusal Behaviour':82,Overall:74.2}, B:{Factuality:71,'Task Completion':78,Tone:88,'Refusal Behaviour':82,Overall:74.2} },
+    variance:{ A:{Factuality:8,'Task Completion':4,Tone:3,'Refusal Behaviour':4,Overall:5.1}, B:{Factuality:8,'Task Completion':4,Tone:3,'Refusal Behaviour':4,Overall:5.1} },
     tokens:0, cost:0, costLabel:'₹0 (local judge)', heldOutRows:200, humanReviewQueue:new Array(12).fill('nbfc_v1_r041'), singlePolygon:true },
   { id:'eval_v1_1', projectId:'proj_nbfc_chatbot', releaseId:'rel_v1_1', tenantId:'tenant_nbfc', checkpointA:'ckpt_v1_0', checkpointB:'ckpt_v1_1', status:'completed', runAt:'2025-04-24', runBy:'Arjun Mehta',
     judgeMode:'local', judgeModel:'mistral-7b-int8', referenceGrounded:true, calibration:{status:'calibrated',kappa:0.74},
     rubric:[{dimension:'Factuality',weight:40},{dimension:'Task Completion',weight:30},{dimension:'Tone',weight:20},{dimension:'Refusal Behaviour',weight:10}],
     results:{ A:{Factuality:71,'Task Completion':78,Tone:88,'Refusal Behaviour':82,Overall:74.2}, B:{Factuality:79,'Task Completion':83,Tone:89,'Refusal Behaviour':84,Overall:81.6} },
+    variance:{ A:{Factuality:8,'Task Completion':4,Tone:3,'Refusal Behaviour':4,Overall:5.1}, B:{Factuality:5,'Task Completion':3,Tone:3,'Refusal Behaviour':4,Overall:3.8} },
     tokens:0, cost:0, costLabel:'₹0 (local judge)', heldOutRows:200, humanReviewQueue:new Array(8).fill('nbfc_v1_r041') },
 ];
 const experiments = [
@@ -927,18 +930,30 @@ function scoreBreakdown(row){
   const relevance = Math.max(0,Math.min(100, 100 - (row.flags.includes('format-violation')?40:0) - (row.flags.includes('near-duplicate')?30:0)));
   return { clarity, completeness, relevance };
 }
+// Per-dimension judge variance (spec §40 Change 2): Factuality is the least stable, Tone the most; B (newer ckpt) is tighter.
+function dimVariance(dim, rand, tighter){
+  const base = /Factual/i.test(dim)?7:/Tone/i.test(dim)?2:/Refus/i.test(dim)?4:/Instruction/i.test(dim)?3:4;
+  const v = base + Math.round(rand()*2) - (tighter?2:0);
+  return Math.max(2, v);
+}
 function computeEval(e){
   const rand = mkRand(e._seed);
   const results = { A:{}, B:{} };
+  const variance = { A:{}, B:{} };
   e.rubric.forEach(dim=>{
     const a = 65 + rand()*25, b = 68 + rand()*25;
     results.A[dim.dimension]=+a.toFixed(1);
     results.B[dim.dimension]=+b.toFixed(1);
+    variance.A[dim.dimension]=dimVariance(dim.dimension, rand, false);
+    variance.B[dim.dimension]=dimVariance(dim.dimension, rand, true); // newer checkpoint scores more consistently
   });
   const wsum = e.rubric.reduce((s,d)=>s+d.weight,0)||1;
   results.A.Overall = +(e.rubric.reduce((s,d)=>s+results.A[d.dimension]*d.weight,0)/wsum).toFixed(1);
   results.B.Overall = +(e.rubric.reduce((s,d)=>s+results.B[d.dimension]*d.weight,0)/wsum).toFixed(1);
+  variance.A.Overall = +(e.rubric.reduce((s,d)=>s+variance.A[d.dimension]*d.weight,0)/wsum).toFixed(1);
+  variance.B.Overall = +(e.rubric.reduce((s,d)=>s+variance.B[d.dimension]*d.weight,0)/wsum).toFixed(1);
   e.results = results;
+  if(!e.variance) e.variance = variance;
   e.tokens = 3800 + Math.round(rand()*1200);
   e.cost = +(e.tokens*0.0002).toFixed(2);
   // low-confidence rows for human review (direct lookup — internal mock computation,
@@ -1313,6 +1328,10 @@ function drawDonut(cv){
   }catch(err){ log.error('[donut] draw failed',err); }
 }
 function flagPill(f){ return '<span class="pill pill-'+(f==='toxic'||f==='pii-detected'||f==='duplicate'||f==='hallucination'?'red':f==='near-duplicate'||f==='format-violation'?'yellow':'muted')+'">'+ICON.flag+escapeHtml(FLAG_LABEL[f]||f)+'</span>'; }
+// Typed hallucination badge (spec §40 Change 4): Contradiction=amber, Fabrication=red, Conflation=purple.
+const HAL_TYPE={ Contradiction:{bg:'rgba(245,158,11,.16)',fg:'#F59E0B',desc:'directly conflicts with a source document'}, Fabrication:{bg:'rgba(239,68,68,.16)',fg:'#EF4444',desc:'not found in any ingested document'}, Conflation:{bg:'rgba(139,92,246,.16)',fg:'#8B5CF6',desc:'merges information from two chunks incorrectly'} };
+function halTypeBadge(type, detail){ const t=HAL_TYPE[type]; if(!t) return flagPill('hallucination');
+  return '<span class="pill" style="background:'+t.bg+';color:'+t.fg+';border-color:'+t.fg+'" title="'+escapeAttr((type+' — '+t.desc)+(detail?': '+detail:''))+'">🔴 '+escapeHtml(type)+(detail?' — '+escapeHtml(detail):'')+'</span>'; }
 function langPill(code){ return '<span class="pill pill-muted">'+escapeHtml(LANG_LABEL[code]||code)+'</span>'; }
 function emptyState(icon,title,sub,cta){ return '<div class="empty">'+ICON[icon]+'<div class="empty-title">'+escapeHtml(title)+'</div><div class="empty-sub">'+escapeHtml(sub)+'</div>'+(cta||'')+'</div>'; }
 // Breadcrumb: parts = [ [label] (current) | [label, action, dataObj] (link) ], last is current.
@@ -1758,7 +1777,7 @@ function panelRow(rowId){
   const bd=scoreBreakdown(row);
   const bdHtml=[['Clarity',bd.clarity],['Completeness',bd.completeness],['Relevance',bd.relevance]].map(x=>
     '<div class="mt8"><div class="row-between" style="font-size:12px"><span class="secondary">'+x[0]+'</span><span>'+x[1]+'</span></div>'+meter(x[1],'var(--pink)')+'</div>').join('');
-  const flags=row.flags.length? row.flags.map(f=>'<div class="mt8">'+flagPill(f)+'<div class="muted mt4" style="font-size:12px">'+escapeHtml(flagExplain(f,row))+'</div></div>').join('') : '<span class="muted">No flags detected.</span>';
+  const flags=row.flags.length? row.flags.map(f=>'<div class="mt8">'+(f==='hallucination'&&row.halType?halTypeBadge(row.halType):flagPill(f))+'<div class="muted mt4" style="font-size:12px">'+escapeHtml(flagExplain(f,row))+'</div></div>').join('') : '<span class="muted">No flags detected.</span>';
   const diff = row.originalOutput ? '<div class="section-h mt16">Edit diff</div><div class="card" style="padding:12px"><div class="muted" style="font-size:11px">ORIGINAL</div><div class="mono" style="font-size:12px;color:var(--red);text-decoration:line-through;opacity:.7">'+escapeHtml(row.originalOutput)+'</div><div class="muted mt8" style="font-size:11px">EDITED</div><div class="mono" style="font-size:12px;color:var(--green)">'+escapeHtml(row.output)+'</div></div>' : '';
   const actions = can('Annotation') ? '<div class="flex gap8 mt16 wrap"><button class="btn btn-green btn-sm" data-action="review-row" data-id="'+row.id+'" data-do="approve">'+ICON.check+'Approve</button>'
     +'<button class="btn btn-red btn-sm" data-action="review-row" data-id="'+row.id+'" data-do="reject">'+ICON.x+'Reject</button>'
@@ -1882,15 +1901,15 @@ function calibrationPanel(ec){
   const col=kappaColor(c.overallKappa); const cls=col==='green'?'warn-yellow':col==='yellow'?'warn-yellow':'warn-red';
   // find weakest dimension
   const dims=Object.entries(c.dimensionKappa||{}); const weakest=dims.slice().sort((a,b)=>a[1]-b[1])[0];
-  const weakLine = weakest && weakest[1]<0.7 ? ' · Weakest: '+escapeHtml(weakest[0])+' κ='+weakest[1].toFixed(2)+' <button class="btn btn-sm btn-ghost" style="padding:2px 8px;font-size:11px" data-action="eval-add-cal-rows">Add calibration rows '+ICON.arrowR+'</button>' : '';
+  const weakLine = weakest && weakest[1]<0.7 ? '<div class="secondary" style="font-size:12px;margin-top:6px">Weakest dimension: '+escapeHtml(weakest[0])+' α = '+weakest[1].toFixed(2)+' <span class="pill pill-yellow" style="font-size:10px">'+alphaBand(weakest[1])+'</span><div class="muted" style="font-size:11.5px;margin-top:2px">→ Reviewers disagree on what counts here. Consider adding rubric examples for this dimension. <button class="btn btn-sm btn-ghost" style="padding:2px 8px;font-size:11px" data-action="eval-add-cal-rows">Add calibration rows '+ICON.arrowR+'</button></div></div>' : '';
   const band = '<div class="warn-banner '+(col==='green'?'warn-yellow':cls)+' mt12" style="margin:0;background:'+(col==='green'?'var(--good-bg,rgba(34,197,94,.1))':'')+';flex-wrap:wrap">'
-    +'<span>'+(col==='green'?'✅':'⚠️')+' <strong>Calibrated</strong> · '+escapeHtml(c.calibratedBy)+' · '+escapeHtml(c.calibratedAt)+' · '+c.rowsUsed+' rows · human-judge agreement κ = '+c.overallKappa.toFixed(2)+' ('+(c.overallKappa>0.7?'good':'fair')+')'+weakLine+'</span></div>';
+    +'<span>'+(col==='green'?'✅':'⚠️')+' <strong>Calibrated</strong> · '+escapeHtml(c.calibratedBy)+' · '+escapeHtml(c.calibratedAt)+' · '+c.rowsUsed+' rows · agreement (α) = '+c.overallKappa.toFixed(2)+' <span title="'+ALPHA_TOOLTIP+'">('+alphaBand(c.overallKappa)+' — Krippendorff\'s Alpha)</span>'+weakLine+'</span></div>';
   let kappaTable='';
   if(ec.kappaOpen && c.dimensionKappa){
-    kappaTable='<div class="card mt8" style="padding:0;overflow:hidden"><table class="tbl"><thead><tr><th>Dimension</th><th>κ</th></tr></thead><tbody>'
-      +dims.map(d=>'<tr><td>'+escapeHtml(d[0])+'</td><td class="mono '+scoreClass(d[1]*100)+'">'+d[1].toFixed(2)+'</td></tr>').join('')+'</tbody></table></div>';
+    kappaTable='<div class="card mt8" style="padding:0;overflow:hidden"><table class="tbl"><thead><tr><th>Dimension</th><th title="'+ALPHA_TOOLTIP+'">α</th><th>Band</th></tr></thead><tbody>'
+      +dims.map(d=>'<tr><td>'+escapeHtml(d[0])+'</td><td class="mono '+scoreClass(d[1]*100)+'">'+d[1].toFixed(2)+'</td><td class="secondary" style="font-size:12px">'+alphaBand(d[1])+'</td></tr>').join('')+'</tbody></table></div>';
   }
-  const toggle = c.dimensionKappa ? '<button class="btn btn-ghost btn-sm mt8" data-action="eval-kappa-toggle">'+(ec.kappaOpen?ICON.chevD:ICON.chevR)+'View per-dimension agreement</button>' : '';
+  const toggle = c.dimensionKappa ? '<button class="btn btn-ghost btn-sm mt8" data-action="eval-kappa-toggle">'+(ec.kappaOpen?ICON.chevD:ICON.chevR)+'View per-dimension agreement (α)</button>' : '';
   return band+toggle+kappaTable;
 }
 // DLP acknowledgement modal (spec §38) — locked: only the two buttons dismiss it.
@@ -1947,9 +1966,13 @@ function evalResultView(e){
   const r=e.results; const dims=e.rubric.map(d=>d.dimension);
   const isHuman = e.judgeMode==='human';
   const colLabels = isHuman ? ['Judge','Human'] : ['Checkpoint A','Checkpoint B'];
+  const vr = e.variance; // confidence intervals (spec §40 Change 2)
+  const cell=(val,side,dim)=>{ const v = vr && vr[side] && vr[side][dim]!=null ? vr[side][dim] : null;
+    if(v==null) return '<td class="mono">'+val.toFixed(1)+'</td>';
+    const hi = v>7; return '<td class="mono'+(hi?' hi-var':'')+'"'+(hi?' title="High score variance — judge was inconsistent on this dimension. Consider human eval."':'')+'>'+val.toFixed(1)+' <span class="muted">± '+v+'</span></td>'; };
   let rowsHtml='';
   dims.concat(['Overall']).forEach(dim=>{ const a=r.A[dim], b=r.B[dim]; const delta=+(b-a).toFixed(1);
-    rowsHtml+='<tr'+(dim==='Overall'?' style="font-weight:600;background:var(--bg-hover)"':'')+'><td>'+escapeHtml(dim)+'</td><td class="mono">'+a.toFixed(1)+'</td><td class="mono">'+b.toFixed(1)+'</td>'
+    rowsHtml+='<tr'+(dim==='Overall'?' style="font-weight:600;background:var(--bg-hover)"':'')+'><td>'+escapeHtml(dim)+'</td>'+cell(a,'A',dim)+cell(b,'B',dim)
       +'<td class="mono '+(delta>=0?'delta-up':'delta-down')+'">'+(delta>=0?'+':'')+delta+' '+(delta>=0?'▲':'▼')+'</td></tr>'; });
   const table='<table class="tbl"><thead><tr><th>Dimension</th><th>'+colLabels[0]+'</th><th>'+colLabels[1]+'</th><th>Delta</th></tr></thead><tbody>'+rowsHtml+'</tbody></table>';
   const radar='<canvas data-radar="1" data-dims=\''+escapeAttr(JSON.stringify(dims))+'\' data-a=\''+escapeAttr(JSON.stringify(r.A))+'\' data-b=\''+escapeAttr(JSON.stringify(r.B))+'\'></canvas>'
@@ -1961,10 +1984,12 @@ function evalResultView(e){
   const cost='<div class="card"><div class="section-h">Cost tracker</div><div class="secondary" style="font-size:12px">'+escapeHtml(costLabel)+'</div>'+(e.cost?'<div class="bignum" style="font-size:22px;color:var(--pink)">'+fmtMoney(e.cost)+'</div>':'<div class="bignum" style="font-size:22px;color:var(--green)">'+(jm==='human'?'—':'₹0')+'</div>')+'</div>';
   let human;
   if(isHuman && e.humanEval){ const he=e.humanEval; const col=kappaColor(he.kappa);
-    human='<div class="card"><div class="section-h">Human ↔ judge agreement</div><div class="secondary" style="font-size:12px">'+he.sampled+' rows scored by '+escapeHtml(e.runBy||currentUser.name)+'. Human avg '+he.humanAvg+' vs judge '+he.judgeAvg+'.</div><div class="bignum '+scoreClass(he.kappa*100)+'" style="font-size:22px">κ '+he.kappa.toFixed(2)+'</div></div>'; }
+    human='<div class="card"><div class="section-h">Human ↔ judge agreement</div><div class="secondary" style="font-size:12px">'+he.sampled+' rows scored by '+escapeHtml(e.runBy||currentUser.name)+'. Human avg '+he.humanAvg+' vs judge '+he.judgeAvg+'.</div><div class="bignum '+scoreClass(he.kappa*100)+'" style="font-size:22px">α '+he.kappa.toFixed(2)+'</div></div>'; }
   else { const hq=(e.humanReviewQueue||[]).length;
     human='<div class="card"><div class="section-h">Human review queue</div><div class="secondary">'+hq+' rows had judge confidence &lt; 70% and need human review.</div>'+(hq?'<button class="btn btn-ghost btn-sm mt12" data-action="nav" data-view="review">'+ICON.pencil+'Review flagged rows</button>':'')+'</div>'; }
-  return '<div class="flex gap8 mt16" style="align-items:center">'+jmBadge+'<span class="muted" style="font-size:12px">Run '+escapeHtml(e.runAt||'')+(e.runBy?' · by '+escapeHtml(e.runBy):'')+'</span></div>'
+  const ciBadge = vr ? '<span class="pill pill-blue" title="Each dimension reported as mean ± standard deviation across two judge passes with different seeds. Amber = high variance.">✓ Confidence intervals</span>' : '';
+  const swapBadge = e.swapAugmented ? '<span class="pill pill-blue" title="Each response evaluated twice with positions swapped and averaged — reduces position bias from ~30% to ~8% (Wang et al., 2024).">✓ Swap-augmented</span>' : '';
+  return '<div class="flex wrap gap8 mt16" style="align-items:center">'+jmBadge+swapBadge+ciBadge+'<span class="muted" style="font-size:12px">Run '+escapeHtml(e.runAt||'')+(e.runBy?' · by '+escapeHtml(e.runBy):'')+'</span></div>'
     +'<div class="grid-2 mt12" style="grid-template-columns:1fr 1fr;align-items:start"><div class="card radar-wrap">'+radar+'</div><div class="card" style="padding:0;overflow:hidden">'+table+'</div></div>'
     +refGroundNote()
     +evalInterpretationNote()
@@ -1981,11 +2006,11 @@ function accuracyMonitorPanel(ec){
   const am=ec.accuracyMonitor; if(!am) return '';
   const sel=(key,val,opts,suffix)=>'<select class="input" style="width:auto;display:inline-block;padding:2px 8px;font-size:12px" data-action="eval-am-set" data-key="'+key+'">'
     +opts.map(o=>'<option value="'+o+'"'+(o===val?' selected':'')+'>'+o+(suffix||'')+'</option>').join('')+'</select>';
-  const last = am.lastSpotCheck ? ('<div class="secondary" style="font-size:12px;margin-top:4px">Last spot-check: <b>'+escapeHtml(am.lastSpotCheck)+'</b> · κ = '+am.lastKappa.toFixed(2)+' · '+(am.lastKappa<am.kappaThreshold?'<span class="score-bad">'+escapeHtml(am.lastOutcome)+'</span>':escapeHtml(am.lastOutcome))+'</div>')
+  const last = am.lastSpotCheck ? ('<div class="secondary" style="font-size:12px;margin-top:4px">Last spot-check: <b>'+escapeHtml(am.lastSpotCheck)+'</b> · α = '+am.lastKappa.toFixed(2)+' · '+(am.lastKappa<am.kappaThreshold?'<span class="score-bad">'+escapeHtml(am.lastOutcome)+'</span>':escapeHtml(am.lastOutcome))+'</div>')
     : '<div class="secondary" style="font-size:12px;margin-top:4px">No spot-checks yet — run a human eval to establish agreement.</div>';
   return '<div class="card mt16"><div class="section-h flex gap6">'+ICON.radar+'Ongoing judge accuracy monitoring</div>'
     +'<div class="secondary" style="font-size:12.5px;line-height:2">Every '+sel('everyRuns',am.everyRuns,[5,10,20])+' eval runs, sample '+sel('samplePct',am.samplePct,[1,5,10],'%')+' of rows for human review. '
-    +'Compare human scores to judge scores. If agreement (κ) drops below '+sel('kappaThreshold',am.kappaThreshold,[0.6,0.65,0.7])+' → alert Architect + trigger recalibration.</div>'
+    +'Compare human scores to judge scores. If agreement (α) drops below '+sel('kappaThreshold',am.kappaThreshold,[0.6,0.65,0.7])+' → alert Architect + trigger recalibration.</div>'
     +last
     +'<div class="muted" style="font-size:12px;margin-top:2px">Next spot-check: After next eval run</div></div>';
 }
@@ -2907,6 +2932,9 @@ function initEvalConfigs(){
 }
 function getEvalConfig(){ return currentTenant ? evalConfigs[currentTenant.id] : null; }
 function kappaColor(k){ if(k==null) return 'red'; return k>0.7?'green':k>=0.6?'yellow':'red'; }
+// Krippendorff's Alpha interpretation bands (spec §41 Patch 4/8): <0.40 poor, 0.40–0.67 moderate, 0.67–0.80 good, >0.80 excellent.
+function alphaBand(a){ if(a==null) return '—'; return a>0.80?'Excellent':a>=0.67?'Good':a>=0.40?'Moderate':'Poor'; }
+const ALPHA_TOOLTIP="Krippendorff's Alpha — inter-annotator agreement that stays valid when not all annotators label every item (partial overlap). Scale: &lt;0.40 poor, 0.40–0.67 moderate, 0.67–0.80 good, &gt;0.80 excellent (Krippendorff, 2011).";
 function evalRunnable(cfg){
   if(!cfg) return {ok:true, why:''};
   if(cfg.calibration.status!=='calibrated') return {ok:false, why:'Complete calibration run before running eval. Uncalibrated judge accuracy is 45–60% only.'};
@@ -3005,9 +3033,13 @@ function initNbfcInferences(){
   // 23 hallucination cluster — interest rate queries citing wrong rates
   const rateQ=['What is the home loan rate?','What interest rate on gold loan?','ब्याज दर क्या है गृह ऋण पर?','Current car loan interest rate?','Personal loan rate please','Business loan interest rate?'];
   for(let i=0;i<23;i++){ const q=rateQ[i%rateQ.length]; const mm=30+Math.floor(rand()*30), ss=Math.floor(rand()*60);
-    push({ instruction:q, language:q.indexOf('ब्याज')>=0?'hi':'en', score:25+Math.floor(rand()*18), flags:['Hallucination'],
+    push({ instruction:q, language:q.indexOf('ब्याज')>=0?'hi':'en', score:25+Math.floor(rand()*18), flags:['Hallucination'], halType:'Contradiction',
       time:'14:'+String(mm).padStart(2,'0')+':'+String(ss).padStart(2,'0'), factuality:22+Math.floor(rand()*16),
-      flagDetail:"Rate cited in response not present in product document (updated Q2 2025 rate PDF not re-ingested).", cluster:'interest_rate' }); }
+      flagDetail:"Rate cited in response contradicts the product document (states a lower rate than Section 3.2).", cluster:'interest_rate' }); }
+  // 1 fabrication — model invents a rate revision that exists in no document (standalone, not part of the 23-row contradiction cluster)
+  push({ instruction:'Has the home loan rate changed recently?', language:'en', score:24, flags:['Hallucination'], halType:'Fabrication',
+    time:'14:41:12', factuality:19, response:'Yes — a Q2 2025 rate revision reduced home loan rates to 6.75% p.a. effective June.',
+    flagDetail:'"Q2 2025 rate revision" not found in any ingested document.' });
   // 37 healthy inferences
   for(let i=0;i<37;i++){ const g=NBFC_INFER_GOOD[i%NBFC_INFER_GOOD.length]; const mm=30+Math.floor(rand()*30), ss=Math.floor(rand()*60);
     const neg=rand()<0.1; push({ instruction:g[0], language:g[1], score:82+Math.floor(rand()*17), flags:[],
@@ -3073,7 +3105,7 @@ function screenMonitor(){
 }
 function monFeedRows(list){
   return list.map(x=>{ const cls=x.score>80?'':x.score>=60?'':''; const scoreCol=x.score>80?'green':x.score>=60?'yellow':'red';
-    const flagTxt = x.flags.length ? (x.flags[0]+(x.flags[0]==='Policy violation'?' 🔴':x.flags[0]==='Hallucination'?' ⚠️':'')) : 'None';
+    const flagTxt = x.flags.length ? ((x.flags[0]==='Hallucination'&&x.halType?x.halType:x.flags[0])+(x.flags[0]==='Policy violation'?' 🔴':x.flags[0]==='Hallucination'?' 🔴':'')) : 'None';
     return '<tr data-action="open-inference" data-id="'+x.id+'" style="'+(x.score<60?'background:rgba(239,68,68,.06)':x.score<80?'background:rgba(234,179,8,.05)':'')+'"><td class="mono muted">'+escapeHtml(x.time)+'</td><td class="mono">'+escapeHtml(x.model)+'</td>'
       +'<td class="truncate" style="max-width:220px">'+escapeHtml(truncate(x.instruction,40))+'</td><td>'+mediaConfPill(x.score)+'</td>'
       +'<td>'+(x.flags.length?'<span class="score-'+(scoreCol==='red'?'bad':'mid')+'">'+escapeHtml(flagTxt)+'</span>':'<span class="muted">None</span>')+'</td>'
@@ -3172,7 +3204,7 @@ function thresholdRow(band,action){ return '<div class="row-between" style="padd
 function panelInference(id){
   const x=findInference(id); if(!x||!assertTenant(x)) return;
   const sc=(label,v)=>'<div class="row-between" style="font-size:13px;padding:3px 0"><span class="secondary">'+label+'</span><span>'+v+'% '+(v>80?'✅':v>=60?'🟡':'🔴')+'</span></div>';
-  const hall = x.flags.includes('Hallucination') ? '<div class="warn-banner warn-red mt12" style="margin-bottom:0">'+ICON.warn+'<span>Hallucination detected — a figure in the response was not found in the source chunks.</span></div>' : '';
+  const hall = x.flags.includes('Hallucination') ? '<div class="warn-banner warn-red mt12" style="margin-bottom:0;flex-wrap:wrap;gap:8px">'+ICON.warn+'<span>Hallucination detected — a figure in the response was not found in / conflicts with the source chunks.</span>'+(x.halType?'<div style="flex-basis:100%">'+halTypeBadge(x.halType, x.flagDetail)+'</div>':'')+'</div>' : '';
   const html='<div class="flex gap8"><span class="badge-fmt">'+escapeHtml(x.model)+'</span><span class="badge-fmt">'+escapeHtml(x.time)+'</span>'+mediaConfPill(x.score)+'</div>'
     +'<div class="section-h mt16">Instruction</div><div class="card" style="padding:12px">'+escapeHtml(x.instruction)+'</div>'
     +'<div class="muted mt8" style="font-size:12px">Context provided: '+x.contextChunks+' document chunks</div>'
@@ -3969,10 +4001,10 @@ function finishHumanEval(){
   appState.evalResult=e; appState.hevalTask=null;
   log.event('eval:human_complete',{run:e.id, humanAvg, judgeAvg, kappa});
   const alerted = ec&&ec.accuracyMonitor&&kappa<ec.accuracyMonitor.kappaThreshold;
-  if(alerted){ pushNotif('Judge accuracy alert — κ '+kappa+' below threshold. Recalibration triggered.','warn'); pushActivity('human eval flagged low judge agreement (κ '+kappa+') — recalibration triggered'); }
-  else pushActivity('completed human eval — agreement κ '+kappa);
+  if(alerted){ pushNotif('Judge accuracy alert — α '+kappa+' below threshold. Recalibration triggered.','warn'); pushActivity('human eval flagged low judge agreement (α '+kappa+') — recalibration triggered'); }
+  else pushActivity('completed human eval — agreement α '+kappa);
   closeModal(); setView('eval');
-  showToast(alerted?('Human eval done — κ '+kappa+' below '+ec.accuracyMonitor.kappaThreshold+'; Architect alerted'):('Human eval complete — human↔judge κ '+kappa),alerted?'error':'ok');
+  showToast(alerted?('Human eval done — α '+kappa+' below '+ec.accuracyMonitor.kappaThreshold+'; Architect alerted'):('Human eval complete — human↔judge α '+kappa),alerted?'error':'ok');
 }
 
 /* ---- Release approval ---- */

@@ -3959,3 +3959,20 @@ A tip card in the run configuration: specific rubric instructions reduce judge h
 - Added an `evalConfigs` entry for `tenant_nbfc` (previously missing) — calibrated κ=0.74 — plus an `accuracyMonitor` block on every tenant.
 - Human-eval modal uses the locked `.ig-scrim` (no outside-click close); the Next button is disabled until the current row is scored.
 - Isolation: each tenant's judge mode, calibration, and accuracy-monitor settings remain independent.
+
+---
+
+## §41 — Research-Backed Quality Improvements (Priority 1)
+
+First tier of the §40/§41 research-backed changes (spec ships its own build order; implemented tier by tier).
+
+### 41.1 Eval confidence intervals (Change 2 / Patch 1)
+Every eval dimension is reported as **mean ± standard deviation** (e.g. "Factuality 79 ± 5") across two judge passes. `computeEval` generates per-dimension variance (Factuality least stable, Tone most; the newer checkpoint B scores tighter). Cells with variance > 7 render on an amber background with a "high variance — consider human eval" tooltip. A **✓ Confidence intervals** badge sits on the result header. NBFC evals carry explicit variance (v1.0 Factuality ±8 → v1.1 ±5; Overall ±5.1 → ±3.8).
+
+### 41.2 Krippendorff's Alpha (Change 8 / Patch 4, 8)
+All user-facing agreement metrics renamed from Cohen's/Fleiss' κ to **Krippendorff's α**. Interpretation bands (`alphaBand`): <0.40 poor, 0.40–0.67 moderate, 0.67–0.80 good, >0.80 excellent. The calibration band now reads "agreement (α) = 0.74 (Good — Krippendorff's Alpha)" with a tooltip, surfaces the **weakest dimension** with guidance ("reviewers disagree on what counts here; add rubric examples"), and the per-dimension table gains a Band column. The accuracy-monitor and human-eval agreement displays use α. (Internal field names remain `kappa`/`overallKappa` for stability — display-only rename per note 140.)
+
+### 41.3 Typed hallucination badges (Change 4 / Patch 7 badge-only)
+Hallucinations are classified: **Contradiction** (amber — conflicts with a source doc), **Fabrication** (red — not in any document), **Conflation** (purple — merges two chunks). `halTypeBadge` renders a coloured pill in the dataset row panel, the monitor inference panel, and the live-feed flags column. NBFC: the 6 wrong-rate dataset rows and the 23-row monitor cluster are Contradictions; a standalone "Q2 2025 rate revision" monitor inference is a Fabrication.
+
+Priority 2 (AI-suggested edits, RLTHF preference routing, dataset diversity, swap-augmented animation) and Priority 3 (claim-level hallucination, fatigue detection, model-change warning, bulk diversity alert) to follow.
