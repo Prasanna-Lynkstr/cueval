@@ -1831,3 +1831,504 @@ Detected → Deduped → Extracted/Transcribed → Segmented → Scored → Flag
 35. Export format selector for audio/video: show format options specific to modality — different from text export options.
 36. Quality score colour coding consistent across all three modalities: green >85%, yellow 60–85%, red <60%.
 37. Review queue tabs update badge counts independently: Datasets | OCR Corrections | Audio Corrections | Video Corrections — each shows its own pending count.
+
+---
+
+## 22. UPDATED POSITIONING & TAGLINE
+
+Replace all instances of tagline "From raw data to release-ready" with:
+
+**"The continuous intelligence layer for AI model quality."**
+
+Subline (shown on login screen and dashboard header):
+**"From raw data and documents to training-ready datasets, production monitoring, and back. Every inference makes the next model smarter."**
+
+Update product overview in Section 1 to reflect:
+Cueval covers the full AI model quality loop:
+Ingest → Curate → Annotate → Train → Evaluate → Deploy → Monitor → Improve → Repeat
+
+---
+
+## 23. INFERENCE MONITOR
+
+### New Dock Icon
+Add between Eval Harness and Experiments:
+```
+📡  Monitor  — live production inference monitoring
+```
+
+### Inference Monitor Screen
+
+**Top strip — live metrics (animate every 5 seconds in mock):**
+```
+Inferences Today   Flag Rate   Avg Quality Score   Human Review Queue   Feedback (👍/👎)
+    14,832           8.3%           81.4              47 pending           94% / 6%
+```
+
+**Flag rate trend chart (line chart, Canvas API):**
+- X axis: last 14 days
+- Y axis: flag rate %
+- Two lines: current model version (coral) vs previous version (pink)
+- Annotation on chart: "v1.2 deployed" marker
+- Shows improvement or regression visually
+
+**Live inference feed (table, mock updates every 3 seconds):**
+```
+Time      Model   Instruction (truncated)              Score   Flags              Action
+14:32:01  v1.2    "What is the penalty under Sec 12?"  91%     None               ✅
+14:32:04  v1.2    "Summarise this audit observation"   43%     Hallucination ⚠️   [Review]
+14:32:07  v1.2    "List all parties in this contract"  78%     Low confidence     [Review]
+14:32:09  v1.2    "क्या यह अनुबंध वैध है?"              34%     Policy violation 🔴 [Review]
+14:32:12  v1.2    "Extract vendor details from..."     88%     None               ✅
+```
+
+Color code rows by score: green >80%, yellow 60–80%, red <60%.
+
+**Failure category breakdown (donut chart, Canvas API):**
+```
+Hallucination:      34%  ████████░░░░
+Wrong citation:     22%  █████░░░░░░░
+Policy violation:   18%  ████░░░░░░░░
+Low confidence:     15%  ███░░░░░░░░░
+Incomplete answer:  11%  ██░░░░░░░░░░
+```
+
+**Model version comparison panel:**
+```
+Metric              v1.1      v1.2      Change
+Flag rate           11.2%     8.3%      -2.9% ▼ ✅
+Avg quality score   77.1      81.4      +4.3  ▲ ✅
+Hallucination rate  5.8%      3.1%      -2.7% ▼ ✅
+User feedback 👎    9.2%      6.1%      -3.1% ▼ ✅
+P95 latency         420ms     380ms     -40ms ▼ ✅
+```
+
+**Inference detail (right panel on row click):**
+```
+┌─────────────────────────────────────────┐
+│  Inference Detail                       │
+│  ID: inf_8821  |  14:32:04  |  v1.2    │
+├─────────────────────────────────────────┤
+│  Instruction:                           │
+│  "Summarise this audit observation      │
+│   regarding procurement irregularity"   │
+│                                         │
+│  Context provided: 2 document chunks    │
+│  [View chunks ▾]                        │
+│                                         │
+│  Model Response:                        │
+│  "The procurement showed irregularities │
+│   totalling ₹45 crore in FY2022..."    │
+│                                         │
+│  ⚠️ Hallucination detected              │
+│  "₹45 crore" not found in source docs  │
+│                                         │
+│  Scores:                                │
+│  Factuality:       31%   🔴             │
+│  Completeness:     78%   🟡             │
+│  Policy:           92%   ✅             │
+│  Overall:          43%   🔴             │
+│                                         │
+│  User feedback: Not yet received        │
+│                                         │
+│  [Add to Training Set] [Dismiss]        │
+│  [Request Human Review]                 │
+└─────────────────────────────────────────┘
+```
+
+[Add to Training Set] creates a new row in the current project's dataset with:
+- instruction = the original query
+- output = blank (annotator will write corrected response)
+- flags = ['from_production', 'hallucination_detected']
+- review_status = 'pending'
+
+This is the loop closing — production failure becomes training example.
+
+**Feedback Ingestion Panel (collapsible):**
+```
+Connected Applications:  2
+└── Legal AI Assistant (prod)   → 847 inferences today, 6.1% negative
+└── Audit QA Bot (staging)      → 124 inferences today, 12.3% negative
+
+Negative feedback clusters:
+"Wrong section cited"     → 34 instances  [Send to Review Queue]
+"Incomplete answer"       → 22 instances  [Send to Review Queue]
+"Hallucinated figure"     → 18 instances  [Send to Review Queue]
+```
+
+### Mock Inference Data
+
+Pre-load 50 mock inferences per tenant. Mix of scores:
+- 60% high quality (score >80, no flags)
+- 25% medium quality (score 60–80, minor flags)
+- 15% low quality (score <60, hallucination or policy flags)
+
+Animate 3–4 new rows appearing every 5 seconds in the live feed.
+
+---
+
+## 24. PREFERENCE RANKING (RLHF ANNOTATION)
+
+### New Task Type in Review Queue
+
+New tab: **Datasets** | **OCR Corrections** | **Audio Corrections** | **Video Corrections** | **Preference Ranking**
+
+### Preference Ranking Task UI
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  Preference Ranking    Pair 23 of 150    [◄] [►]             │
+│  Legal AI RLHF Dataset v1  |  English                        │
+├──────────────────────────────────────────────────────────────┤
+│  Instruction:                                                │
+│  "Explain the force majeure clause in simple terms"          │
+│  Context: [Contract Section 12.3 — view ▾]                  │
+├─────────────────────┬────────────────────────────────────────┤
+│  Response A         │  Response B                            │
+│                     │                                        │
+│  "Force majeure     │  "This clause means neither side       │
+│  refers to          │  is responsible for delays caused      │
+│  unforeseeable      │  by events completely outside          │
+│  circumstances      │  their control — like natural          │
+│  beyond the         │  disasters, government actions,        │
+│  parties' control   │  or other emergencies. If something    │
+│  as defined under   │  like this happens, neither party      │
+│  Section 56 of      │  can be held liable for the           │
+│  the Contract Act   │  resulting delay."                     │
+│  1872..."           │                                        │
+│                     │                                        │
+│  Confidence: 71%    │  Confidence: 88%                       │
+├─────────────────────┴────────────────────────────────────────┤
+│  Which response is better?                                   │
+│                                                              │
+│  ○ Response A is better                                      │
+│  ● Response B is better                                      │
+│  ○ Both are equally good                                     │
+│  ○ Both are bad — neither acceptable                         │
+│                                                              │
+│  Why? (optional)                                             │
+│  [B is clearer and avoids unnecessary legal jargon    ]      │
+│                                                              │
+│  Dimensions (optional detail):                               │
+│  Clarity:      ○A  ●B    Accuracy:   ●A  ○B                 │
+│  Completeness: ○A  ●B    Tone:       ○A  ●B                 │
+│                                                              │
+│  [Save & Next →]  [Skip]  [Flag as Ambiguous]               │
+│  Keyboard: A=Pick A  B=Pick B  T=Tie  X=Both bad  →=Skip    │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**Export format (RLHF preference dataset):**
+```json
+{
+  "instruction": "Explain force majeure in simple terms",
+  "chosen": "This clause means neither side...",
+  "rejected": "Force majeure refers to unforeseeable...",
+  "chosen_score": 0.88,
+  "rejected_score": 0.71,
+  "annotator_reasoning": "B is clearer and avoids unnecessary legal jargon"
+}
+```
+Compatible with: TRL (HuggingFace), OpenRLHF, trlX.
+
+**Inter-annotator agreement for preference:**
+When 3+ annotators rank the same pair, show agreement score:
+- All agree: ✅ High confidence
+- 2/3 agree: ⚠️ Review recommended
+- No agreement: 🔴 Ambiguous — escalate to architect
+
+**Preference Ranking configuration (Admin/Architect):**
+- Number of annotators per pair: 1 / 3 / 5 (more = higher confidence)
+- Blind mode: annotators don't see which model generated which response
+- Dimension weights: configure which quality dimensions matter most
+
+### Mock Preference Data
+
+Pre-load 150 pairs per project. Mix:
+- 60% clear winner (B better — shows improvement)
+- 25% close call (annotator reasoning required)
+- 15% both bad (feeds back as "needs better response" task)
+
+---
+
+## 25. ENTITY LABELLING (STRUCTURED ANNOTATION)
+
+### Overview
+NER / information extraction annotation. Annotators highlight text spans and assign entity labels. Used to train document understanding, information extraction, and classification models.
+
+### New Project Type
+
+When creating a project, add project type selector:
+```
+Project Type:
+○ LLM Fine-tuning     (existing — instruction pairs)
+○ Document Ingestion  (existing — PDF/OCR pipeline)
+● Entity Labelling    (new — span annotation for NER)
+○ Audio / ASR         (existing)
+○ Multimodal / Video  (existing)
+```
+
+Entity Labelling projects have a different primary workflow.
+
+### Label Schema Configuration (Architect/Admin)
+
+Before annotation begins, define the label schema:
+
+```
+Label Schema: Resume Parsing
+┌─────────────────────────────────────────────────┐
+│  Label       Color     Keyboard    Description   │
+│  NAME        🟦 Blue   N           Person name   │
+│  EMAIL       🟩 Green  E           Email address │
+│  PHONE       🟨 Yellow P           Phone number  │
+│  ADDRESS     🟧 Orange A           Location      │
+│  COMPANY     🟥 Red    C           Employer name │
+│  DESIGNATION 🟪 Purple D           Job title     │
+│  SKILL       🩵 Cyan   S           Technical skill│
+│  EDUCATION   🟫 Brown  U           Degree/school │
+│  DATE        ⬜ White  T           Any date      │
+│  [+ Add Label]                                   │
+└─────────────────────────────────────────────────┘
+
+Annotation rules:
+☑ Allow overlapping spans
+☑ Require minimum 1 label per document
+☐ Allow blank documents (no entities)
+Minimum annotators per document: [3 ▾]
+```
+
+### Entity Labelling Task UI
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  Entity Labelling    Doc 47 of 100    [◄] [►]                │
+│  Resume_Batch_June2025 | English | 3 annotators required     │
+├─────────────────────────────────────────────────────────────-┤
+│  Label Palette (click after selecting text):                 │
+│  [N NAME] [E EMAIL] [P PHONE] [A ADDRESS] [C COMPANY]        │
+│  [D DESIGNATION] [S SKILL] [U EDUCATION] [T DATE]           │
+├──────────────────────────────────────────────────────────────┤
+│  Document:                                                   │
+│                                                              │
+│  ╔══════════════════════════════════════════════════════╗   │
+│  ║  [Rahul Sharma]NAME [rahul.s@gmail.com]EMAIL         ║   │
+│  ║  [+91 98765 43210]PHONE                              ║   │
+│  ║  [Mumbai, Maharashtra]ADDRESS                        ║   │
+│  ║                                                      ║   │
+│  ║  Senior [Software Engineer]DESIGNATION at            ║   │
+│  ║  [Tata Consultancy Services]COMPANY (2019–present)   ║   │
+│  ║                                                      ║   │
+│  ║  Skills: [Java]SKILL, [Python]SKILL, [React]SKILL    ║   │
+│  ║                                                      ║   │
+│  ║  [B.Tech Computer Science]EDUCATION                  ║   │
+│  ║  [IIT Bombay]EDUCATION, [2015]DATE                   ║   │
+│  ╚══════════════════════════════════════════════════════╝   │
+│                                                              │
+│  Labelled entities (12):                                     │
+│  NAME: "Rahul Sharma"     EMAIL: "rahul.s@gmail.com"        │
+│  PHONE: "+91 98765..."    [View all ▾]                      │
+│                                                              │
+│  [Clear All] [Undo Last] [Save & Next →] [Flag] [Skip]      │
+│  Select text then press label keyboard shortcut              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**Interaction model:**
+- Highlight text with mouse → label palette activates → click label or press shortcut
+- Labelled spans highlighted in label colour with label badge overlay
+- Click existing label → remove it
+- Overlapping spans allowed (same text can be multiple entity types if schema permits)
+
+### Conflict Resolution (Reviewer role)
+
+When 3 annotators label the same document, conflicts surface:
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  Conflict Review    Doc 47    3 annotators                   │
+├──────────────────────────────────────────────────────────────┤
+│  3 conflicts found:                                          │
+│                                                              │
+│  Span: "IIT Bombay"                                          │
+│  Annotator 1: EDUCATION ✓                                    │
+│  Annotator 2: COMPANY ✗                                      │
+│  Annotator 3: EDUCATION ✓                                    │
+│  → Majority: EDUCATION  [Accept] [Override]                  │
+│                                                              │
+│  Span: "2015"                                                │
+│  Annotator 1: DATE ✓                                         │
+│  Annotator 2: (not labelled)                                 │
+│  Annotator 3: DATE ✓                                         │
+│  → Majority: DATE  [Accept] [Override]                       │
+│                                                              │
+│  Span: "Mumbai, Maharashtra"                                  │
+│  Annotator 1: ADDRESS ✓                                      │
+│  Annotator 2: ADDRESS ✓                                      │
+│  Annotator 3: (not labelled)                                 │
+│  → Majority: ADDRESS  [Accept] [Override]                    │
+│                                                              │
+│  [Accept All Majority] [Review Each]                         │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Export Formats (Entity Labelling)
+
+```
+spaCy format (JSON):
+{"text": "Rahul Sharma...", "entities": [[0,12,"NAME"],[13,31,"EMAIL"]...]}
+
+CoNLL format:
+Rahul   B-NAME
+Sharma  I-NAME
+rahul   B-EMAIL
+...
+
+HuggingFace token classification:
+{"tokens": [...], "ner_tags": [0,1,2,0,3...]}
+
+IOB2 format (standard NER):
+Rahul B-PER
+Sharma I-PER
+```
+
+### Mock Entity Labelling Data
+
+Pre-load 3 entity labelling projects across tenants:
+
+**IITM Pravartak:**
+- "Audit Report Entity Extraction" — 200 documents, labels: AMOUNT, DEPARTMENT, DATE, VIOLATION_TYPE, OFFICER_NAME
+- 67% complete, 12 conflicts pending review
+
+**Legal AI Corp:**
+- "Contract NER Dataset" — 150 contracts, labels: PARTY, CLAUSE_TYPE, OBLIGATION, DATE, JURISDICTION, AMOUNT
+- 34% complete
+
+**HealthBot India:**
+- "Medical Record Extraction" — 100 records, labels: PATIENT, DIAGNOSIS, MEDICATION, DOSAGE, DATE, DOCTOR
+- 12% complete (just started)
+
+### Dashboard CTAs for Entity Labelling
+
+```
+Annotator:    "38 resume documents pending entity labelling" → [Start Labelling]
+Reviewer:     "12 conflict documents awaiting resolution" → [Resolve Conflicts]
+Architect:    "Contract NER dataset 34% complete — on track" → [View Progress]
+PM:           "Medical record project behind schedule" → [Reassign Team]
+```
+
+---
+
+## 26. DATASET LINEAGE VIEW
+
+### Where It Lives
+Inside Experiment Tracker → click any experiment → new tab: **Lineage**
+
+### Lineage View
+
+Full traceability from data origin to model deployment and back:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Dataset Lineage    Legal AI v1.2                           │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  SOURCE ORIGINS (3 types)                                   │
+│  ┌──────────────┐  ┌─────────────┐  ┌──────────────────┐   │
+│  │ 📄 Documents │  │ 💬 Manual   │  │ 📡 Production    │   │
+│  │ 4,200 rows   │  │ 1,840 rows  │  │ 892 rows         │   │
+│  │ (PDF corpus) │  │ (annotated) │  │ (inference       │   │
+│  │              │  │             │  │  corrections)    │   │
+│  └──────┬───────┘  └──────┬──────┘  └────────┬─────────┘   │
+│         └─────────────────┴─────────────────-┘             │
+│                           │                                 │
+│                    ┌──────▼──────┐                          │
+│                    │  Curation   │                          │
+│                    │  Pipeline   │                          │
+│                    │  6,932 rows │                          │
+│                    │  in → 5,841 │                          │
+│                    │  out (-16%) │                          │
+│                    └──────┬──────┘                          │
+│                           │                                 │
+│                    ┌──────▼──────┐                          │
+│                    │  Human      │                          │
+│                    │  Review     │                          │
+│                    │  5,841 in   │                          │
+│                    │  5,203 out  │                          │
+│                    │  (-11%)     │                          │
+│                    └──────┬──────┘                          │
+│                           │                                 │
+│                    ┌──────▼──────┐                          │
+│                    │  Training   │                          │
+│                    │  Snapshot   │                          │
+│                    │  v1.2.snap  │                          │
+│                    │  5,203 rows │                          │
+│                    │  SHA: a3f8c │                          │
+│                    └──────┬──────┘                          │
+│                           │                                 │
+│                    ┌──────▼──────┐                          │
+│                    │  Model v1.2 │                          │
+│                    │  Eval: 83.4 │                          │
+│                    │  Deployed   │                          │
+│                    │  Jun 2025   │                          │
+│                    └──────┬──────┘                          │
+│                           │                                 │
+│                    ┌──────▼──────┐                          │
+│                    │  Production │                          │
+│                    │  Monitor    │                          │
+│                    │  892 bad    │                          │
+│                    │  inferences │                          │
+│                    │  → corrected│                          │
+│                    └──────┬──────┘                          │
+│                           │                                 │
+│                    Feeds into v1.3 dataset ↺               │
+│                                                             │
+├─────────────────────────────────────────────────────────────┤
+│  Row-level traceability: search any row                     │
+│  [row_id: 4821  ▸  "What penalty applies under Sec 12?"]   │
+│                                                             │
+│  Origin: Production inference inf_8821 (14 Jun 2025)       │
+│  Flagged: Hallucination detected (score 43%)               │
+│  Corrected by: Ravi Kumar (15 Jun 2025)                    │
+│  Added to: Dataset v1.3 (batch B-2025-06-15)              │
+│  Curation score: 87% ✅                                     │
+│  Review status: Approved                                    │
+│  In training snapshot: v1.3.snap (SHA: b7d2a)             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 27. UPDATED REVIEW QUEUE TABS
+
+Final tab structure for Review Queue dock item:
+
+```
+Review Queue (dock badge = total across all tabs)
+├── Text Review          (instruction pair approval)
+├── OCR Corrections      (scanned document text fixes)
+├── Audio Corrections    (ASR transcript fixes)
+├── Video Corrections    (frame caption review)
+├── Preference Ranking   (RLHF — pick better response)
+└── Entity Labelling     (NER span annotation)
+```
+
+Each tab shows:
+- Pending count (badge)
+- My assigned count
+- Completion % for current batch
+- [Start] button routing to correct task UI
+
+---
+
+## 28. UPDATED IMPLEMENTATION NOTES FOR CLAUDE CODE
+
+38. Inference monitor live feed: use setInterval (3000ms) to prepend new mock rows. Keep max 50 rows visible, remove oldest. Animate new rows sliding in from top.
+39. Flag rate trend chart: draw 14-day line chart on Canvas. Two lines coral + pink. Add vertical dashed line marker for "v1.2 deployed" annotation.
+40. Entity labelling span selection: use mouseup event on document text container. Get window.getSelection() to capture highlighted text + offsets. Show label palette as floating toolbar near selection.
+41. Labelled spans render as inline highlighted elements with label badge. Use mark elements or span with background-color from label colour.
+42. Conflict resolution: show side-by-side comparison of what each annotator labelled for conflicting spans. Majority vote auto-suggested, reviewer can override.
+43. Preference ranking: A/B keyboard shortcuts must work globally while on this task. Prevent accidental navigation.
+44. Dataset lineage: render as vertical flowchart using SVG. Nodes are boxes, edges are lines with arrows. Animate draw on mount (paths draw themselves top to bottom over 800ms).
+45. Row-level lineage search: filter mock rows by ID or instruction text. Show full provenance chain for matching row in panel below.
+46. All five annotation task types must be accessible from Review Queue. Tab switching animates (200ms fade). Badge counts update independently.
+47. Inference monitor [Add to Training Set] button: adds row to current project's active dataset in mock data. Shows toast "Added to [project name] dataset". Row appears in Datasets view.

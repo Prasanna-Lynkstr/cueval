@@ -1,6 +1,6 @@
 # Cueval — by Lynkstr Labs
 
-> From raw data to release-ready.
+> The continuous intelligence layer for AI model quality.
 
 Cueval is an AI **dataset curation and evaluation platform** for teams building and
 fine-tuning language models. It covers the full pipeline: ingest raw data → clean and
