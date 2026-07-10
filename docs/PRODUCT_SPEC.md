@@ -2332,3 +2332,198 @@ Each tab shows:
 45. Row-level lineage search: filter mock rows by ID or instruction text. Show full provenance chain for matching row in panel below.
 46. All five annotation task types must be accessible from Review Queue. Tab switching animates (200ms fade). Badge counts update independently.
 47. Inference monitor [Add to Training Set] button: adds row to current project's active dataset in mock data. Shows toast "Added to [project name] dataset". Row appears in Datasets view.
+
+---
+
+## 29. MONITOR CONFIGURATION SCREEN
+
+### Where It Lives
+Inference Monitor screen → top right → [Configure Monitor] button
+Also accessible from: Project Settings → Monitor tab
+
+### Monitor Configuration UI
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Monitor Configuration    Legal AI Assistant                │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  MONITORING MODE                                            │
+│  ○ Off           No monitoring                             │
+│  ○ Safety Gate   Flag before/alongside response (high-     │
+│                  stakes — medical, legal, audit)            │
+│  ● Quality Loop  Collect + batch for periodic review       │
+│                  (standard production model)                │
+│  ○ Regression    Activate only on new deployments          │
+│                  (post-deployment validation only)          │
+│                                                             │
+├─────────────────────────────────────────────────────────────┤
+│  SCORING SIGNALS                                            │
+│                                                             │
+│  Signal              Enabled   Sample Rate   Weight        │
+│  Factuality (NLI)    ☑         10%           [35% ▾]      │
+│  Hallucination       ☑         10%           [25% ▾]      │
+│  Policy Compliance   ☑         100%          [20% ▾]      │
+│  Confidence Calib.   ☐         —             [0%  ▾]      │
+│  Semantic Drift      ☑         10%           [10% ▾]      │
+│  User Feedback       ☑         100%          [10% ▾]      │
+│                                                             │
+│  Weights must total 100%  Current total: 100% ✅           │
+│                                                             │
+│  ⚠️ Confidence Calibration requires logprob access         │
+│  Not available for current model endpoint                  │
+│                                                             │
+├─────────────────────────────────────────────────────────────┤
+│  ROUTING THRESHOLDS                                         │
+│                                                             │
+│  Score band          Action                                 │
+│  > 85%               Log only                              │
+│  60% – 85%           Add to spot-check sample              │
+│  < 60%               Auto-create review task               │
+│  User 👎             Always create review task             │
+│                                                             │
+│  Repeated failure trigger:                                  │
+│  Same instruction type fails [3 ▾] times → Alert Architect │
+│                                                             │
+├─────────────────────────────────────────────────────────────┤
+│  REVIEW CADENCE                                             │
+│                                                             │
+│  Review mode:                                              │
+│  ○ Real-time    Flag surfaces immediately in queue         │
+│  ● Daily digest Batch flagged inferences, reviewed daily   │
+│  ○ Weekly batch Accumulate for weekly review session       │
+│                                                             │
+│  Daily digest sent to: [mlengineer@cueval.ai         ]     │
+│  Alert channel: ○ Email  ● In-app  ○ Webhook               │
+│                                                             │
+├─────────────────────────────────────────────────────────────┤
+│  SAMPLING CONFIGURATION                                     │
+│                                                             │
+│  Traffic volume (estimated): 10,000 inferences/day         │
+│                                                             │
+│  Tier 1 (policy — rule based):   100% of traffic  Free    │
+│  Tier 2 (NLI + hallucination):   [10% ▾] of traffic       │
+│  Tier 3 (LLM judge — flagged):   Flagged only              │
+│                                                             │
+│  Estimated monthly cost:   ₹1,800 – ₹2,400                │
+│  (based on current signal config + traffic estimate)       │
+│                                                             │
+├─────────────────────────────────────────────────────────────┤
+│  CONNECTED APPLICATIONS                                     │
+│                                                             │
+│  App Name              SDK Version  Inferences/day  Status │
+│  Legal AI Assistant    v1.2.1       8,420            ✅     │
+│  Audit QA Bot          v1.1.0       1,240            ✅     │
+│  [+ Connect New Application]                               │
+│                                                             │
+│  Integration snippet (copy to your application):          │
+│  ┌────────────────────────────────────────────────────┐   │
+│  │ from cueval import monitor                         │   │
+│  │ response = monitor.generate(                       │   │
+│  │   model=model,                                     │   │
+│  │   instruction=instruction,                         │   │
+│  │   context=context,                                 │   │
+│  │   project_id="legal-ai-prod",                      │   │
+│  │   model_version="v1.2"                             │   │
+│  │ )                                                  │   │
+│  └────────────────────────────────────────────────────┘   │
+│  [Copy] [View Full SDK Docs]                               │
+│                                                             │
+├─────────────────────────────────────────────────────────────┤
+│  USE CASE PRESETS                                           │
+│                                                             │
+│  Quick-configure signal weights for common use cases:      │
+│                                                             │
+│  [Legal / Compliance]  [Medical / Clinical]                │
+│  [Customer Support]    [Government / Audit]                │
+│  [Internal Knowledge]  [Custom →]                          │
+│                                                             │
+│  Selecting a preset updates signal weights above.          │
+│  You can customise after applying preset.                  │
+│                                                             │
+├─────────────────────────────────────────────────────────────┤
+│                        [Cancel]  [Save Configuration]      │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Preset Configurations (mock weight values)
+
+**Legal / Compliance:**
+Factuality 35%, Hallucination 25%, Policy 20%, Confidence 10%, Drift 10%
+
+**Medical / Clinical:**
+Factuality 40%, Hallucination 35%, Policy 15%, Confidence 10%, Drift 0%
+
+**Customer Support:**
+Factuality 20%, Hallucination 15%, Policy 30%, Confidence 5%, Drift 30%
+
+**Government / Audit:**
+Factuality 35%, Hallucination 30%, Policy 20%, Confidence 10%, Drift 5%
+
+**Internal Knowledge:**
+Factuality 15%, Hallucination 10%, Policy 25%, Confidence 5%, Drift 45%
+
+### Score Breakdown in Inference Detail Panel
+
+Update the inference detail right panel (Section 23) to show per-signal scores:
+
+```
+Score Breakdown:
+Signal                Score    Sample?   Notes
+Factuality (NLI)      31%  🔴  ✅ scored  2 claims contradicted
+Hallucination         28%  🔴  ✅ scored  "₹45 crore" not in context
+Policy Compliance     92%  ✅  ✅ scored  All rules passed
+Confidence Calib.     —        ⬜ skipped Logprobs unavailable
+Semantic Drift        71%  🟡  ✅ scored  Moderate drift from cluster
+User Feedback         —        ⏳ pending No feedback yet
+
+Weighted Overall:     43%  🔴
+```
+
+This makes clear to the user what drove the low score — not a black box number.
+
+### Scoring Transparency Note (shown below score)
+
+```
+ℹ️ Scores approximate quality based on 5 signals.
+A high score does not guarantee correctness.
+A low score does not guarantee the response is wrong.
+Human review makes the final determination.
+```
+
+Always visible in inference detail. Sets correct expectations.
+
+### Mock Data — Monitor Configuration Per Tenant
+
+**IITM Pravartak:**
+- Mode: Safety Gate
+- Preset: Government / Audit
+- Tier 2 sample rate: 100% (all inferences scored — high stakes)
+- Review cadence: Real-time
+- Connected apps: 2
+
+**Legal AI Corp:**
+- Mode: Quality Loop
+- Preset: Legal / Compliance
+- Tier 2 sample rate: 10%
+- Review cadence: Daily digest
+- Connected apps: 1
+
+**HealthBot India:**
+- Mode: Regression (only active post-deployment)
+- Preset: Medical / Clinical
+- Tier 2 sample rate: 25%
+- Review cadence: Weekly batch
+- Connected apps: 1
+- Note: Starter plan — monitor limited to 50K inferences/month
+
+### Implementation Notes for Claude Code
+
+48. Preset buttons update all weight sliders simultaneously with smooth animation (300ms transition).
+49. Weight total validator: recalculates on every slider change. Shows red warning if total ≠ 100%. Save button disabled until total = 100%.
+50. Confidence Calibration signal: always shown as disabled with explanation tooltip "Requires logprob access from model endpoint."
+51. Cost estimator updates in real time as sample rate slider moves.
+52. Integration snippet: [Copy] button copies code to clipboard, shows "Copied!" toast for 2 seconds.
+53. Score breakdown in inference detail: show signal rows even when signal was not sampled — mark as "skipped" with reason.
+54. Scoring transparency note: always visible, non-dismissable. Cannot be hidden by any user role.
+55. Mode selector: changing to Safety Gate shows a confirmation modal — "This mode flags responses in real-time. Ensure your application handles flag callbacks. Continue?"
