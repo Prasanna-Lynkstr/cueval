@@ -3790,3 +3790,74 @@ All other tools shown as unconnected (+ Connect state).
 98. [Import Now] triggers mock import animation: progress bar + step labels (Fetching from Label Studio → Converting format → Running curation pipeline → Done). Completes in 4 seconds. Then routes to Datasets screen showing new dataset card with "Source: Label Studio" badge.
 99. Import history on dataset cards: show "Source: Label Studio" badge in muted text below row count. Clicking [View import log] opens right panel with import provenance details.
 100. Positioning note callout: always visible at top of connector screen. Same styling as Agent Boundaries callout — non-dismissable, coral left border.
+
+---
+
+## 36. DELTA — REMOVE AUDIO/VIDEO, ADD COMING SOON PLACEHOLDERS
+
+### Removed from Prototype Build
+- Section 21 (Audio & Video Ingestion Module) — do not build
+- Audio Corrections tab from Review Queue
+- Video Corrections tab from Review Queue
+- Audio/video mock data from all three tenants
+- Whisper status panel UI (Section 35 UI components only — architecture notes retained for reference)
+- Audio/video configuration from bulk ingestion wizard (Section 20)
+- Audio/video CTAs from all role dashboards
+
+---
+
+### Updated Review Queue — 4 Tabs Only
+```
+Review Queue
+├── Text Review
+├── OCR Corrections
+└── Preference Ranking
+```
+Remove audio/video tab badge counts. Dock icon badge = sum of above 3 tabs only.
+
+---
+
+### Updated Documents Screen — Coming Soon Cards
+
+On the Documents screen, after the existing upload zone and document list, add a "More formats coming soon" section:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  More Data Types — Coming Soon                              │
+├──────────────────────┬──────────────────────────────────────┤
+│  🎙 Audio            │  🎬 Video                            │
+│                      │                                      │
+│  ASR transcription + │  Keyframe extraction +               │
+│  correction workflow │  captioning for video                │
+│  for speech and      │  understanding and                   │
+│  voice training data │  multimodal models                   │
+│                      │                                      │
+│  [Notify me →]       │  [Notify me →]                       │
+└──────────────────────┴──────────────────────────────────────┘
+```
+
+Styling: muted border, dark background, greyed text. Clearly not active. [Notify me →] shows a toast: "We'll reach out when audio support is available."
+
+---
+
+### Updated Bulk Ingestion Wizard — Section 20
+
+Remove audio and video checkboxes from source type selector. Replace with:
+
+```
+Document types to include:
+☑ PDF (digital)   ☑ PDF (scanned)   ☑ DOCX
+🔒 Audio files    Coming soon
+🔒 Video files    Coming soon
+```
+
+🔒 items non-interactive, muted, with tooltip "Available in a future release."
+
+---
+
+### Implementation Notes for Claude Code (delta)
+
+93. Coming soon cards: render as a 2-column grid below the active documents section. Not collapsible. Greyed palette — use C.muted for text, C.border for card border.
+94. [Notify me →] button: shows toast "Thanks — we'll be in touch when this is ready." No form, no email capture. Static interaction.
+95. Bulk ingestion audio/video rows: render with 🔒 icon and "Coming soon" label. cursor: not-allowed. No click handler.
+96. Remove all audio/video references from dashboard CTAs across all roles and tenants.
