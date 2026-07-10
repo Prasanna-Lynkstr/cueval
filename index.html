@@ -341,6 +341,12 @@ body.impersonating .shell,body.impersonating #app>.shell{margin-top:34px;height:
 .limbox{background:rgba(234,179,8,.08);border:1px solid rgba(234,179,8,.3);border-radius:var(--r-md);padding:12px 14px;font-size:12px;line-height:1.7}
 .limbox li{margin-left:4px;color:#facc15}
 .callout-amber{background:rgba(232,93,38,.08);border:1px solid rgba(232,93,38,.4);border-radius:var(--r-md);padding:16px}
+/* Breadcrumb wayfinding (UX redesign phase 2) */
+.crumb{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--text-muted);margin-bottom:8px;flex-wrap:wrap}
+.crumb-link{color:var(--text-secondary);background:none;border:none;padding:0;cursor:pointer;font-size:12px;font-family:inherit}
+.crumb-link:hover{color:var(--coral)}
+.crumb-cur{color:var(--text-primary);font-weight:500}
+.crumb-sep{color:var(--text-muted);opacity:.55}
 /* Agents (spec §33) */
 .agent-row{padding:12px 14px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--bg-surface);cursor:pointer;transition:border var(--t-fast)}
 .agent-row:hover{border-color:var(--border-active)}
@@ -1171,6 +1177,15 @@ function drawDonut(cv){
 function flagPill(f){ return '<span class="pill pill-'+(f==='toxic'||f==='pii-detected'||f==='duplicate'?'red':f==='near-duplicate'||f==='format-violation'?'yellow':'muted')+'">'+ICON.flag+escapeHtml(FLAG_LABEL[f]||f)+'</span>'; }
 function langPill(code){ return '<span class="pill pill-muted">'+escapeHtml(LANG_LABEL[code]||code)+'</span>'; }
 function emptyState(icon,title,sub,cta){ return '<div class="empty">'+ICON[icon]+'<div class="empty-title">'+escapeHtml(title)+'</div><div class="empty-sub">'+escapeHtml(sub)+'</div>'+(cta||'')+'</div>'; }
+// Breadcrumb: parts = [ [label] (current) | [label, action, dataObj] (link) ], last is current.
+function crumb(parts){
+  const out=parts.map((p,i)=>{
+    if(i===parts.length-1 || !p[1]) return '<span class="crumb-cur">'+escapeHtml(p[0])+'</span>';
+    let attrs='data-action="'+p[1]+'"'; if(p[2]) for(const k in p[2]) attrs+=' data-'+k+'="'+escapeAttr(p[2][k])+'"';
+    return '<button class="crumb-link" '+attrs+'>'+escapeHtml(p[0])+'</button>';
+  }).join('<span class="crumb-sep">›</span>');
+  return '<nav class="crumb" aria-label="Breadcrumb">'+out+'</nav>';
+}
 
 /* ---- Radar chart (Canvas 2D, ADR-6) ---- */
 function drawRadar(cv){
@@ -1302,29 +1317,102 @@ function projectHealthCard(p){
     + '<div style="flex:1"><div class="row-between" style="font-size:11px"><span class="muted">REVIEW COMPLETE</span><span class="secondary">'+done+'%</span></div>'+meter(done,'var(--gradient-brand)')
     + '<div class="muted mt8" style="font-size:11px">EVAL</div><div class="secondary">'+(ev&&ev.results?('Overall '+ev.results.B.Overall):'No eval yet')+'</div></div></div></div>';
 }
+// Persona workspaces (UX redesign phase 2) — each role lands on a board shaped to its
+// core loop, with exactly one primary action; supporting context on the right.
+const WORKSPACE_TITLE={ Annotator:'My Queue', Reviewer:'Review Board', MLEngineer:'Model Workbench',
+  Architect:'Quality Cockpit', ProjectManager:'Delivery Board', Admin:'Org Console' };
 function screenDashboard(){
-  const t=currentTenant;
-  const totalRows = getDatasets().reduce((a,d)=>a+d.totalRows,0);
-  const avg = (()=>{ const ds=getDatasets(); return ds.length?(ds.reduce((a,d)=>a+d.overallScore,0)/ds.length).toFixed(1):'—'; })();
-  const runningEvals = getEvalRuns().filter(e=>e.status==='running').length;
-  const relThisMonth = getReleases().length;
-  const strip = [['Total Rows Curated',fmtNum(t.usage.rowsThisMonth)],['Avg Quality Score',avg],['Active Eval Runs',runningEvals+getEvalRuns().filter(e=>e.status==='completed').length>0?String(runningEvals):'0'],['Releases This Month',String(relThisMonth)]];
-  let stripHtml='<div class="grid-3" style="grid-template-columns:repeat(4,1fr);margin-bottom:22px">';
-  [['Total Rows Curated',fmtNum(t.usage.rowsThisMonth),'coral'],['Avg Quality Score',avg,'pink'],['Active Eval Runs',String(runningEvals),'blue'],['Releases This Month',String(relThisMonth),'green']].forEach(s=>{
-    stripHtml+='<div class="card"><div class="section-h">'+s[0]+'</div><div class="bignum" style="color:var(--'+s[2]+')">'+s[1]+'</div></div>'; });
-  stripHtml+='</div>';
+  const t=currentTenant; const role=currentUser.role;
+  const title=WORKSPACE_TITLE[role]||'Dashboard';
   const warn = usagePct(t)>=70 ? usageBanner(t) : '';
-  let health=''; getProjects().forEach(p=>health+=projectHealthCard(p));
-  if(!getProjects().length) health=emptyState('folder','No projects yet','Create your first project to begin curation.','<button class="btn btn-primary" data-action="new-project">'+ICON.plus+'New Project</button>');
-  let feed=''; getActivity().forEach(a=>{ feed+='<div style="padding:11px 0;border-bottom:1px solid var(--border)"><div><strong>'+escapeHtml(a.who)+'</strong> <span class="secondary">'+escapeHtml(a.text)+'</span></div><div class="muted mt4" style="font-size:11px">'+escapeHtml(a.time)+'</div></div>'; });
-  return '<div class="row-between"><div><h1 class="page-h">Welcome back, '+escapeHtml(currentUser.name.split(' ')[0])+'</h1><p class="page-sub">'+escapeHtml(t.name)+' · '+t.plan+' plan · '+ROLE_LABEL[currentUser.role]+'</p>'
-    + '<p class="muted mt4" style="font-size:12px;max-width:640px">'+SUBLINE+'</p></div></div>'
-    + '<div class="mt24"></div>'+warn+stripHtml
-    + '<div class="grid-3" style="grid-template-columns:1fr 1.2fr 1fr;align-items:start">'
-    + '<div>'+myWorkCard()+'</div>'
-    + '<div><div class="section-h">Project Health</div><div class="stack gap12">'+health+'</div></div>'
-    + '<div><div class="section-h">Activity Feed</div><div class="card">'+(feed||'<span class="muted">No recent activity</span>')+'</div></div>'
-    + '</div>';
+  const header='<div class="row-between"><div><h1 class="page-h">'+escapeHtml(title)+'</h1>'
+    +'<p class="page-sub">'+escapeHtml(currentUser.name)+' · '+ROLE_LABEL[role]+' · '+escapeHtml(t.name)+'</p></div></div>';
+  const board=roleBoard(role);
+  const side=roleSide(role);
+  return header+'<div class="mt24"></div>'+warn
+    +'<div class="grid-3" style="grid-template-columns:1.5fr 1fr;align-items:start">'+board+side+'</div>';
+}
+function heroCard(icon,title,sub,primary,extra){
+  return '<div class="card" style="border-color:var(--border-active)"><div class="flex gap12" style="align-items:flex-start">'
+    +'<div style="width:40px;height:40px;border-radius:11px;background:var(--coral-glow);color:var(--coral);display:grid;place-items:center;flex-shrink:0">'+ICON[icon]+'</div>'
+    +'<div style="flex:1"><div class="card-title">'+title+'</div><div class="secondary mt4">'+sub+'</div></div></div>'
+    +(extra||'')+'<div class="mt16">'+primary+'</div></div>';
+}
+function statTile(label,val,tone){ return '<div class="card" style="padding:14px"><div class="section-h" style="margin:0">'+label+'</div><div class="bignum" style="font-size:22px'+(tone?';color:var(--'+tone+')':'')+'">'+val+'</div></div>'; }
+function roleBoard(role){
+  const pri=(label,action,view,icon)=>'<button class="btn btn-primary" data-action="'+action+'"'+(view?' data-view="'+view+'"':'')+'>'+(icon?ICON[icon]:'')+escapeHtml(label)+ICON.arrowR+'</button>';
+  const ghost=(label,action,view)=>'<button class="btn btn-ghost btn-sm" data-action="'+action+'"'+(view?' data-view="'+view+'"':'')+'>'+escapeHtml(label)+'</button>';
+
+  if(role==='Annotator'){
+    const parts=[['Text',datasetPendingCount()],['OCR',ocrPendingCount()],['Audio',audioPendingCount()],['Video',videoPendingCount()],['Preference',prefPendingCount()]];
+    const total=parts.reduce((a,p)=>a+p[1],0);
+    let chips=parts.filter(p=>p[1]).map(p=>'<span class="pill pill-muted">'+p[0]+' '+p[1]+'</span>').join(' ')||'<span class="muted">Nothing pending 🎉</span>';
+    const hero=heroCard('pencil', total+' item'+(total!==1?'s':'')+' in your queue', 'Worst-scoring first, across every task type.',
+      pri('Open my queue','nav','review'),
+      '<div class="flex wrap gap6 mt16">'+chips+'</div>');
+    return '<div>'+hero+'<div class="card mt16"><div class="section-h">Keyboard</div><div class="secondary" style="font-size:13px">In the queue: <span class="kbd">A</span> approve · <span class="kbd">R</span> reject · <span class="kbd">E</span> edit · <span class="kbd">S</span> skip · <span class="kbd">⌘K</span> jump anywhere</div></div></div>';
+  }
+  if(role==='Reviewer'){
+    const oq=ocrCorrectionQueue().length;
+    const hero=heroCard('check','3 batches awaiting your approval','Annotator work ready for a quality pass.',
+      pri('Review batches','nav','review'),
+      '<div class="grid-3 mt16" style="grid-template-columns:1fr 1fr 1fr;gap:8px">'+statTile('Rows to sign off',pendingCount(),'yellow')+statTile('OCR to verify',oq,'')+statTile('Approval rate','78%','green')+'</div>');
+    return '<div>'+hero+'<div class="card mt16"><div class="section-h">Recent batches</div>'
+      +['Ravi Kumar · 23 rows · 18✓ 5✗','Neha Shah · 14 rows · pending','Priya S · 31 rows · sent back'].map(b=>'<div class="row-between" style="padding:7px 0;border-bottom:1px solid var(--border);font-size:13px"><span>'+escapeHtml(b)+'</span>'+ghost('Open','nav','review')+'</div>').join('')+'</div></div>';
+  }
+  if(role==='MLEngineer'){
+    const ev=getEvalRuns().filter(e=>e.results).slice(-1)[0];
+    const overall=ev&&ev.results?ev.results.B.Overall:'—'; const delta=ev&&ev.results?(ev.results.B.Overall-ev.results.A.Overall):0;
+    const running=getExperiments().filter(x=>x.status==='running').length;
+    const ready=getDocuments().filter(d=>d.status==='ready-chunk').length;
+    const hero=heroCard('bolt','Latest eval · Overall '+overall,(delta>=0?'+':'')+delta.toFixed(1)+' vs previous checkpoint · run another to compare.',
+      pri('Run eval','nav','eval'),
+      '<div class="flex gap8 mt16">'+ghost('View results','nav','eval')+ghost('New experiment','new-experiment')+'</div>');
+    return '<div>'+hero+'<div class="grid-3 mt16" style="grid-template-columns:1fr 1fr 1fr;gap:8px">'+statTile('Running experiments',running,'blue')+statTile('Docs ready to chunk',ready,'coral')+statTile('Prod flag rate','8.3%','yellow')+'</div></div>';
+  }
+  if(role==='Architect'){
+    const rels=getReleases(); const inReview=rels.filter(r=>r.status==='in-review');
+    const blocking=inReview.map(r=>({r, gates:releaseGates(r).filter(g=>!g.ok)})).filter(x=>x.gates.length);
+    const cov=getCoverage();
+    const first=inReview[0];
+    const hero=heroCard('rocket', inReview.length+' release'+(inReview.length!==1?'s':'')+' awaiting your review',
+      blocking.length?blocking[0].gates.length+' gate(s) still blocking '+escapeHtml(blocking[0].r.name):'All gates clear — ready to approve.',
+      first?pri('Open release','open-release',null):pri('View releases','nav','releases'),
+      '<div class="grid-3 mt16" style="grid-template-columns:1fr 1fr 1fr;gap:8px">'+statTile('Avg dataset score',(getDatasets().reduce((a,d)=>a+d.overallScore,0)/Math.max(1,getDatasets().length)).toFixed(0),'')+statTile('Monitor coverage',(cov?cov.overallCoverage+'%':'—'),(cov&&cov.overallCoverage>=70?'green':'yellow'))+statTile('Blocking gates',blocking.reduce((a,x)=>a+x.gates.length,0),'red')+'</div>');
+    // attach releaseId to the primary if present
+    const boardHtml = first ? hero.replace('data-action="open-release"','data-action="open-release" data-id="'+first.id+'"') : hero;
+    return '<div>'+boardHtml+'</div>';
+  }
+  if(role==='ProjectManager'){
+    const rels=getReleases(); const byStage=s=>rels.filter(r=>r.status===s).length;
+    const blocked=rels.filter(r=>releaseGates(r).some(g=>!g.ok) && r.status==='in-review').length;
+    let pipe='<div class="flex gap8 mt16" style="flex-wrap:wrap">'+['draft','in-review','approved','training','deployed'].map(s=>'<div class="card" style="padding:10px 12px;flex:1;min-width:90px;text-align:center"><div class="bignum" style="font-size:18px">'+byStage(s)+'</div><div class="muted" style="font-size:10px;text-transform:capitalize">'+s.replace('-',' ')+'</div></div>').join('')+'</div>';
+    const hero=heroCard('rocket',blocked+' release'+(blocked!==1?'s':'')+' blocked','Gates outstanding before sign-off.',
+      pri('Open releases','nav','releases'),pipe);
+    return '<div>'+hero+'<div class="grid-3 mt16" style="grid-template-columns:1fr 1fr;gap:8px">'+statTile('Rows awaiting review',pendingCount(),'yellow')+statTile('Plan usage',usagePct(currentTenant)+'%',(usagePct(currentTenant)>=85?'red':usagePct(currentTenant)>=70?'yellow':'green'))+'</div></div>';
+  }
+  if(role==='Admin'){
+    const us=getUsers();
+    const hero=heroCard('users',us.length+' users in '+escapeHtml(currentTenant.name),'Manage roles, permissions and access.',
+      pri('Manage users','nav','settings'),
+      '<div class="flex gap8 mt16">'+ghost('Roles & permissions','nav','settings')+ghost('Plan & usage','nav','settings')+'</div>');
+    const lim=currentTenant.planLimits, u=currentTenant.usage;
+    const meter2=(label,used,limit)=>{ const pct=limit===Infinity?0:Math.round(used/limit*100); return '<div class="mt8"><div class="row-between" style="font-size:12px"><span class="secondary">'+label+'</span><span class="mono">'+fmtNum(used)+' / '+fmtNum(limit)+'</span></div>'+meter(pct, pct>=85?'var(--red)':pct>=70?'var(--yellow)':'var(--green)')+'</div>'; };
+    return '<div>'+hero+'<div class="card mt16"><div class="section-h">Plan usage</div>'+meter2('Rows',u.rowsThisMonth,lim.rowsPerMonth)+meter2('Eval runs',u.evalRunsThisMonth,lim.evalRunsPerMonth)+meter2('Seats',u.activeUsers,lim.maxUsers)+'</div></div>';
+  }
+  // fallback
+  return '<div>'+myWorkCard()+'</div>';
+}
+function roleSide(role){
+  let feed=''; getActivity().forEach(a=>{ feed+='<div style="padding:11px 0;border-bottom:1px solid var(--border)"><div style="font-size:13px"><strong>'+escapeHtml(a.who)+'</strong> <span class="secondary">'+escapeHtml(a.text)+'</span></div><div class="muted mt4" style="font-size:11px">'+escapeHtml(a.time)+'</div></div>'; });
+  const activity='<div class="section-h">Activity</div><div class="card">'+(feed||'<span class="muted">No recent activity</span>')+'</div>';
+  // managers also see project health
+  if(['Admin','ProjectManager','Architect'].includes(role)){
+    let health=''; getProjects().forEach(p=>health+=projectHealthCard(p));
+    if(!getProjects().length) health=emptyState('folder','No projects yet','Create your first project.','<button class="btn btn-primary btn-sm" data-action="new-project">'+ICON.plus+'New Project</button>');
+    return '<div><div class="section-h">Project health</div><div class="stack gap12">'+health+'</div><div class="mt24">'+activity+'</div></div>';
+  }
+  return '<div>'+activity+'</div>';
 }
 function usageBanner(t){
   const pct=usagePct(t); const lvl=usageLevel(pct);
@@ -1381,7 +1469,8 @@ const IMPORT_TOOLS=[
 ];
 const CONVERSION_TEMPLATES=['NER → Instruction Pair','Classification → Instruction Pair','Preference Ranking → RLHF Pair','Span QA → Instruction Pair','Custom template'];
 function screenImportConnector(){
-  const back='<div class="row-between"><div><button class="btn btn-sm btn-ghost" data-action="import-back">'+ICON.chevR+' Datasets</button><h1 class="page-h mt8">Import from Annotation Tool</h1><p class="page-sub">Bring externally labelled data into Cueval\'s curation pipeline</p></div></div>';
+  const back=crumb([['Datasets','import-back'],['Import from annotation tool']])
+    +'<div class="row-between"><div><h1 class="page-h">Import from Annotation Tool</h1><p class="page-sub">Bring externally labelled data into Cueval\'s curation pipeline</p></div></div>';
   const note='<div class="boundary-box mt16"><strong>Cueval does not replace your annotation tool.</strong><div class="secondary mt4" style="font-size:13px;line-height:1.7">Use Label Studio, Argilla, or any tool your team prefers for raw data labelling. Cueval starts where they finish — converting labelled data to training-ready instruction pairs, running quality checks, and closing the loop back from production to your next annotation sprint.</div></div>';
   let cards='<div class="section-h mt24">Select source</div><div class="grid-3" style="gap:12px">';
   IMPORT_TOOLS.forEach(t=>{ const on=t.connected;
@@ -1546,7 +1635,9 @@ function screenReview(){
   const subs={datasets:'Instruction-pair approval · worst-scoring first',ocr:'Low-confidence OCR regions · lowest first',audio:'Low-confidence audio segments · lowest first',video:'Flagged video frames · lowest first',pref:'RLHF — pick the better response',seeds:'Corpus seeds from 👍 feedback · approve embeddings to activate drift'};
   if(tab==='seeds' && !canSeeCorpusSeeds()){ appState.reviewTab='datasets'; return screenReview(); }
   if(!subs[tab]){ appState.reviewTab='datasets'; return screenReview(); } // guard stale/removed tabs (e.g. entity §34)
-  const title='<div class="row-between"><div><h1 class="page-h">Review Queue</h1><p class="page-sub">'+subs[tab]+'</p></div>'
+  const tabLabel=(TABS.find(x=>x[0]===tab)||[])[1]||'Text Review';
+  const title=crumb([['Review Queue','review-tab',{tab:'datasets'}],[tabLabel]])
+    +'<div class="row-between"><div><h1 class="page-h">Review Queue</h1><p class="page-sub">'+subs[tab]+'</p></div>'
     +(currentUser.role==='Reviewer'&&tab==='datasets'?'<button class="btn btn-ghost" data-action="review-batch">'+ICON.check+'Batch approval</button>':'')+'</div>'+tabBar;
   if(tab==='ocr'){
     if(appState.annotationJobId){ const j=byId(getBulkJobs(),appState.annotationJobId); if(j) return annotationProject(j); }
@@ -1888,6 +1979,12 @@ function alertsList(){
 function tenantProjects(t){ return projects.filter(p=>p.tenantId===t.id); }
 function screenTenants(){
   const head='<div class="row-between"><div><h1 class="page-h">Tenants</h1><p class="page-sub">All organisations on the Cueval platform</p></div><button class="btn btn-primary" data-action="new-tenant">'+ICON.plus+'Create New Tenant</button></div>';
+  // Surface tenants needing attention first (UX redesign phase 2).
+  const atRisk=tenants.filter(t=>usagePct(t)>=70).sort((a,b)=>usagePct(b)-usagePct(a));
+  const riskStrip = atRisk.length ? '<div class="warn-banner warn-yellow mt24" style="margin-bottom:0">'+ICON.warn
+    +'<span><strong>'+atRisk.length+' tenant'+(atRisk.length!==1?'s':'')+' need'+(atRisk.length===1?'s':'')+' attention</strong> — '
+    +atRisk.map(t=>escapeHtml(t.name)+' at '+usagePct(t)+'%').join(' · ')+'</span><div style="flex:1"></div>'
+    +'<button class="btn btn-sm btn-ghost" data-action="nav" data-view="alerts">View alerts</button></div>' : '';
   let rows='';
   tenants.forEach(t=>{ const pct=usagePct(t); const warn=pct>=85; const rl=t.planLimits.rowsPerMonth;
     rows+='<tr><td><strong>'+escapeHtml(t.name)+'</strong></td><td>'+statusPill(t.plan.toLowerCase()==='enterprise'?'deployed':t.plan.toLowerCase()==='pro'?'training':'draft').replace(/>.*?</,'>'+t.plan+'<')+'</td>'
@@ -1896,7 +1993,7 @@ function screenTenants(){
       +'<td class="mono">'+t.usage.evalRunsThisMonth+' / '+fmtK(t.planLimits.evalRunsPerMonth)+'</td>'
       +'<td>'+(warn?'<span class="pill pill-yellow">'+ICON.warn+'Limit</span>':'<span class="pill pill-green">Active</span>')+'</td>'
       +'<td><div class="flex gap6"><button class="btn btn-sm btn-ghost" data-action="view-tenant" data-id="'+t.id+'">View</button><button class="btn btn-sm btn-ghost" data-action="impersonate" data-id="'+t.id+'">Manage</button></div></td></tr>'; });
-  return head+'<div class="card mt24" style="padding:0;overflow:auto"><table class="tbl" style="min-width:820px"><thead><tr><th>Tenant</th><th>Plan</th><th>Users</th><th>Projects</th><th>Rows/mo</th><th>Eval Runs</th><th>Status</th><th>Actions</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+  return head+riskStrip+'<div class="card mt16" style="padding:0;overflow:auto"><table class="tbl" style="min-width:820px"><thead><tr><th>Tenant</th><th>Plan</th><th>Users</th><th>Projects</th><th>Rows/mo</th><th>Eval Runs</th><th>Status</th><th>Actions</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
 }
 function screenPlatform(){
   const totalRows=tenants.reduce((a,t)=>a+t.usage.rowsThisMonth,0);
@@ -2031,7 +2128,9 @@ function screenDocuments(){
   const t=appState.docTab;
   const subtitle = t==='audio'?'Transcribe, segment & curate audio for ASR' : t==='video'?'Keyframes, captions & VideoQA from video' : t==='bulk'?'Corpus-scale ingestion' : 'Ingestion pipeline · OCR · chunking · pair synthesis';
   const uploadBtn = t==='mine'?'upload-document':t==='audio'?'upload-audio':t==='video'?'upload-video':null;
-  const head='<div class="row-between"><div><h1 class="page-h">Documents</h1><p class="page-sub">'+subtitle+'</p></div>'
+  const tabName={mine:'Text & Docs',audio:'Audio',video:'Video',bulk:'Bulk Ingestion'}[t];
+  const trail = t==='mine' ? [['Documents']] : [['Documents','doc-tab',{tab:'mine'}],[tabName]];
+  const head=crumb(trail)+'<div class="row-between"><div><h1 class="page-h">Documents</h1><p class="page-sub">'+subtitle+'</p></div>'
     +(uploadBtn&&can('Datasets')?'<button class="btn btn-primary" data-action="'+uploadBtn+'">'+ICON.upload+'Upload</button>':'')+'</div>'+docTabBar();
   const body = t==='bulk'?screenBulk() : t==='audio'?screenAudio() : t==='video'?screenVideo() : screenDocList();
   return head+'<div class="mt8">'+body+'</div>';
@@ -2873,7 +2972,8 @@ function estMonitorCost(cfg){ const base=800, per= cfg? cfg.tier2*16 : 0; const 
 function monitorConfigScreen(){
   const cfg=monitorDraft();
   if(!cfg) return '<h1 class="page-h">Monitor Configuration</h1><div class="mt24">'+emptyState('sliders','Not available','No monitor configuration for this tenant.','')+'</div>';
-  const back='<div class="row-between"><div><button class="btn btn-sm btn-ghost" data-action="monitor-config-back">'+ICON.chevR+' Monitor</button><h1 class="page-h mt8">Monitor Configuration</h1><p class="page-sub">'+escapeHtml(cfg.appName)+'</p></div></div>';
+  const back=crumb([['Monitor','monitor-config-back'],['Configuration']])
+    +'<div class="row-between"><div><h1 class="page-h">Monitor Configuration</h1><p class="page-sub">'+escapeHtml(cfg.appName)+'</p></div></div>';
   // mode
   const mode='<div class="card"><div class="section-h">Monitoring mode</div>'+MONITOR_MODES.map(m=>radioLine('mon-mode',m.label,m.key,cfg.mode===m.key,m.desc)).join('')+'</div>';
   // signals
