@@ -561,19 +561,25 @@ const appState = {
   evalResult:null,                         // last eval shown in harness
   superView:'tenants', superTenant:null,   // superadmin sub-state
   docView:'list', docId:null,              // Documents screen: list | chunk | synth
-  docTab:'mine',                           // Documents: mine | bulk
-  reviewTab:'datasets',                    // review queue tab: datasets | ocr
+  docTab:'mine',                           // Documents tab: mine (Text & Docs) | audio | video | bulk
+  reviewTab:'datasets',                    // review queue tab: datasets | ocr | audio | video
   chunkStrategy:'structural', chunkSize:220, chunkOverlap:20, // chunking config
   synthTypes:['QA Pairs'], synthPerChunk:2, synthLLM:'Mock', // synthesis config
   bulkView:'list', bulkStep:1, bulkJobId:null, showFailures:false, // bulk ingestion (spec §20)
   annotationJobId:null,                    // annotation project view
   bulkConfig:null,                         // wizard config in progress
+  audioId:null, videoId:null, videoView:'list', framePage:0, // audio/video (spec §21)
 };
 // Document-ingestion collections (populated in initMockData — after Section E)
 let documents = [];
 let ocrRegions = [];
 let chunks = [];
 let bulkJobs = [];
+// Audio & video ingestion collections (spec §21)
+let audioFiles = [];
+let audioSegments = [];
+let videoFiles = [];
+let videoFrames = [];
 
 // Live-timer registry — every setInterval/timeout that drives an on-screen
 // animation is registered here and cleared on any view change (CLAUDE.md §10:
@@ -606,6 +612,16 @@ function getOcrRegions(){ return scoped(ocrRegions); }
 function getChunks(){ return scoped(chunks); }
 function getBulkJobs(){ return scoped(bulkJobs); }
 function activeBulkJob(){ return byId(getBulkJobs(), appState.bulkJobId) || getBulkJobs()[0] || null; }
+function getAudioFiles(){ return scoped(audioFiles); }
+function getVideoFiles(){ return scoped(videoFiles); }
+function getAudioSegments(){ return scoped(audioSegments); }
+function getVideoFrames(){ return scoped(videoFrames); }
+function segmentsForAudio(id){ return getAudioSegments().filter(s=>s.audioId===id).sort((a,b)=>a.index-b.index); }
+function framesForVideo(id){ return getVideoFrames().filter(f=>f.videoId===id).sort((a,b)=>a.index-b.index); }
+function activeAudio(){ return byId(getAudioFiles(), appState.audioId) || null; }
+function activeVideo(){ return byId(getVideoFiles(), appState.videoId) || null; }
+function findSegment(id){ return byId(audioSegments,id) || null; }
+function findFrame(id){ return byId(videoFrames,id) || null; }
 function regionsForDoc(docId){ return getOcrRegions().filter(r=>r.documentId===docId); }
 function chunksForDoc(docId){ return getChunks().filter(c=>c.documentId===docId).sort((a,b)=>a.chunkIndex-b.chunkIndex); }
 function findRegion(id){ return byId(ocrRegions, id) || null; }
@@ -741,6 +757,53 @@ function ocrSample(rand, script){ const arr=OCR_SAMPLES[script]||OCR_SAMPLES.en;
 function noisyOcr(text, conf){ if(conf>=85) return text; const chars=text.split(''); const rate=(85-conf)/120;
   return chars.map(c=>{ if(c!==' ' && Math.random()<rate) return (Math.random()<0.5?'▯':(c==='a'?'@':c==='o'?'0':'~')); return c; }).join(''); }
 
+/* ---- Audio & video mock logic (spec §21) ---- */
+// Confidence/visual colour coding — consistent across all modalities (note 36).
+function mediaConfClass(c){ return c>85?'score-good':c>=60?'score-mid':'score-bad'; }
+function mediaConfColor(c){ return c>85?'green':c>=60?'yellow':'red'; }
+function mediaConfPill(c,suffix){ return '<span class="pill pill-'+mediaConfColor(c)+'">'+c+(suffix||'%')+'</span>'; }
+// Audio quality score (spec §21)
+function scoreAudioSegment(seg, file){
+  let s=100; const snr=file.avgSnr, conf=seg.confidence, dur=seg.durationSec;
+  if(snr<10) s-=40; else if(snr<15) s-=20;
+  if(conf<50) s-=35; else if(conf<70) s-=15;
+  if(file.speakerCount>2) s-=10;
+  if(dur<3) s-=30; else if(dur>30) s-=10;
+  return Math.max(0,Math.min(100,s));
+}
+// Video quality score (spec §21)
+function scoreVideoFrame(fr){
+  let s=100;
+  if(fr.blurScore<40) s-=35;
+  if(fr.darkness<30) s-=30;
+  if(fr.captionConf<50) s-=25;
+  if(fr.isDuplicate) s-=50;
+  if(fr.hasFaces && !fr.consentFlag) s-=20;
+  return Math.max(0,Math.min(100,s));
+}
+// Static waveform SVG (note 30) — sine approximation, unique per seed.
+function waveformSvg(seed, active){
+  const rand=mkRand(seed); const bars=64; let path='';
+  const col = active?'var(--coral)':'var(--pink)';
+  for(let i=0;i<bars;i++){ const base=Math.sin(i/bars*Math.PI*(2+rand()*3))*0.5+0.5; const h=Math.max(3, (base*0.7+rand()*0.3)*34);
+    const x=i*5+3; path+='<rect x="'+x+'" y="'+(20-h/2)+'" width="3" height="'+h+'" rx="1.5" fill="'+col+'" opacity="'+(0.5+base*0.5).toFixed(2)+'"/>'; }
+  return '<svg viewBox="0 0 328 40" width="100%" height="52" preserveAspectRatio="none" aria-hidden="true">'+path+'</svg>';
+}
+// Video frame thumbnail (note 31) — CSS gradient rectangle, colour varies per frame.
+function frameThumb(seed, idx, ts, status, small){
+  const rand=mkRand(seed*97+idx); const h1=Math.floor(rand()*360), h2=(h1+40+Math.floor(rand()*80))%360;
+  const badge = status==='pending'?'🔴':status==='corrected'||status==='accepted'?'✅':status==='review'?'⚠️':'✅';
+  const size = small?'height:70px':'height:120px';
+  return '<div style="'+size+';border-radius:10px;position:relative;overflow:hidden;background:linear-gradient(135deg,hsl('+h1+',45%,32%),hsl('+h2+',50%,22%));display:grid;place-items:center;color:rgba(255,255,255,.85);font-family:var(--font-mono)">'
+    +'<span style="font-size:'+(small?'11':'13')+'px;opacity:.9">'+String(idx+1).padStart(3,'0')+'</span>'
+    +'<span style="position:absolute;top:5px;right:6px;font-size:12px">'+badge+'</span>'
+    +'<span style="position:absolute;bottom:5px;left:7px;font-size:10px;opacity:.8">'+escapeHtml(ts)+'</span></div>';
+}
+function fmtTs(sec){ const m=Math.floor(sec/60), s=Math.floor(sec%60); return String(m).padStart(2,'0')+':'+String(s).padStart(2,'0'); }
+const AUDIO_STATUS_PILL={ ready:'green', in_review:'yellow', needs_work:'red' };
+const AUDIO_STATUS_LABEL={ ready:'Ready', in_review:'Review', needs_work:'Needs Work' };
+function audioStatusPill(s){ return '<span class="pill pill-'+(AUDIO_STATUS_PILL[s]||'muted')+'">'+(AUDIO_STATUS_LABEL[s]||s)+'</span>'; }
+
 /* ============================================================
    SECTION F — LOGGING & ERRORS  (CLAUDE.md §7; never raw console.*)
    ============================================================ */
@@ -857,7 +920,9 @@ const SUPER_DOCK = [
 
 function datasetPendingCount(){ return getDatasets().reduce((a,d)=>a+d.rows.filter(r=>r.reviewStatus==='pending').length,0); }
 function ocrPendingCount(){ return getOcrRegions().filter(r=>r.correctionStatus==='pending').length; }
-function pendingCount(){ return datasetPendingCount()+ocrPendingCount(); } // combined for dock badge
+function audioPendingCount(){ return getAudioSegments().filter(s=>s.status==='pending').length; }
+function videoPendingCount(){ return getVideoFrames().filter(f=>f.status==='pending').length; }
+function pendingCount(){ return datasetPendingCount()+ocrPendingCount()+audioPendingCount()+videoPendingCount(); } // combined for dock badge
 function evalRunning(){ return getEvalRuns().some(e=>e.status==='running'); }
 
 function renderDock(){
@@ -1034,6 +1099,17 @@ function myWorkCard(){
     const bm=bmap[role]; if(bm){ const da=bm[4]?' data-'+bm[4]+'="'+escapeAttr(bm[5])+'"':'';
       return '<div class="card" style="border-color:var(--coral)"><div class="section-h">My Work Today</div><div class="card-title">'+escapeHtml(bm[0])+'</div><div class="secondary mt4">'+bm[1]+'</div><button class="btn btn-primary mt16" data-action="'+bm[3]+'"'+da+'>'+escapeHtml(bm[2])+ICON.arrowR+'</button></div>'; }
   }
+  // Audio/video-aware CTAs (spec §21) — surface media work when it exists
+  const audioPend=audioPendingCount(), videoPend=videoPendingCount();
+  const readyAudio=getAudioFiles().find(a=>a.status==='ready'); const lowAudio=getAudioFiles().filter(a=>a.status==='needs_work')[0];
+  const avmap={
+    Annotator: audioPend>0?[audioPend+' audio corrections assigned to you','low-confidence segments to fix','Start Corrections','goto-audio-corr','','']:null,
+    MLEngineer: readyAudio?[readyAudio.segments+' audio segments ready for ASR export','from '+readyAudio.name,'Export Dataset','export-audio','id',readyAudio.id]:null,
+    Architect: videoPend>0?[videoPend+' video frames pending caption review','flagged during ingestion','Review Frames','goto-video-corr','','']:null,
+    ProjectManager: lowAudio?[lowAudio.name+' at '+lowAudio.transcriptConf+'% transcript confidence','needs attention','View','open-audio','id',lowAudio.id]:null,
+  };
+  const av=avmap[role]; if(av){ const da=av[4]?' data-'+av[4]+'="'+escapeAttr(av[5])+'"':'';
+    return '<div class="card" style="border-color:var(--border-active)"><div class="section-h">My Work Today</div><div class="card-title">'+escapeHtml(av[0])+'</div><div class="secondary mt4">'+escapeHtml(av[1])+'</div><button class="btn btn-primary mt16" data-action="'+av[3]+'"'+da+'>'+escapeHtml(av[2])+ICON.arrowR+'</button></div>'; }
   // [title, sub, ctaLabel, action, dataKey, dataVal] — document-aware CTAs (spec §19)
   const map = {
     Annotator: ocrPend>0
@@ -1222,11 +1298,15 @@ function reviewQueue(){
   return rows;
 }
 function screenReview(){
-  const q=reviewQueue(); const oq=ocrCorrectionQueue(); const tab=appState.reviewTab;
-  const tabBar='<div class="flex gap8 mt16">'
-    +'<button class="chip '+(tab==='datasets'?'is-on':'')+'" data-action="review-tab" data-tab="datasets">Datasets'+(q.length?' <span class="pill pill-coral" style="padding:1px 6px">'+q.length+'</span>':'')+'</button>'
-    +'<button class="chip '+(tab==='ocr'?'is-on':'')+'" data-action="review-tab" data-tab="ocr">OCR Corrections'+(oq.length?' <span class="pill pill-coral" style="padding:1px 6px">'+oq.length+'</span>':'')+'</button></div>';
-  const title='<div class="row-between"><div><h1 class="page-h">Review Queue</h1><p class="page-sub">'+(tab==='ocr'?'Low-confidence OCR regions · lowest first':'Worst-scoring rows first')+'</p></div>'
+  const q=reviewQueue(); const oq=ocrCorrectionQueue(); const aq=audioCorrQueue(); const vq=videoCorrQueue(); const tab=appState.reviewTab;
+  const badge=n=>n?' <span class="pill pill-coral" style="padding:1px 6px">'+n+'</span>':'';
+  const tabBar='<div class="flex wrap gap8 mt16">'
+    +'<button class="chip '+(tab==='datasets'?'is-on':'')+'" data-action="review-tab" data-tab="datasets">Datasets'+badge(q.length)+'</button>'
+    +'<button class="chip '+(tab==='ocr'?'is-on':'')+'" data-action="review-tab" data-tab="ocr">OCR Corrections'+badge(oq.length)+'</button>'
+    +'<button class="chip '+(tab==='audio'?'is-on':'')+'" data-action="review-tab" data-tab="audio">Audio Corrections'+badge(aq.length)+'</button>'
+    +'<button class="chip '+(tab==='video'?'is-on':'')+'" data-action="review-tab" data-tab="video">Video Corrections'+badge(vq.length)+'</button></div>';
+  const subs={datasets:'Worst-scoring rows first',ocr:'Low-confidence OCR regions · lowest first',audio:'Low-confidence audio segments · lowest first',video:'Flagged video frames · lowest first'};
+  const title='<div class="row-between"><div><h1 class="page-h">Review Queue</h1><p class="page-sub">'+subs[tab]+'</p></div>'
     +(currentUser.role==='Reviewer'&&tab==='datasets'?'<button class="btn btn-ghost" data-action="review-batch">'+ICON.check+'Batch approval</button>':'')+'</div>'+tabBar;
   if(tab==='ocr'){
     if(appState.annotationJobId){ const j=byId(getBulkJobs(),appState.annotationJobId); if(j) return annotationProject(j); }
@@ -1234,6 +1314,8 @@ function screenReview(){
     const projBtn = job ? '<button class="btn btn-ghost btn-sm" data-action="view-annotation-project" data-id="'+job.id+'">'+ICON.users+'View as Project</button>' : '';
     return title+'<div class="row-between mt16"><span class="secondary">'+ocrPendingCount()+' regions pending correction</span>'+projBtn+'</div><div class="mt16">'+reviewOcrPane()+'</div>';
   }
+  if(tab==='audio') return title+'<div class="mt24">'+reviewAudioPane()+'</div>';
+  if(tab==='video') return title+'<div class="mt24">'+reviewVideoPane()+'</div>';
   if(!q.length) return title+'<div class="mt24">'+emptyState('check','You\'re all caught up','No rows pending review. ✅','')+'</div>';
   const head=title;
   if(appState.reviewIndex>=q.length) appState.reviewIndex=0;
@@ -1664,13 +1746,18 @@ function docStatusPill(s){ return '<span class="pill pill-'+(DOC_STATUS_PILL[s]|
 
 /* ---- Documents screen (list / chunk / synth sub-views + bulk tab) ---- */
 function screenDocuments(){
-  // Bulk sub-screens own the whole canvas (their own back navigation).
+  // Sub-screens that own the whole canvas (their own back navigation).
   if(appState.docTab==='bulk' && appState.bulkView!=='list') return screenBulk();
-  if(appState.docView==='chunk' && activeDoc()) return screenChunking(activeDoc());
-  if(appState.docView==='synth' && activeDoc()) return screenSynthesis(activeDoc());
-  const head='<div class="row-between"><div><h1 class="page-h">Documents</h1><p class="page-sub">Ingestion pipeline · OCR · chunking · pair synthesis</p></div>'
-    +(appState.docTab==='mine'&&can('Datasets')?'<button class="btn btn-primary" data-action="upload-document">'+ICON.upload+'Upload Documents</button>':'')+'</div>'+docTabBar();
-  return head+'<div class="mt8">'+(appState.docTab==='bulk'?screenBulk():screenDocList())+'</div>';
+  if(appState.docTab==='video' && appState.videoView==='frames' && activeVideo()) return screenVideo();
+  if(appState.docTab==='mine' && appState.docView==='chunk' && activeDoc()) return screenChunking(activeDoc());
+  if(appState.docTab==='mine' && appState.docView==='synth' && activeDoc()) return screenSynthesis(activeDoc());
+  const t=appState.docTab;
+  const subtitle = t==='audio'?'Transcribe, segment & curate audio for ASR' : t==='video'?'Keyframes, captions & VideoQA from video' : t==='bulk'?'Corpus-scale ingestion' : 'Ingestion pipeline · OCR · chunking · pair synthesis';
+  const uploadBtn = t==='mine'?'upload-document':t==='audio'?'upload-audio':t==='video'?'upload-video':null;
+  const head='<div class="row-between"><div><h1 class="page-h">Documents</h1><p class="page-sub">'+subtitle+'</p></div>'
+    +(uploadBtn&&can('Datasets')?'<button class="btn btn-primary" data-action="'+uploadBtn+'">'+ICON.upload+'Upload</button>':'')+'</div>'+docTabBar();
+  const body = t==='bulk'?screenBulk() : t==='audio'?screenAudio() : t==='video'?screenVideo() : screenDocList();
+  return head+'<div class="mt8">'+body+'</div>';
 }
 function screenDocList(){
   const docs=getDocuments();
@@ -1876,8 +1963,11 @@ function annotatorEta(a){ const remaining=a.assigned-a.complete; if(a.pace<=0) r
 
 /* ---- Documents screen tab bar (My Documents | Bulk Ingestion) ---- */
 function docTabBar(){
-  const t=appState.docTab;
-  return '<div class="flex gap8 mt16"><button class="chip '+(t==='mine'?'is-on':'')+'" data-action="doc-tab" data-tab="mine">'+ICON.doc+' My Documents</button>'
+  const t=appState.docTab; const ap=audioPendingCount(), vp=videoPendingCount();
+  const badge=n=>n?' <span class="pill pill-coral" style="padding:1px 6px">'+n+'</span>':'';
+  return '<div class="flex wrap gap8 mt16"><button class="chip '+(t==='mine'?'is-on':'')+'" data-action="doc-tab" data-tab="mine">'+ICON.doc+' Text &amp; Docs</button>'
+    +'<button class="chip '+(t==='audio'?'is-on':'')+'" data-action="doc-tab" data-tab="audio">'+ICON.bolt+' Audio'+badge(ap)+'</button>'
+    +'<button class="chip '+(t==='video'?'is-on':'')+'" data-action="doc-tab" data-tab="video">'+ICON.image+' Video'+badge(vp)+'</button>'
     +'<button class="chip '+(t==='bulk'?'is-on':'')+'" data-action="doc-tab" data-tab="bulk">'+ICON.grid+' Bulk Ingestion</button></div>';
 }
 
@@ -1919,7 +2009,7 @@ function bulkWizard(){
       +(cfg.source==='api'?'<div class="card mono mt8" style="padding:12px;font-size:12px"><div>POST https://api.cueval.ai/v1/bulk/'+currentTenant.slug+'/push</div><div class="muted mt4">Authorization: Bearer sk_live_••••••••••••7f3a</div></div>'
         :'<div class="mt12"><label class="field-label">Bucket path</label><input class="input mono" value="'+escapeAttr(cfg.bucket)+'" data-action="bulk-field" data-key="bucket"></div>'
          +'<div class="mt8"><label class="field-label">Credentials</label><div class="input" style="background:var(--bg-elevated);color:var(--text-muted)">Auto-detected from server config</div></div>')
-      +'<div class="section-h mt16">Document types</div><div class="flex wrap gap6">'+bulkCheck('type','pdf-digital','PDF (digital)',cfg)+bulkCheck('type','pdf-scanned','PDF (scanned)',cfg)+bulkCheck('type','docx','DOCX',cfg)+bulkCheck('type','image','Images only',cfg)+'</div>'
+      +'<div class="section-h mt16">Document &amp; media types</div><div class="flex wrap gap6">'+bulkCheck('type','pdf-digital','PDF (digital)',cfg)+bulkCheck('type','pdf-scanned','PDF (scanned)',cfg)+bulkCheck('type','docx','DOCX',cfg)+bulkCheck('type','audio','Audio files',cfg)+bulkCheck('type','video','Video files',cfg)+bulkCheck('type','image','Images only',cfg)+'</div>'
       +'<div class="grid-2 mt16"><div class="card" style="padding:12px;background:var(--bg-base)"><div class="muted" style="font-size:11px">ESTIMATED COUNT (after path scan)</div><div class="bignum" style="font-size:22px">51,240</div><div class="muted" style="font-size:11px">files</div></div>'
       +'<div class="card" style="padding:12px;background:var(--bg-base)"><div class="muted" style="font-size:11px">ESTIMATED SIZE</div><div class="bignum" style="font-size:22px">284</div><div class="muted" style="font-size:11px">GB</div></div></div></div>';
   } else if(step===2){
@@ -2085,6 +2175,208 @@ function advanceBulkJob(job){
 }
 
 /* ============================================================
+   SECTION I-AV — AUDIO & VIDEO INGESTION MODULE (spec §21)
+   ============================================================ */
+const AUDIO_SEEDS=[
+  { id:'aud1', tenantId:'tenant_pravartak', projectId:'p1', name:'court_hearing_01.mp3', durationSec:5040, language:'hi+en', segments:203, flagged:67, avgSnr:18, transcriptConf:73, speakerCount:3, status:'in_review', seed:3101 },
+  { id:'aud2', tenantId:'tenant_pravartak', projectId:'p3', name:'field_interview_tamil.wav', durationSec:2520, language:'ta', segments:98, flagged:52, avgSnr:12, transcriptConf:54, speakerCount:2, status:'needs_work', seed:3102 },
+  { id:'aud3', tenantId:'tenant_pravartak', projectId:'p2', name:'customer_call_02.mp3', durationSec:1080, language:'en', segments:41, flagged:2, avgSnr:24, transcriptConf:91, speakerCount:2, status:'ready', seed:3103 },
+  { id:'aud4', tenantId:'tenant_legalai', projectId:'p4', name:'deposition_recording_2024.mp3', durationSec:7920, language:'en', segments:312, flagged:28, avgSnr:26, transcriptConf:91, speakerCount:2, status:'ready', seed:3104 },
+  { id:'aud5', tenantId:'tenant_healthbot', projectId:'p7', name:'doctor_patient_hindi_01.wav', durationSec:1080, language:'hi', segments:41, flagged:19, avgSnr:14, transcriptConf:68, speakerCount:2, status:'in_review', seed:3105 },
+];
+const VIDEO_SEEDS=[
+  { id:'vid1', tenantId:'tenant_pravartak', projectId:'p3', name:'heritage_site_scan_hampi.mp4', durationSec:2280, resolution:'4K', language:'ta+en', frames:760, captioned:612, flagged:148, visualScore:78, status:'in_review', seed:4101 },
+  { id:'vid2', tenantId:'tenant_healthbot', projectId:'p7', name:'symptom_explainer_hindi.mp4', durationSec:720, resolution:'720p', language:'hi', frames:240, captioned:240, flagged:31, visualScore:84, status:'ready', seed:4102 },
+];
+const AUDIO_TRANSCRIPTS={
+  en:['The defendant claims that the contract was signed under duress.','Section 302 of the code applies to this matter directly.','We would like to submit the following exhibit for the record.','The witness confirmed the timeline of events as stated.','Payment was due within thirty days of the invoice date.'],
+  hi:['न्यायालय की कार्यवाही अब आरंभ होती है।','धारा 302 के अंतर्गत यह मामला विचारणीय है।','गवाह ने घटनाओं का क्रम स्पष्ट रूप से बताया।','और इसलिए हमारा पक्ष यह है कि निर्णय पुनः विचार योग्य है।'],
+  ta:['இந்த வழக்கு விசாரணைக்கு எடுத்துக்கொள்ளப்படுகிறது.','சாட்சி நிகழ்வுகளின் வரிசையை உறுதிப்படுத்தினார்.','மேலும் இந்தச் சான்று பதிவிற்காக சமர்ப்பிக்கப்படுகிறது.'],
+};
+const FRAME_CAPTIONS=['A person is standing near some equipment outdoors.','A wide shot of a building interior with several people.','Close-up of a document being examined on a table.','An engineer inspecting infrastructure at a site.','A presenter speaking in front of a display screen.','Aerial view of a heritage structure and surroundings.'];
+const ONSCREEN_TEXT=['Tamil Nadu PWD Inspection — March 2024','Slide 4: Post-operative care','Exhibit A — page 12','Hampi Heritage Survey 2024','',''];
+let SEG_UID=0, FRM_UID=0;
+function initAudioVideo(){
+  audioFiles=[]; audioSegments=[]; videoFiles=[]; videoFrames=[];
+  AUDIO_SEEDS.forEach(buildAudioFile);
+  VIDEO_SEEDS.forEach(buildVideoFile);
+  log.info('[boot] audio/video ready — '+audioFiles.length+' audio ('+audioSegments.length+' segs), '+videoFiles.length+' video ('+videoFrames.length+' frames)');
+}
+function langList(code){ return code.split('+').map(c=>c==='en'?'en':c); }
+function buildAudioFile(s){
+  const rand=mkRand(s.seed); const langs=langList(s.language);
+  const file={ id:s.id, tenantId:s.tenantId, projectId:s.projectId, name:s.name, durationSec:s.durationSec,
+    duration:fmtDur(s.durationSec), language:s.language, segments:s.segments, flagged:s.flagged, avgSnr:s.avgSnr,
+    transcriptConf:s.transcriptConf, speakerCount:s.speakerCount, status:s.status, silenceInstances:Math.round(s.durationSec/420),
+    languages: langBreakdown(langs, rand) };
+  // materialise a capped set of segments (perf §10) but keep the flagged count faithful within the sample
+  const sample=Math.min(s.segments, 60); const flaggedSample=Math.round(s.flagged/s.segments*sample);
+  let t=0; for(let i=0;i<sample;i++){ const dur=6+Math.floor(rand()*16); const lang=langs.length>1?(rand()<0.55?langs[0]:langs[1]):langs[0];
+    const isLow = i<flaggedSample; const conf = isLow ? 40+Math.floor(rand()*19) : 70+Math.floor(rand()*29);
+    const clean=(AUDIO_TRANSCRIPTS[lang]||AUDIO_TRANSCRIPTS.en)[Math.floor(rand()*(AUDIO_TRANSCRIPTS[lang]||AUDIO_TRANSCRIPTS.en).length)];
+    audioSegments.push({ id:'seg'+(++SEG_UID), audioId:file.id, tenantId:file.tenantId, index:i, tsStart:t, tsEnd:t+dur, durationSec:dur,
+      script:lang, transcript: conf<70? clean.replace(/\S+/g,(w,idx)=> Math.random()<(70-conf)/90?'[unclear]':w) : clean, cleanText:clean,
+      correctedText:null, confidence:conf, status: conf<60?'pending':'ok', flag:null, correctedBy:null }); t+=dur; }
+  audioFiles.push(file); return file;
+}
+function buildVideoFile(s){
+  const rand=mkRand(s.seed); const langs=langList(s.language);
+  const file={ id:s.id, tenantId:s.tenantId, projectId:s.projectId, name:s.name, durationSec:s.durationSec, duration:fmtDur(s.durationSec),
+    resolution:s.resolution, language:s.language, frames:s.frames, captioned:s.captioned, flagged:s.flagged, visualScore:s.visualScore,
+    audioQuality:71, transcriptConf:61, blurryRemoved:Math.round(s.frames*0.15), darkRemoved:Math.round(s.frames*0.05), sceneChanges:Math.round(s.durationSec/60),
+    contentType:'Documentary / Field recording', status:s.status };
+  const sample=Math.min(s.frames, 48); const flaggedSample=Math.round(s.flagged/s.frames*sample);
+  let t=0; for(let i=0;i<sample;i++){ t+= 8+Math.floor(rand()*90);
+    const isLow=i<flaggedSample; const vscore=isLow?40+Math.floor(rand()*19):70+Math.floor(rand()*29);
+    videoFrames.push({ id:'frm'+(++FRM_UID), videoId:file.id, tenantId:file.tenantId, index:i, timestamp:t, ts:fmtDur(t),
+      caption:FRAME_CAPTIONS[Math.floor(rand()*FRAME_CAPTIONS.length)], onScreenText:ONSCREEN_TEXT[Math.floor(rand()*ONSCREEN_TEXT.length)],
+      correctedCaption:null, visualScore:vscore, captionConf:vscore, blurScore:isLow?30+Math.floor(rand()*20):60+Math.floor(rand()*30),
+      darkness:40+Math.floor(rand()*40), isDuplicate:false, hasFaces:rand()<0.3, consentFlag:false,
+      status: vscore<60?'pending':'ok', flag:null, qaPairs:[], seed:s.seed }); }
+  videoFiles.push(file); return file;
+}
+function fmtDur(sec){ const h=Math.floor(sec/3600), m=Math.floor((sec%3600)/60); return h? (h+'h '+m+'m') : (m+'m'); }
+function langBreakdown(langs, rand){ if(langs.length===1) return [{code:langs[0],pct:100}];
+  const a=55+Math.floor(rand()*15); return [{code:langs[0],pct:a},{code:langs[1],pct:100-a}]; }
+
+/* ---- Audio screen ---- */
+function screenAudio(){
+  const files=getAudioFiles();
+  if(!files.length) return '<div class="mt24">'+emptyState('bolt','No audio yet','Upload audio to transcribe, segment, and curate for ASR training.',(can('Datasets')?'<button class="btn btn-primary" data-action="upload-audio">'+ICON.upload+'Upload Audio</button>':''))+'</div>';
+  let rows='';
+  files.forEach(f=>{ rows+='<tr data-action="open-audio" data-id="'+f.id+'"><td><div class="flex gap8">'+ICON.bolt+'<span class="mono">'+escapeHtml(f.name)+'</span></div></td>'
+    +'<td class="mono">'+escapeHtml(f.duration)+'</td><td>'+f.language.split('+').map(l=>langPill(l)).join(' ')+'</td>'
+    +'<td class="mono">'+f.segments+(f.flagged?' <span class="score-bad">('+f.flagged+'⚠)</span>':'')+'</td>'
+    +'<td class="mono">'+f.avgSnr+'dB</td><td>'+mediaConfPill(f.transcriptConf)+'</td><td>'+audioStatusPill(f.status)+'</td></tr>'; });
+  const pend=audioPendingCount();
+  const banner=pend>0?'<div class="warn-banner warn-yellow">'+ICON.warn+'<span>'+pend+' audio segment'+(pend!==1?'s':'')+' below 60% confidence need correction.</span><div style="flex:1"></div><button class="btn btn-sm btn-ghost" data-action="goto-audio-corr">'+ICON.pencil+'Correct Audio</button></div>':'';
+  const upload=can('Datasets')?'<div class="row-between mb12"><span class="secondary" style="font-size:12px">~4 min per hour of audio on GPU</span><button class="btn btn-primary btn-sm" data-action="upload-audio">'+ICON.upload+'Upload Audio</button></div>':'';
+  return '<div class="mt16">'+upload+banner+'<div class="card" style="padding:0;overflow:auto"><table class="tbl"><thead><tr><th>Filename</th><th>Duration</th><th>Language</th><th>Segments</th><th>Avg SNR</th><th>Transcript Conf</th><th>Status</th></tr></thead><tbody>'+rows+'</tbody></table></div></div>';
+}
+function panelAudio(id){
+  const f=byId(getAudioFiles(),id); if(!f||!assertTenant(f)) return;
+  const segs=segmentsForAudio(id);
+  const metric=(label,val,pct,note)=>'<div class="mt8"><div class="row-between" style="font-size:12px"><span class="secondary">'+label+'</span><span>'+val+(note?' <span class="muted">'+note+'</span>':'')+'</span></div>'+meter(pct,mediaConfColor(pct)==='green'?'var(--green)':mediaConfColor(pct)==='yellow'?'var(--yellow)':'var(--red)')+'</div>';
+  let lang=f.languages.map(l=>'<div class="mt8"><div class="row-between" style="font-size:12px"><span>'+escapeHtml(LANG_LABEL[l.code]||l.code)+'</span><span>'+l.pct+'%</span></div>'+meter(l.pct,LANG_COLOR[l.code]||'#888')+'</div>').join('');
+  let segRows=''; segs.slice(0,40).forEach(sg=>{ segRows+='<tr data-action="open-audio-seg" data-id="'+sg.id+'"><td class="mono muted">'+String(sg.index+1).padStart(3,'0')+'</td><td class="mono">'+fmtTs(sg.tsStart)+'–'+fmtTs(sg.tsEnd)+'</td><td class="mono">'+sg.durationSec+'s</td>'
+    +'<td class="truncate" style="max-width:180px">'+escapeHtml(truncate(sg.transcript,42))+'</td><td>'+mediaConfPill(sg.confidence)+'</td><td>'+(sg.status==='pending'?'🔴':sg.status==='corrected'?'✅':sg.confidence<85?'⚠️':'✅')+'</td></tr>'; });
+  const html='<div class="flex gap8">'+audioStatusPill(f.status)+'<span class="badge-fmt">'+escapeHtml(f.duration)+'</span>'+f.language.split('+').map(l=>langPill(l)).join(' ')+'</div>'
+    +'<div class="grid-2 mt16"><div class="card" style="padding:12px"><div class="muted" style="font-size:11px">SEGMENTS</div><div class="bignum" style="font-size:22px">'+f.segments+'</div></div>'
+    +'<div class="card" style="padding:12px"><div class="muted" style="font-size:11px">FLAGGED</div><div class="bignum '+(f.flagged?'score-bad':'score-good')+'" style="font-size:22px">'+f.flagged+'</div></div></div>'
+    +'<div class="section-h mt16">Quality metrics</div>'+metric('SNR', f.avgSnr+'dB', Math.min(100,f.avgSnr*4), f.avgSnr>=15?'Good':'Noisy')+metric('Transcript confidence', f.transcriptConf+'%', f.transcriptConf)
+    +'<div class="row-between mt8" style="font-size:12px"><span class="secondary">Speaker count</span><span>'+f.speakerCount+' (multi)</span></div>'
+    +'<div class="row-between mt4" style="font-size:12px"><span class="secondary">Clipping</span><span class="score-good">None ✅</span></div>'
+    +'<div class="row-between mt4" style="font-size:12px"><span class="secondary">Silence &gt; 3s</span><span class="score-mid">'+f.silenceInstances+' instances ⚠️</span></div>'
+    +'<div class="section-h mt16">Language breakdown</div>'+lang
+    +'<div class="flex gap8 mt16"><button class="btn btn-ghost btn-sm" data-action="audio-segments" data-id="'+f.id+'">'+ICON.grid+'View Segments</button>'
+    +(f.flagged?'<button class="btn btn-primary btn-sm" data-action="goto-audio-corr" data-id="'+f.id+'">'+ICON.pencil+'Start Review</button>':'')
+    +'<button class="btn btn-ghost btn-sm" data-action="export-audio" data-id="'+f.id+'">'+ICON.download+'Export</button></div>'
+    +'<div class="section-h mt16">Segments</div><div class="card" style="padding:0;overflow:auto;max-height:34vh"><table class="tbl"><thead><tr><th>Seg</th><th>Time</th><th>Dur</th><th>Transcript</th><th>Conf</th><th></th></tr></thead><tbody>'+segRows+'</tbody></table></div>';
+  openPanel(html, f.name);
+}
+
+/* ---- Video screen ---- */
+function screenVideo(){
+  const files=getVideoFiles();
+  if(appState.videoView==='frames' && activeVideo()) return videoFrameGallery(activeVideo());
+  if(!files.length) return '<div class="mt24">'+emptyState('image','No video yet','Upload video to extract keyframes, caption, and build VideoQA data.',(can('Datasets')?'<button class="btn btn-primary" data-action="upload-video">'+ICON.upload+'Upload Video</button>':''))+'</div>';
+  let rows='';
+  files.forEach(f=>{ rows+='<tr data-action="open-video" data-id="'+f.id+'"><td><div class="flex gap8">'+ICON.image+'<span class="mono">'+escapeHtml(f.name)+'</span></div></td>'
+    +'<td class="mono">'+escapeHtml(f.duration)+'</td><td class="mono">'+escapeHtml(f.resolution)+'</td><td class="mono">'+f.frames+'</td><td class="mono">'+f.captioned+'</td>'
+    +'<td>'+mediaConfPill(f.visualScore)+'</td><td>'+audioStatusPill(f.status)+'</td></tr>'; });
+  const pend=videoPendingCount();
+  const banner=pend>0?'<div class="warn-banner warn-yellow">'+ICON.warn+'<span>'+pend+' video frame'+(pend!==1?'s':'')+' pending caption review.</span><div style="flex:1"></div><button class="btn btn-sm btn-ghost" data-action="goto-video-corr">'+ICON.pencil+'Review Frames</button></div>':'';
+  const upload=can('Datasets')?'<div class="row-between mb12"><span class="secondary" style="font-size:12px">~12 min per hour of video</span><button class="btn btn-primary btn-sm" data-action="upload-video">'+ICON.upload+'Upload Video</button></div>':'';
+  return '<div class="mt16">'+upload+banner+'<div class="card" style="padding:0;overflow:auto"><table class="tbl"><thead><tr><th>Filename</th><th>Duration</th><th>Resolution</th><th>Frames</th><th>Captions</th><th>Visual Score</th><th>Status</th></tr></thead><tbody>'+rows+'</tbody></table></div></div>';
+}
+function panelVideo(id){
+  const f=byId(getVideoFiles(),id); if(!f||!assertTenant(f)) return;
+  const metric=(label,val,pct)=>'<div class="mt8"><div class="row-between" style="font-size:12px"><span class="secondary">'+label+'</span><span>'+val+'</span></div>'+meter(pct,mediaConfColor(pct)==='green'?'var(--green)':mediaConfColor(pct)==='yellow'?'var(--yellow)':'var(--red)')+'</div>';
+  const html='<div class="flex gap8">'+audioStatusPill(f.status)+'<span class="badge-fmt">'+escapeHtml(f.duration)+'</span><span class="badge-fmt">'+escapeHtml(f.resolution)+'</span>'+f.language.split('+').map(l=>langPill(l)).join(' ')+'</div>'
+    +'<div class="grid-2 mt16"><div class="card" style="padding:12px"><div class="muted" style="font-size:11px">FRAMES</div><div class="bignum" style="font-size:22px">'+f.frames+'</div></div>'
+    +'<div class="card" style="padding:12px"><div class="muted" style="font-size:11px">FLAGGED</div><div class="bignum '+(f.flagged?'score-bad':'score-good')+'" style="font-size:22px">'+f.flagged+'</div></div></div>'
+    +'<div class="section-h mt16">Quality metrics</div>'+metric('Visual clarity', f.visualScore+'%', f.visualScore)+metric('Audio quality', f.audioQuality+'%', f.audioQuality)+metric('Transcript confidence', f.transcriptConf+'%', f.transcriptConf)
+    +'<div class="row-between mt8" style="font-size:12px"><span class="secondary">Blurry frames</span><span>'+f.blurryRemoved+' removed</span></div>'
+    +'<div class="row-between mt4" style="font-size:12px"><span class="secondary">Dark frames</span><span>'+f.darkRemoved+' removed</span></div>'
+    +'<div class="row-between mt4" style="font-size:12px"><span class="secondary">Scene changes</span><span>'+f.sceneChanges+' detected</span></div>'
+    +'<div class="section-h mt16">Content type</div><div class="pill pill-blue">● '+escapeHtml(f.contentType)+'</div>'
+    +'<div class="flex wrap gap8 mt16"><button class="btn btn-ghost btn-sm" data-action="video-frames" data-id="'+f.id+'">'+ICON.grid+'View Frames</button>'
+    +(f.flagged?'<button class="btn btn-primary btn-sm" data-action="goto-video-corr" data-id="'+f.id+'">'+ICON.pencil+'Start Review</button>':'')
+    +'<button class="btn btn-ghost btn-sm" data-action="gen-video-qa" data-id="'+f.id+'">'+ICON.sparkles+'Generate QA Pairs</button>'
+    +'<button class="btn btn-ghost btn-sm" data-action="export-video" data-id="'+f.id+'">'+ICON.download+'Export</button></div>';
+  openPanel(html, f.name);
+}
+function videoFrameGallery(f){
+  const frames=framesForVideo(f.id); const per=12; const pages=Math.ceil(frames.length/per);
+  if(appState.framePage>=pages) appState.framePage=0;
+  const slice=frames.slice(appState.framePage*per, appState.framePage*per+per);
+  const head='<div class="row-between"><div><button class="btn btn-sm btn-ghost" data-action="video-back">'+ICON.chevR+' Video</button><h1 class="page-h mt8">'+escapeHtml(f.name)+'</h1><p class="page-sub">'+frames.length+' keyframes · click a frame to caption</p></div></div>';
+  let grid='<div class="grid-3" style="grid-template-columns:repeat(4,1fr);gap:14px">';
+  slice.forEach(fr=>{ grid+='<div data-action="open-frame" data-id="'+fr.id+'" style="cursor:pointer">'+frameThumb(fr.seed, fr.index, fr.ts, fr.status)+'</div>'; });
+  grid+='</div>';
+  const pager=pages>1?'<div class="flex gap8 mt16" style="justify-content:center;align-items:center"><button class="btn btn-ghost btn-sm" data-action="frame-page" data-dir="-1">Prev</button><span class="muted">Page '+(appState.framePage+1)+' of '+pages+'</span><button class="btn btn-ghost btn-sm" data-action="frame-page" data-dir="1">Next</button></div>':'';
+  return head+'<div class="mt24">'+grid+pager+'</div>';
+}
+function panelFrame(id){
+  const fr=byId(getVideoFrames(),id); if(!fr||!assertTenant(fr)) return; const f=byId(videoFiles,fr.videoId);
+  const html=frameThumb(fr.seed, fr.index, fr.ts, fr.status)
+    +'<div class="flex gap8 mt12">'+mediaConfPill(fr.visualScore)+'<span class="badge-fmt">'+escapeHtml(fr.ts)+'</span></div>'
+    +'<div class="section-h mt16">Auto caption</div><div class="card" style="padding:12px">'+escapeHtml(fr.correctedCaption||fr.caption)+'</div>'
+    +(fr.onScreenText?'<div class="section-h mt16">On-screen text (OCR)</div><div class="card mono" style="padding:12px;font-size:12px">'+escapeHtml(fr.onScreenText)+'</div>':'')
+    +(fr.status==='pending'?'<button class="btn btn-primary mt16" data-action="goto-video-corr" data-id="'+f.id+'">'+ICON.pencil+'Correct this frame</button>':'');
+  openPanel(html, 'Frame '+String(fr.index+1).padStart(3,'0'));
+}
+
+/* ---- Audio correction pane (Review Queue → Audio Corrections) ---- */
+function audioCorrQueue(){ return getAudioSegments().filter(s=>s.status==='pending').sort((a,b)=>a.confidence-b.confidence); }
+function reviewAudioPane(){
+  const q=audioCorrQueue();
+  if(!q.length) return emptyState('check','No audio corrections pending','All low-confidence segments are corrected. ✅','');
+  if(appState.reviewIndex>=q.length) appState.reviewIndex=0;
+  const sg=q[appState.reviewIndex]; const f=byId(audioFiles,sg.audioId);
+  const wave='<div class="card" style="padding:14px">'+waveformSvg((sg.index+1)*13+ (f?f.durationSec:0), true)
+    +'<div class="row-between mono muted mt4" style="font-size:11px"><span>'+fmtTs(sg.tsStart)+'</span><span>'+fmtTs(sg.tsEnd)+'</span></div>'
+    +'<div class="flex gap8 mt12"><button class="btn btn-ghost btn-sm" data-action="media-play">▶ Play</button><button class="btn btn-ghost btn-sm" data-action="media-play">⟳ Replay 3s</button><span class="chip">0.75×</span><span class="chip is-on">1×</span><span class="chip">1.5×</span></div></div>';
+  const flags=['Background noise','Wrong speaker','Unclear speech','Domain term error','Unusable — discard'];
+  const flagRow='<div class="flex wrap gap6 mt8">'+flags.map(fl=>'<button class="chip'+(sg.flag===fl?' is-on':'')+'" data-action="audio-flag" data-id="'+sg.id+'" data-flag="'+escapeAttr(fl)+'">'+escapeHtml(fl)+'</button>').join('')+'</div>';
+  const editor='<div class="card"><div class="row-between"><span class="section-h" style="margin:0">Auto transcript</span>'+mediaConfPill(sg.confidence)+'</div>'
+    +'<div class="card mono" style="padding:12px;font-size:13px;background:var(--bg-base)">'+escapeHtml(sg.transcript)+'</div>'
+    +'<div class="section-h mt16">Your correction</div><textarea class="input" id="audio-text" style="min-height:90px">'+escapeHtml(sg.correctedText||sg.cleanText)+'</textarea>'
+    +'<div class="section-h mt16">Flag</div>'+flagRow
+    +'<div class="flex gap8 mt16 wrap"><button class="btn btn-green" data-action="audio-accept" data-id="'+sg.id+'">'+ICON.check+'Accept Auto <span class="kbd">A</span></button>'
+    +'<button class="btn btn-primary" data-action="audio-save" data-id="'+sg.id+'">'+ICON.check+'Save <span class="kbd">S</span></button>'
+    +'<button class="btn btn-red" data-action="audio-discard" data-id="'+sg.id+'">'+ICON.x+'Discard <span class="kbd">D</span></button>'
+    +'<button class="btn btn-ghost" data-action="audio-skip">'+ICON.skip+'Skip <span class="kbd">→</span></button></div></div>';
+  const hdr='<div class="row-between"><div class="secondary">'+escapeHtml(f?f.name:'')+' · '+escapeHtml(LANG_LABEL[sg.script]||sg.script)+' · '+fmtTs(sg.tsStart)+'–'+fmtTs(sg.tsEnd)+'</div><div class="flex gap6"><button class="btn btn-sm btn-ghost" data-action="audio-prev">◄</button><span class="muted">Segment '+(appState.reviewIndex+1)+' of '+q.length+'</span><button class="btn btn-sm btn-ghost" data-action="audio-skip">►</button></div></div>';
+  return hdr+'<div class="mt16" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start">'+wave+editor+'</div>';
+}
+
+/* ---- Video correction pane (Review Queue → Video Corrections) ---- */
+function videoCorrQueue(){ return getVideoFrames().filter(fr=>fr.status==='pending').sort((a,b)=>a.visualScore-b.visualScore); }
+function reviewVideoPane(){
+  const q=videoCorrQueue();
+  if(!q.length) return emptyState('check','No video corrections pending','All flagged frames have been captioned. ✅','');
+  if(appState.reviewIndex>=q.length) appState.reviewIndex=0;
+  const fr=q[appState.reviewIndex]; const f=byId(videoFiles,fr.videoId);
+  const left='<div class="card">'+frameThumb(fr.seed, fr.index, fr.ts, fr.status)
+    +'<div class="flex gap8 mt12"><button class="btn btn-ghost btn-sm" data-action="frame-nav" data-dir="-1">◄ Prev frame</button><button class="btn btn-ghost btn-sm" data-action="video-skip">► Next frame</button><button class="btn btn-ghost btn-sm" data-action="media-play">▶ Play clip ±5s</button></div></div>';
+  const flags=['Blurry/unclear','Wrong scene boundary','Sensitive content','Discard frame'];
+  const flagRow='<div class="flex wrap gap6 mt8">'+flags.map(fl=>'<button class="chip'+(fr.flag===fl?' is-on':'')+'" data-action="video-flag" data-id="'+fr.id+'" data-flag="'+escapeAttr(fl)+'">'+escapeHtml(fl)+'</button>').join('')+'</div>';
+  const right='<div class="card"><div class="row-between"><span class="section-h" style="margin:0">Auto caption</span>'+mediaConfPill(fr.visualScore)+'</div>'
+    +'<div class="card" style="padding:12px;background:var(--bg-base)">'+escapeHtml(fr.caption)+'</div>'
+    +(fr.onScreenText?'<div class="section-h mt12">On-screen text detected</div><div class="card mono" style="padding:10px;font-size:12px">'+escapeHtml(fr.onScreenText)+'</div>':'')
+    +'<div class="section-h mt16">Your caption</div><textarea class="input" id="video-caption" style="min-height:80px;font-family:var(--font-body)">'+escapeHtml(fr.correctedCaption||fr.caption)+'</textarea>'
+    +'<div class="section-h mt16">Generate QA pair from this frame</div><input class="input mb8" id="video-q" placeholder="Question" value="What is shown in this frame?"><input class="input" id="video-a" placeholder="Answer" value="">'
+    +'<div class="section-h mt16">Flag</div>'+flagRow
+    +'<div class="flex gap8 mt16 wrap"><button class="btn btn-green" data-action="video-accept" data-id="'+fr.id+'">'+ICON.check+'Accept Auto <span class="kbd">A</span></button>'
+    +'<button class="btn btn-primary" data-action="video-save" data-id="'+fr.id+'">'+ICON.check+'Save <span class="kbd">S</span></button>'
+    +'<button class="btn btn-red" data-action="video-discard" data-id="'+fr.id+'">'+ICON.x+'Discard <span class="kbd">D</span></button>'
+    +'<button class="btn btn-ghost" data-action="video-skip">'+ICON.skip+'Skip <span class="kbd">→</span></button></div></div>';
+  const hdr='<div class="row-between"><div class="secondary">'+escapeHtml(f?f.name:'')+' · '+escapeHtml(f?f.language:'')+' · '+escapeHtml(fr.ts)+'</div><div class="flex gap6"><button class="btn btn-sm btn-ghost" data-action="frame-nav" data-dir="-1">◄</button><span class="muted">Frame '+(appState.reviewIndex+1)+' of '+q.length+'</span><button class="btn btn-sm btn-ghost" data-action="video-skip">►</button></div></div>';
+  return hdr+'<div class="mt16" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start">'+left+right+'</div>';
+}
+
+/* ============================================================
    SECTION J — AUTH, DROPDOWNS, PALETTE, MODALS
    ============================================================ */
 function doLogin(email, pass){
@@ -2165,7 +2457,9 @@ function paletteItems(q){ q=(q||'').toLowerCase(); const items=[];
     add('Documents','sparkles','Generate pairs from '+truncate(dd.name,28),'configure-synthesis',{id:dd.id}); });
   let rc=0; if(q) getDatasets().forEach(d=>d.rows.forEach(r=>{ if(rc<40 && (r.instruction||'').toLowerCase().includes(q)){ add('Rows','pencil',truncate(r.instruction,50),'open-row',{id:r.id}); rc++; } }));
   getBulkJobs().forEach(j=>add('Bulk Jobs','grid',j.name,'bulk-open',{id:j.id}));
-  [['Upload dataset','upload-dataset',null],['Upload document','upload-document',null],['Correct OCR regions','goto-ocr',null],['Start bulk ingestion job','bulk-start',null],['View bulk job status','bulk-status',null],['View deduplication report','bulk-status',null],['View annotation project','goto-annotation',null],['Run eval','nav','eval'],['New project','new-project',null],['New experiment','new-experiment',null],['About platform / Guide','nav','guide'],['Open FAQ','nav','guide']].forEach(a=>add('Actions','plus',a[0],a[1],a[2]?{view:a[2]}:{}));
+  getAudioFiles().forEach(f=>add('Audio','bolt',f.name,'open-audio',{id:f.id}));
+  getVideoFiles().forEach(f=>add('Video','image',f.name,'open-video',{id:f.id}));
+  [['Upload dataset','upload-dataset',null],['Upload document','upload-document',null],['Correct OCR regions','goto-ocr',null],['Start bulk ingestion job','bulk-start',null],['View bulk job status','bulk-status',null],['View deduplication report','bulk-status',null],['View annotation project','goto-annotation',null],['Run eval','nav','eval'],['New project','new-project',null],['New experiment','new-experiment',null],['About platform / Guide','nav','guide'],['Open FAQ','nav','guide'],['Upload audio','upload-audio',null],['Upload video','upload-video',null],['Correct audio segments','goto-audio-corr',null],['Review video frames','goto-video-corr',null]].forEach(a=>add('Actions','plus',a[0],a[1],a[2]?{view:a[2]}:{}));
   const filtered = q ? items.filter(i=>i.label.toLowerCase().includes(q)||i.group.toLowerCase().includes(q)) : items.slice(0,12);
   return filtered.slice(0,40);
 }
@@ -2250,6 +2544,36 @@ function dispatch(action, d){
     case 'back-to-review': appState.annotationJobId=null; renderView(); break;
     case 'reassign-load': showToast('Reassignment flow is mocked — load balanced across team','info'); break;
     case 'assign-now': showToast('Assign annotator flow is mocked','info'); break;
+    // --- Audio & video module (spec §21) ---
+    case 'upload-audio': uploadMediaModal('audio'); break;
+    case 'upload-video': uploadMediaModal('video'); break;
+    case 'open-audio': panelAudio(d.id); break;
+    case 'open-video': panelVideo(d.id); break;
+    case 'open-audio-seg': { const s=findSegment(d.id); if(s){ appState.audioId=s.audioId; } showToast('Segment '+String((s?s.index:0)+1).padStart(3,'0')+' — open Audio Corrections to edit','info'); break; }
+    case 'audio-segments': panelAudio(d.id); break;
+    case 'video-frames': closePanel(); setView('documents'); appState.docTab='video'; appState.videoId=d.id; appState.videoView='frames'; appState.framePage=0; renderView(); break;
+    case 'video-back': appState.videoView='list'; renderView(); break;
+    case 'open-frame': panelFrame(d.id); break;
+    case 'frame-page': appState.framePage=Math.max(0,appState.framePage+(+d.dir)); renderView(); break;
+    case 'goto-audio-corr': closePanel(); setView('review'); appState.reviewTab='audio'; appState.reviewIndex=0; renderView(); break;
+    case 'goto-video-corr': closePanel(); setView('review'); appState.reviewTab='video'; appState.reviewIndex=0; renderView(); break;
+    case 'media-play': showToast('Playback simulated in prototype','info'); break;
+    case 'audio-accept': audioCorrect(d.id,'accept'); break;
+    case 'audio-save': audioCorrect(d.id,'save'); break;
+    case 'audio-discard': audioCorrect(d.id,'discard'); break;
+    case 'audio-skip': appState.reviewIndex++; renderView(); break;
+    case 'audio-prev': appState.reviewIndex=Math.max(0,appState.reviewIndex-1); renderView(); break;
+    case 'audio-flag': { const s=findSegment(d.id); if(s){ s.flag=s.flag===d.flag?null:d.flag; renderView(); } break; }
+    case 'video-accept': videoCorrect(d.id,'accept'); break;
+    case 'video-save': videoCorrect(d.id,'save'); break;
+    case 'video-discard': videoCorrect(d.id,'discard'); break;
+    case 'video-skip': appState.reviewIndex++; renderView(); break;
+    case 'frame-nav': appState.reviewIndex=Math.max(0,appState.reviewIndex+(+d.dir)); renderView(); break;
+    case 'video-flag': { const fr=findFrame(d.id); if(fr){ fr.flag=fr.flag===d.flag?null:d.flag; renderView(); } break; }
+    case 'gen-video-qa': showToast('VideoQA pair generation simulated — see the Video Corrections tab','info'); break;
+    case 'export-audio': exportMedia('audio', d.id); break;
+    case 'export-video': exportMedia('video', d.id); break;
+    case 'do-export-media': doExportMedia(d.kind, d.id); break;
     case 'open-row': panelRow(d.id); break;
     case 'review-row': reviewRow(d.id, d.do, d.queue==='1'); break;
     case 'edit-row': editRowModal(d.id, false); break;
@@ -2635,6 +2959,101 @@ function exportFailureLog(id){
   log.event('bulk:export-failures',{id}); showToast('Failure log exported','ok');
 }
 
+/* ---- Audio & video handlers (spec §21) ---- */
+function audioCorrect(id, action){
+  const sg=findSegment(id); if(!sg||!assertTenant(sg)) return;
+  if(!can('Annotation')){ showToast('You lack annotation permission','error'); return; }
+  if(action==='discard'){ sg.status='discarded'; }
+  else { const ta=el('audio-text'); sg.correctedText = action==='accept' ? sg.cleanText : (ta?ta.value:sg.cleanText); sg.status='corrected'; }
+  sg.correctedBy=currentUser.name;
+  recomputeAudio(sg.audioId);
+  log.event('audio:'+action,{seg:id});
+  pushActivity((action==='discard'?'discarded':'corrected')+' an audio segment');
+  showToast(action==='discard'?'Segment discarded':'Segment corrected','ok');
+  renderView();
+}
+function videoCorrect(id, action){
+  const fr=findFrame(id); if(!fr||!assertTenant(fr)) return;
+  if(!can('Annotation')){ showToast('You lack annotation permission','error'); return; }
+  if(action==='discard'){ fr.status='discarded'; }
+  else { const ta=el('video-caption'); fr.correctedCaption = action==='accept' ? fr.caption : (ta?ta.value:fr.caption); fr.status='corrected';
+    const q=el('video-q'), a=el('video-a'); if(q&&a&&a.value.trim()) fr.qaPairs.push({q:q.value, a:a.value}); }
+  recomputeVideo(fr.videoId);
+  log.event('video:'+action,{frame:id});
+  pushActivity((action==='discard'?'discarded':'captioned')+' a video frame');
+  showToast(action==='discard'?'Frame discarded':'Frame captioned','ok');
+  renderView();
+}
+function recomputeAudio(audioId){ const f=byId(audioFiles,audioId); if(!f) return;
+  const segs=audioSegments.filter(s=>s.audioId===audioId); const pend=segs.filter(s=>s.status==='pending').length;
+  f.flagged=pend; if(pend===0 && f.status!=='ready') f.status='ready'; }
+function recomputeVideo(videoId){ const f=byId(videoFiles,videoId); if(!f) return;
+  const frs=videoFrames.filter(x=>x.videoId===videoId); const pend=frs.filter(x=>x.status==='pending').length;
+  f.flagged=pend; if(pend===0 && f.status!=='ready') f.status='ready'; }
+const MEDIA_FORMATS={ audio:['Whisper (ASR)','Mozilla DeepSpeech','Common Voice','Custom JSONL'], video:['VideoQA JSONL','Frame + Caption JSONL'] };
+function uploadMediaModal(kind){
+  if(!can('Datasets')){ showToast('You lack permission','error'); return; }
+  const accept = kind==='audio'?'.mp3,.wav,.flac,.ogg,.m4a':'.mp4,.mov,.avi,.mkv';
+  const est = kind==='audio'?'~4 min per hour of audio on GPU':'~12 min per hour of video';
+  openModal('<div class="modal-head"><strong>Upload '+(kind==='audio'?'Audio':'Video')+'</strong><button class="icon-btn" data-action="close-modal">'+ICON.x+'</button></div>'
+    +'<div class="modal-body"><div id="media-drop" style="border:2px dashed var(--border-active);border-radius:14px;padding:40px;text-align:center;cursor:pointer">'
+    +(kind==='audio'?ICON.bolt:ICON.image)+'<div class="mt8">Drop '+kind+' files or click to browse</div><div class="muted mt4" style="font-size:12px">'+(kind==='audio'?'MP3 · WAV · FLAC · OGG · M4A':'MP4 · MOV · AVI · MKV')+'</div>'
+    +'<div class="muted mt4" style="font-size:11px">Est. processing: '+est+'</div>'
+    +'<input type="file" id="media-file" class="hidden" multiple accept="'+accept+'"></div><div id="media-progress" class="hidden mt16"></div></div>');
+  const drop=el('media-drop'), file=el('media-file');
+  drop.onclick=()=>file.click();
+  drop.ondragover=e=>{ e.preventDefault(); drop.style.borderColor='var(--coral)'; };
+  drop.ondragleave=()=>{ drop.style.borderColor='var(--border-active)'; };
+  drop.ondrop=e=>{ e.preventDefault(); handleMediaUpload(kind, Array.from(e.dataTransfer.files||[])); };
+  file.onchange=()=>{ handleMediaUpload(kind, Array.from(file.files||[])); };
+}
+function handleMediaUpload(kind, files){
+  if(!files.length) return; const f=files[0];
+  const steps = kind==='audio'
+    ? ['Normalising format (16kHz WAV)…','Checking audio quality (SNR, clipping, silence)…','Detecting language / speaker count…','Transcribing (Whisper Indic)…','Scoring transcript confidence…','Segmenting into training clips…','Done']
+    : ['Extracting audio track…','Transcribing audio (Whisper)…','Extracting keyframes…','Filtering frames (blur, dark, duplicates)…','Generating captions per frame…','Detecting on-screen text (OCR)…','Scoring visual quality…','Synthesising VideoQA pairs…','Done'];
+  const prog=el('media-progress'); prog.classList.remove('hidden');
+  let i=0; const tick=()=>{ if(!el('media-progress')) return; const done=i>=steps.length-1;
+    prog.innerHTML='<div class="mono muted" style="font-size:11px;margin-bottom:6px">'+escapeHtml(f.name)+'</div><div class="flex gap8">'+(done?ICON.check:'<div class="pill pill-blue">'+(i+1)+'/'+steps.length+'</div>')+'<span>'+escapeHtml(steps[i])+'</span></div><div class="meter mt8"><div class="meter-fill" style="width:'+Math.round((i+1)/steps.length*100)+'%;background:var(--gradient-brand)"></div></div>';
+    i++; if(i<steps.length){ setTimeout(tick,520); } else finalizeMediaUpload(kind, f); };
+  tick();
+}
+function finalizeMediaUpload(kind, file){
+  const seed=(file.name.length*61+kind.length)>>>0; const rand=mkRand(seed);
+  if(kind==='audio'){ const segCount=30+Math.floor(rand()*40), flagged=Math.round(segCount*0.3);
+    const s={ id:'aud'+Date.now(), tenantId:currentTenant.id, projectId:appState.projectId||getProjects()[0]?.id, name:file.name, durationSec:600+Math.floor(rand()*3000), language:'hi+en', segments:segCount, flagged, avgSnr:12+Math.floor(rand()*14), transcriptConf:60+Math.floor(rand()*30), speakerCount:1+Math.floor(rand()*3), status:'in_review', seed };
+    buildAudioFile(s); appState.audioId=s.id;
+    log.event('audio:upload',{id:s.id, segs:segCount}); pushActivity('uploaded audio '+file.name); pushNotif(segCount+' audio segments created from '+file.name,'bolt');
+    showToast(segCount+' segments created, '+flagged+' flagged','ok');
+  } else { const frCount=40+Math.floor(rand()*40), flagged=Math.round(frCount*0.25);
+    const s={ id:'vid'+Date.now(), tenantId:currentTenant.id, projectId:appState.projectId||getProjects()[0]?.id, name:file.name, durationSec:600+Math.floor(rand()*2400), resolution:'1080p', language:'ta+en', frames:frCount, captioned:frCount, flagged, visualScore:55+Math.floor(rand()*35), status:'in_review', seed };
+    buildVideoFile(s); appState.videoId=s.id;
+    log.event('video:upload',{id:s.id, frames:frCount}); pushActivity('uploaded video '+file.name); pushNotif(frCount+' frames extracted from '+file.name,'image');
+    showToast(frCount+' frames extracted, '+flagged+' flagged','ok');
+  }
+  closeModal(); setView('documents'); appState.docTab=kind;
+}
+function exportMedia(kind, id){
+  const formats=MEDIA_FORMATS[kind];
+  let opts=formats.map((fmt,i)=>'<button class="chip'+(i===0?' is-on':'')+'" data-action="toast" data-msg="Exported in '+escapeAttr(fmt)+' format (mock)">'+escapeHtml(fmt)+'</button>').join('');
+  openModal('<div class="modal-head"><strong>Export '+(kind==='audio'?'Audio dataset':'Video dataset')+'</strong><button class="icon-btn" data-action="close-modal">'+ICON.x+'</button></div>'
+    +'<div class="modal-body"><label class="field-label">Format</label><div class="flex wrap gap6">'+opts+'</div>'
+    +'<p class="muted mt16" style="font-size:12px">Only corrected / accepted '+(kind==='audio'?'segments':'frames')+' are included in the export.</p></div>'
+    +'<div class="modal-foot"><button class="btn btn-ghost" data-action="close-modal">Cancel</button><button class="btn btn-primary" data-action="do-export-media" data-kind="'+kind+'" data-id="'+id+'">'+ICON.download+'Export</button></div>');
+}
+function doExportMedia(kind, id){
+  let lines=[];
+  if(kind==='audio'){ const segs=audioSegments.filter(s=>s.audioId===id && (s.status==='corrected'||s.status==='ok'));
+    lines=segs.map(s=>JSON.stringify({ audio_id:s.id, transcript:s.correctedText||s.cleanText, language:s.script, duration:s.durationSec, speaker_id:'spk_01', confidence:+(s.confidence/100).toFixed(2) })); }
+  else { const frs=videoFrames.filter(fr=>fr.videoId===id && (fr.status==='corrected'||fr.status==='ok'));
+    lines=frs.map(fr=>JSON.stringify({ frame_id:fr.id, image_path:fr.id+'.jpg', caption:fr.correctedCaption||fr.caption, on_screen_text:fr.onScreenText, timestamp:fr.timestamp })); }
+  const blob=new Blob([lines.join('\n')||''],{type:'application/jsonl'}); const url=URL.createObjectURL(blob);
+  const file=byId(kind==='audio'?audioFiles:videoFiles,id);
+  const a=document.createElement('a'); a.href=url; a.download=(file?file.name.replace(/\.[^.]+$/,''):kind)+'_'+kind+'.jsonl'; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1000); closeModal();
+  log.event(kind+':export',{id, rows:lines.length}); showToast('Exported '+lines.length+' '+(kind==='audio'?'segments':'frames'),'ok');
+}
+
 /* ---- Global events ---- */
 document.addEventListener('click', e=>{
   const stop=e.target.closest('[data-stop]');
@@ -2665,14 +3084,30 @@ document.addEventListener('keydown', e=>{
     else if(e.key==='Enter'){ e.preventDefault(); runPaletteItem(appState.paletteSel); }
     return;
   }
-  // review queue keyboard shortcuts
-  if(currentUser && currentView==='review' && appState.reviewTab==='datasets' && !el('overlays').innerHTML){
-    const q=reviewQueue(); const cur=q[appState.reviewIndex]; if(!cur) return;
-    const k=e.key.toLowerCase();
-    if(k==='a'){ reviewRow(cur.row.id,'approve',true); }
-    else if(k==='r'){ reviewRow(cur.row.id,'reject',true); }
-    else if(k==='e'){ editRowModal(cur.row.id,true); }
-    else if(k==='s'){ appState.reviewIndex++; renderView(); }
+  // review queue keyboard shortcuts (only when not typing in a field)
+  if(currentUser && currentView==='review' && !el('overlays').innerHTML){
+    const typing = e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
+    const tab=appState.reviewTab; const k=e.key.toLowerCase();
+    if(tab==='datasets'){
+      const q=reviewQueue(); const cur=q[appState.reviewIndex]; if(!cur) return;
+      if(typing) return;
+      if(k==='a'){ reviewRow(cur.row.id,'approve',true); }
+      else if(k==='r'){ reviewRow(cur.row.id,'reject',true); }
+      else if(k==='e'){ editRowModal(cur.row.id,true); }
+      else if(k==='s'){ appState.reviewIndex++; renderView(); }
+    } else if(tab==='audio'){
+      const q=audioCorrQueue(); const sg=q[appState.reviewIndex]; if(!sg) return;
+      if(e.key==='ArrowRight'){ appState.reviewIndex++; renderView(); return; }
+      if(e.key==='ArrowLeft'){ appState.reviewIndex=Math.max(0,appState.reviewIndex-1); renderView(); return; }
+      if(typing) return;
+      if(k==='a') audioCorrect(sg.id,'accept'); else if(k==='s') audioCorrect(sg.id,'save'); else if(k==='d') audioCorrect(sg.id,'discard');
+    } else if(tab==='video'){
+      const q=videoCorrQueue(); const fr=q[appState.reviewIndex]; if(!fr) return;
+      if(e.key==='ArrowRight'){ appState.reviewIndex++; renderView(); return; }
+      if(e.key==='ArrowLeft'){ appState.reviewIndex=Math.max(0,appState.reviewIndex-1); renderView(); return; }
+      if(typing) return;
+      if(k==='a') videoCorrect(fr.id,'accept'); else if(k==='s') videoCorrect(fr.id,'save'); else if(k==='d') videoCorrect(fr.id,'discard');
+    }
   }
 });
 
@@ -2689,6 +3124,7 @@ function initMockData(){
   log.info('[boot] mock data ready — '+datasets.length+' datasets, '+datasets.reduce((a,d)=>a+d.totalRows,0)+' rows');
   initDocuments(); // document ingestion mock data (spec §19)
   initBulkJobs();  // bulk ingestion mock data (spec §20)
+  initAudioVideo();// audio & video mock data (spec §21)
 }
 function boot(){ log.info('[boot] Cueval prototype starting'); initMockData(); renderLogin(); }
 boot();

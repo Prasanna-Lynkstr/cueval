@@ -1397,3 +1397,437 @@ Annotator:   "You have 2,360 Hindi corrections remaining" → [Continue]
 27. Cost tracker increments in real time proportional to job progress.
 28. HealthBot India bulk job must show upgrade CTA blocking further OCR correction — annotation project view shows a locked state with [Upgrade Plan] button.
 29. All bulk job history persists in mock data — switching tenants shows that tenant's jobs only.
+
+---
+
+## 21. AUDIO & VIDEO INGESTION MODULE
+
+### Overview
+Third ingestion modality alongside text datasets and documents. Same unified curation, review, and export layer underneath. Modality-specific processing upstream. Designed to show the concept clearly in the prototype — mock media, real UI.
+
+---
+
+### Supported Formats
+```
+Audio: MP3, WAV, FLAC, OGG, M4A
+Video: MP4, MOV, AVI, MKV
+```
+
+---
+
+### Navigation
+Documents dock icon expands to three tabs:
+```
+📄  Documents
+    ├── Text & Docs     (PDF, DOCX — existing)
+    ├── Audio           (new)
+    └── Video           (new)
+```
+
+---
+
+### Audio Screen
+
+**Upload panel:**
+- Drag and drop zone accepting audio formats
+- Shows duration, file size, format badge on drop
+- Bulk upload supported
+- Estimated processing time shown: "~4 min per hour of audio on GPU"
+
+**Audio pipeline — mock progress steps (animated):**
+```
+→ Normalising format (16kHz WAV)...
+→ Checking audio quality (SNR, clipping, silence)...
+→ Detecting language / speaker count...
+→ Transcribing (Whisper Indic)...
+→ Scoring transcript confidence per word...
+→ Segmenting into training clips...
+→ Done — 847 segments created, 312 flagged for review
+```
+
+**Audio file list view:**
+```
+Filename              Duration   Language   Segments   Avg SNR   Transcript Conf   Status
+court_hearing_01.mp3  1h 24m     Hindi+En   203        18dB      73%               ⚠️ Review
+field_interview_ta.wav 42m       Tamil      98         12dB      54%               🔴 Needs Work
+customer_call_02.mp3  18m        English    41         24dB      91%               ✅ Ready
+```
+
+Color coding:
+- Transcript confidence > 85%: green
+- 60–85%: yellow
+- < 60%: red — human correction mandatory
+
+**Audio detail view (click a file → right panel):**
+```
+┌─────────────────────────────────────────┐
+│  court_hearing_01.mp3                   │
+│  Duration: 1h 24m  |  Language: Hi+En  │
+│  Segments: 203     |  Flagged: 67      │
+│                                         │
+│  Quality Metrics                        │
+│  SNR:              18dB   ████░░  Good  │
+│  Transcript Conf:  73%    ███░░░  Fair  │
+│  Speaker count:    3      (multi)       │
+│  Clipping:         None   ✅            │
+│  Silence > 3s:     12 instances ⚠️      │
+│                                         │
+│  Language breakdown                     │
+│  Hindi    62%  ████████░░               │
+│  English  38%  █████░░░░░               │
+│                                         │
+│  [View Segments] [Start Review]         │
+└─────────────────────────────────────────┘
+```
+
+**Segment table (inside audio detail):**
+```
+Seg    Timestamp      Duration   Transcript (truncated)         Conf   Status
+001    00:00–00:08    8s         "न्यायालय की कार्यवाही..."      89%    ✅
+002    00:08–00:21    13s        "The defendant claims that..."  94%    ✅
+003    00:21–00:29    8s         "aur isliye hamara [unclear]"   41%    🔴
+004    00:29–00:45    16s        "Section 302 ke antargat..."    71%    ⚠️
+```
+
+---
+
+### Audio Correction Queue (new task type in Review Queue)
+
+New tab: **Datasets** | **OCR Corrections** | **Audio Corrections** | **Video Corrections**
+
+**Audio correction task UI:**
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  Audio Correction    Segment 003 of 203   [◄] [►]        │
+│  court_hearing_01.mp3 | Hindi | 00:21–00:29              │
+├──────────────────────────────────────────────────────────┤
+│                                                          │
+│  [Waveform — static SVG visualisation]                   │
+│  ▐▌▐▐▌▌▐▐▌▐▌▐▐▌▌▐▐▌▐▌▐▐▌▌▐▐▌▐▌▐▐▌▌▐▐▌▐▌▐▐▌▌▐▐▌▐▌       │
+│  ◄ 00:21 ──────────────────────────── 00:29 ►           │
+│                                                          │
+│  [▶ Play] [⟳ Replay last 3s] [0.75x] [1x] [1.5x]       │
+│                                                          │
+├──────────────────────────────────────────────────────────┤
+│  Auto Transcript (Confidence: 41%)                       │
+│  ┌────────────────────────────────────────────────────┐  │
+│  │ aur isliye hamara [unclear] ke saath milkar        │  │
+│  │ [inaudible] kar sakte hain                         │  │
+│  └────────────────────────────────────────────────────┘  │
+│                                                          │
+│  Your Correction                                         │
+│  ┌────────────────────────────────────────────────────┐  │
+│  │ aur isliye hamara paksh ke saath milkar            │  │
+│  │ nirnay kar sakte hain                              │  │
+│  └────────────────────────────────────────────────────┘  │
+│                                                          │
+│  Flag:  ○ Background noise  ○ Wrong speaker             │
+│         ○ Unclear speech    ○ Domain term error         │
+│         ○ Unusable — discard this segment               │
+│                                                          │
+│  [Accept Auto] [Save Correction] [Discard] [Skip →]     │
+│  Keyboard: A=Accept  S=Save  D=Discard  →=Skip          │
+└──────────────────────────────────────────────────────────┘
+```
+
+Note: In prototype, waveform is a static SVG illustration. Play button shows a toast "Audio playback simulated". The correction workflow is fully functional with mock data.
+
+---
+
+### Video Screen
+
+**Upload panel:**
+- Drag and drop zone accepting video formats
+- Shows duration, resolution, file size on drop
+- Estimated processing time: "~12 min per hour of video"
+
+**Video pipeline — mock progress steps:**
+```
+→ Extracting audio track...
+→ Transcribing audio (Whisper)...
+→ Extracting keyframes (1 per scene change)...
+→ Filtering frames (blur, dark, duplicates)...
+→ Generating captions per frame...
+→ Detecting on-screen text (OCR on frames)...
+→ Scoring visual quality per frame...
+→ Synthesising VideoQA pairs...
+→ Done — 1,240 frames extracted, 284 captioned, 156 flagged
+```
+
+**Video file list view:**
+```
+Filename               Duration  Resolution  Frames  Captions  Visual Score  Status
+surgery_demo_01.mp4    22m       1080p       440     440       82%           ✅ Ready
+field_audit_tn.mp4     1h 8m     480p        820     612       54%           ⚠️ Review
+lecture_hindi_03.mp4   48m       720p        960     960       91%           ✅ Ready
+```
+
+**Video detail view (right panel):**
+```
+┌─────────────────────────────────────────┐
+│  field_audit_tn.mp4                     │
+│  Duration: 1h 8m  |  Language: Ta+En   │
+│  Frames extracted: 820                  │
+│  Flagged: 208                           │
+│                                         │
+│  Quality Metrics                        │
+│  Visual clarity:   54%   ███░░░  Fair  │
+│  Audio quality:    71%   ████░░  Good  │
+│  Transcript conf:  61%   ███░░░  Fair  │
+│  Blurry frames:    124 removed          │
+│  Dark frames:      43 removed           │
+│  Scene changes:    38 detected          │
+│                                         │
+│  Content type (detected):               │
+│  ● Documentary / Field recording        │
+│                                         │
+│  [View Frames] [View Transcript]        │
+│  [Start Review] [Generate QA Pairs]     │
+└─────────────────────────────────────────┘
+```
+
+**Frame gallery view:**
+Grid of extracted keyframes (mock thumbnail images — use placeholder colored rectangles with frame number overlay in prototype):
+
+```
+┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐
+│ 001 │ │ 002 │ │ 003 │ │ 004 │
+│ ✅  │ │ ⚠️  │ │ ✅  │ │ 🔴  │
+└─────┘ └─────┘ └─────┘ └─────┘
+00:00   00:12   01:04   01:45
+```
+
+Click frame → right panel shows full frame detail with caption editor.
+
+---
+
+### Video Correction Queue
+
+**Video correction task UI:**
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  Video Correction   Frame 156 of 820   [◄] [►]           │
+│  field_audit_tn.mp4 | Tamil+English | 01:45              │
+├──────────────────────────────────────────────────────────┤
+│                                                          │
+│  ┌──────────────────────────────────────┐               │
+│  │                                      │               │
+│  │   [Video frame placeholder —         │               │
+│  │    grey rectangle with timestamp     │               │
+│  │    and frame number overlay]         │               │
+│  │                                      │               │
+│  │   Frame 156 | 01:45                  │               │
+│  └──────────────────────────────────────┘               │
+│  [◄ Prev frame] [► Next frame] [▶ Play clip ±5s]        │
+│                                                          │
+├──────────────────────────────────────────────────────────┤
+│  Auto Caption (Visual Score: 41%)                        │
+│  "A person is standing near some equipment outdoors"     │
+│                                                          │
+│  On-screen text detected:                               │
+│  "Tamil Nadu PWD Inspection — March 2024"               │
+│                                                          │
+│  Your Caption                                            │
+│  ┌────────────────────────────────────────────────────┐  │
+│  │ Field engineer inspecting irrigation canal         │  │
+│  │ infrastructure, Tamil Nadu PWD site visit          │  │
+│  │ March 2024                                         │  │
+│  └────────────────────────────────────────────────────┘  │
+│                                                          │
+│  Generate QA pair from this frame:                       │
+│  Q: [What is the engineer inspecting?              ]     │
+│  A: [Irrigation canal infrastructure               ]     │
+│  [+ Add QA pair]                                        │
+│                                                          │
+│  Flag:  ○ Blurry/unclear  ○ Wrong scene boundary       │
+│         ○ Sensitive content  ○ Discard frame            │
+│                                                          │
+│  [Accept Auto] [Save Caption] [Discard] [Skip →]        │
+└──────────────────────────────────────────────────────────┘
+```
+
+---
+
+### Quality Metrics — Audio & Video Scoring
+
+Add to existing quality scorer mock logic:
+
+**Audio quality score:**
+```
+score = 100
+if SNR < 10dB:          score -= 40   // very noisy
+if SNR < 15dB:          score -= 20   // noisy
+if transcript_conf < 50: score -= 35  // low confidence
+if transcript_conf < 70: score -= 15
+if speaker_count > 2:   score -= 10   // multiple speakers
+if silence_ratio > 0.3: score -= 20   // too much silence
+if duration < 3:        score -= 30   // too short
+if duration > 30:       score -= 10   // consider splitting
+```
+
+**Video quality score:**
+```
+score = 100
+if blur_score < 40:     score -= 35   // blurry frame
+if darkness < 30:       score -= 30   // dark frame
+if caption_conf < 50:   score -= 25   // poor auto-caption
+if is_duplicate_frame:  score -= 50   // near-identical to adjacent frame
+if has_faces and no_consent_flag: score -= 20  // flag for review
+```
+
+---
+
+### Mock Data — Audio & Video
+
+**IITM Pravartak:**
+```javascript
+audioFiles = [
+  {
+    name: "court_hearing_01.mp3",
+    duration: "1h 24m", language: "hi+en",
+    segments: 203, flagged: 67,
+    avgSnr: 18, transcriptConf: 73,
+    status: "in_review"
+  },
+  {
+    name: "field_interview_tamil.wav",
+    duration: "42m", language: "ta",
+    segments: 98, flagged: 52,
+    avgSnr: 12, transcriptConf: 54,
+    status: "needs_work"
+  }
+]
+
+videoFiles = [
+  {
+    name: "heritage_site_scan_hampi.mp4",
+    duration: "38m", resolution: "4K",
+    frames: 760, captioned: 612, flagged: 148,
+    visualScore: 78, status: "in_review"
+  }
+]
+```
+
+**Legal AI Corp:**
+```javascript
+audioFiles = [
+  {
+    name: "deposition_recording_2024.mp3",
+    duration: "2h 12m", language: "en",
+    segments: 312, flagged: 28,
+    avgSnr: 26, transcriptConf: 91,
+    status: "ready"
+  }
+]
+```
+
+**HealthBot India:**
+```javascript
+audioFiles = [
+  {
+    name: "doctor_patient_hindi_01.wav",
+    duration: "18m", language: "hi",
+    segments: 41, flagged: 19,
+    avgSnr: 14, transcriptConf: 68,
+    status: "in_review"
+  }
+]
+videoFiles = [
+  {
+    name: "symptom_explainer_hindi.mp4",
+    duration: "12m", resolution: "720p",
+    frames: 240, captioned: 240, flagged: 31,
+    visualScore: 84, status: "ready"
+  }
+]
+```
+
+---
+
+### Export Formats — Audio & Video
+
+**Audio export:**
+```
+ASR Training (Whisper format):
+{ "audio": "segment_001.wav", "text": "transcript...", "language": "hi" }
+
+Mozilla DeepSpeech format:
+wav_filename, wav_filesize, transcript
+
+Common Voice format:
+client_id, path, sentence, up_votes, down_votes, age, gender, accent
+
+Custom JSONL:
+{ "audio_id": "...", "transcript": "...", "language": "...",
+  "duration": 8.2, "speaker_id": "spk_01", "confidence": 0.89 }
+```
+
+**Video export:**
+```
+VideoQA JSONL:
+{ "video_id": "...", "frame_timestamp": 105.3,
+  "question": "...", "answer": "...", "caption": "..." }
+
+Frame + Caption:
+{ "frame_id": "...", "image_path": "...",
+  "caption": "...", "on_screen_text": "...", "timestamp": 105.3 }
+```
+
+Format selector shown in export modal — same pattern as text dataset export.
+
+---
+
+### Updated Dashboard CTAs
+
+```
+ML Engineer:  "312 audio segments ready for ASR export" → [Export Dataset]
+Annotator:    "52 Tamil audio corrections assigned to you" → [Start Corrections]
+Architect:    "148 video frames pending caption review" → [Review Frames]
+PM:           "field_interview_tamil.wav at 54% transcript confidence — needs attention" → [View]
+```
+
+---
+
+### Updated Bulk Ingestion (Section 20 extension)
+
+Add audio and video to bulk job configuration:
+
+```
+Source types (bulk):
+☑ PDF (digital)   ☑ PDF (scanned)   ☑ DOCX
+☑ Audio files     ☑ Video files
+
+Audio processing:
+Language packs: ☑ English  ☑ Hindi  ☑ Tamil  ☐ Telugu
+Transcription model: ○ Whisper Base  ● Whisper Large  ○ IndicWhisper
+
+Video processing:
+☑ Extract keyframes      Frame interval: [Auto ▾]
+☑ Generate captions      Caption model: [Mock (prototype) ▾]
+☑ Extract audio track    → runs audio pipeline on extracted audio
+☐ OCR on frames          (computationally expensive — opt-in)
+
+Estimated processing (for 10K hours of audio):
+With 2 GPU workers: ~83 hours
+Without GPU: ~830 hours ⚠️ Not recommended at this scale
+```
+
+Bulk job pipeline funnel adds audio/video stages:
+```
+Detected → Deduped → Extracted/Transcribed → Segmented → Scored → Flagged → Ready
+```
+
+---
+
+### Implementation Notes for Claude Code
+
+30. Waveform visualisation: draw as static SVG path using sine wave approximation — no real audio processing needed. Different shape per segment to look unique.
+31. Video frame thumbnails: use CSS gradient rectangles with timestamp overlay — no real video needed. Vary colours per frame to look like different scenes.
+32. Play button for audio/video: show a toast notification "Playback simulated in prototype" — do not attempt real media playback.
+33. Audio correction keyboard shortcuts must work: A = accept, S = save, D = discard, arrow keys = next/prev segment.
+34. Video frame grid: render 12 thumbnails per page, paginate through mock frame list.
+35. Export format selector for audio/video: show format options specific to modality — different from text export options.
+36. Quality score colour coding consistent across all three modalities: green >85%, yellow 60–85%, red <60%.
+37. Review queue tabs update badge counts independently: Datasets | OCR Corrections | Audio Corrections | Video Corrections — each shows its own pending count.
