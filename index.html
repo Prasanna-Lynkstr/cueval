@@ -58,6 +58,7 @@ a{color:inherit;text-decoration:none}
 .case-banner b{color:var(--text-primary);font-weight:600}
 .case-banner .cb-slot{flex:1;min-width:0}
 .case-banner .cb-guide{flex-shrink:0}
+.rest-prompt{position:fixed;right:20px;bottom:20px;width:300px;z-index:150;background:var(--bg-elevated);border:1px solid var(--border-active);border-radius:12px;padding:14px 16px;box-shadow:0 10px 30px rgba(0,0,0,.35)}
 .canvas{overflow:hidden;position:relative;min-height:0}
 .canvas-scroll{position:absolute;inset:0;overflow-y:auto;padding:28px 32px 48px}
 .view-anim{animation:viewIn var(--t-med) ease-out}
@@ -292,6 +293,11 @@ body.impersonating .shell,body.impersonating #app>.shell{margin-top:34px;height:
 .radar-wrap{display:grid;place-items:center}
 .delta-up{color:var(--green)}.delta-down{color:var(--red)}
 .tbl td.hi-var{background:var(--amber-bg,rgba(234,179,8,.14))}
+mark.claim{background:transparent;padding:0 1px;border-radius:2px;cursor:default;text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:2px}
+mark.claim.grounded{text-decoration-color:var(--green);color:inherit}
+mark.claim.Contradiction{text-decoration-color:#F59E0B}
+mark.claim.Fabrication{text-decoration-color:#EF4444}
+mark.claim.Conflation{text-decoration-color:#8B5CF6}
 
 .warn-banner{display:flex;align-items:center;gap:10px;padding:11px 15px;border-radius:11px;font-size:13px;font-weight:500;margin-bottom:16px}
 .warn-yellow{background:rgba(234,179,8,.1);border:1px solid rgba(234,179,8,.35);color:#facc15}
@@ -474,6 +480,14 @@ const users = [
   { id:'u0', email:'superadmin@cueval.ai', name:'Lynkstr Ops', tenantId:null, role:'SuperAdmin', lastActive:'now', projects:0 },
 ];
 const PASSWORD = 'demo123';
+
+// Annotator session-health for fatigue detection (spec §41 Change 9). PM/Admin-visible only; framed as wellbeing.
+let annotatorSessions = [
+  { tenantId:'tenant_nbfc', userId:'un2', name:'Priya Nair', minutes:94, alphaStart:0.81, alphaNow:0.68, fatigue:true, note:'Resumed at 15:52 · α recovered to 0.79' },
+  { tenantId:'tenant_nbfc', userId:'unx', name:'Deepak Rao', minutes:52, alphaStart:0.78, alphaNow:0.77, fatigue:false },
+  { tenantId:'tenant_pravartak', userId:'u6', name:'Neha Shah', minutes:67, alphaStart:0.80, alphaNow:0.79, fatigue:false },
+  { tenantId:'tenant_pravartak', userId:'u5', name:'Ravi Kumar', minutes:71, alphaStart:0.79, alphaNow:0.77, fatigue:false },
+];
 
 // Deterministic PRNG so mock data is stable across reloads (ADR-5).
 function mkRand(seed){ let s=seed>>>0; return ()=>{ s=(s*1664525+1013904223)>>>0; return s/4294967296; }; }
@@ -749,6 +763,7 @@ let activity = [
   { id:'a4', tenantId:'tenant_pravartak', who:'Priya Nair', text:'created release v1.2 — Extended Hindi', time:'4h ago' },
   { id:'a5', tenantId:'tenant_legalai', who:'Sara Iyer', text:'started training for Clause Refinement', time:'1h ago' },
   { id:'a6', tenantId:'tenant_healthbot', who:'Meera Pillai', text:'uploaded triage_hi_en.jsonl (41.2K rows)', time:'5h ago' },
+  { id:'an13', tenantId:'tenant_nbfc', who:'Annotation Router Agent', text:'⏸ Fatigue signal: Priya Nair — α dropped 0.81→0.68 over a 94-min session. Rest prompt shown; resumed at 15:52, α recovered to 0.79.', time:'15:34' },
   // NBFC case study activity trail (spec §39) — the full 8-stage story in chronological order.
   { id:'an1', tenantId:'tenant_nbfc', who:'System', text:'Curation completed — 2,310 rows auto-approved, 490 flagged', time:'04 Apr 09:48' },
   { id:'an2', tenantId:'tenant_nbfc', who:'Priya Nair', text:'completed annotation batch — 156 rows edited, 182 rejected', time:'06 Apr 16:20' },
@@ -1359,6 +1374,7 @@ const GLOSSARY={
   checkpoint:'<b>Checkpoint</b> — a saved snapshot of model weights from a training run, compared against another in the Eval Harness.',
   qualityscore:'<b>Quality score</b> — a 0–100 heuristic per row (length, duplication, PII, format, toxicity). Green ≥70, yellow 45–69, red below 45.',
   diversity:'<b>Diversity score</b> — how evenly the dataset spreads across instruction types. Homogeneous data (one topic asked many ways) generalises poorly even at scale (LIMA, 2023). Over-represented clusters (>30%) and gaps (<5% where production traffic exists) are flagged.',
+  fatigue:'<b>Session health</b> — annotation quality degrades within long sessions (Snow et al., 2008). We watch time-per-row, agreement drift, and edit length; when signals fire we suggest a break. Framed as wellbeing, never surveillance — visible to PM/Admin only.',
 };
 function infoTip(term){ const t=GLOSSARY[term]; if(!t) return ''; return '<span class="info" tabindex="0" role="button" aria-label="What this means">i<span class="info-pop">'+t+'</span></span>'; }
 // Consistent compact empty / loading states for inline regions (UX redesign phase 3).
@@ -1560,7 +1576,7 @@ function roleBoard(role){
     let pipe='<div class="flex gap8 mt16" style="flex-wrap:wrap">'+['draft','in-review','approved','training','deployed'].map(s=>'<div class="card" style="padding:10px 12px;flex:1;min-width:90px;text-align:center"><div class="bignum" style="font-size:18px">'+byStage(s)+'</div><div class="muted" style="font-size:10px;text-transform:capitalize">'+s.replace('-',' ')+'</div></div>').join('')+'</div>';
     const hero=heroCard('rocket',blocked+' release'+(blocked!==1?'s':'')+' blocked','Gates outstanding before sign-off.',
       pri('Open releases','nav','releases'),pipe);
-    return '<div>'+hero+'<div class="grid-3 mt16" style="grid-template-columns:1fr 1fr 1fr;gap:8px">'+statTile('Rows awaiting review',pendingCount(),'yellow')+statTile('Plan usage',usagePct(currentTenant)+'%',(usagePct(currentTenant)>=85?'red':usagePct(currentTenant)>=70?'yellow':'green'))+statTile('AI suggestions used/edited',suggestionAdoption()+'%','green')+'</div></div>';
+    return '<div>'+hero+'<div class="grid-3 mt16" style="grid-template-columns:1fr 1fr 1fr;gap:8px">'+statTile('Rows awaiting review',pendingCount(),'yellow')+statTile('Plan usage',usagePct(currentTenant)+'%',(usagePct(currentTenant)>=85?'red':usagePct(currentTenant)>=70?'yellow':'green'))+statTile('AI suggestions used/edited',suggestionAdoption()+'%','green')+'</div>'+fatiguePanel()+'</div>';
   }
   if(role==='Admin'){
     const us=getUsers();
@@ -1569,7 +1585,7 @@ function roleBoard(role){
       '<div class="flex gap8 mt16">'+ghost('Roles & permissions','nav','settings')+ghost('Plan & usage','nav','settings')+'</div>');
     const lim=currentTenant.planLimits, u=currentTenant.usage;
     const meter2=(label,used,limit)=>{ const pct=limit===Infinity?0:Math.round(used/limit*100); return '<div class="mt8"><div class="row-between" style="font-size:12px"><span class="secondary">'+label+'</span><span class="mono">'+fmtNum(used)+' / '+fmtNum(limit)+'</span></div>'+meter(pct, pct>=85?'var(--red)':pct>=70?'var(--yellow)':'var(--green)')+'</div>'; };
-    return '<div>'+hero+'<div class="card mt16"><div class="section-h">Plan usage</div>'+meter2('Rows',u.rowsThisMonth,lim.rowsPerMonth)+meter2('Eval runs',u.evalRunsThisMonth,lim.evalRunsPerMonth)+meter2('Seats',u.activeUsers,lim.maxUsers)+'</div></div>';
+    return '<div>'+hero+'<div class="card mt16"><div class="section-h">Plan usage</div>'+meter2('Rows',u.rowsThisMonth,lim.rowsPerMonth)+meter2('Eval runs',u.evalRunsThisMonth,lim.evalRunsPerMonth)+meter2('Seats',u.activeUsers,lim.maxUsers)+'</div>'+fatiguePanel()+'</div>';
   }
   // fallback
   return '<div>'+myWorkCard()+'</div>';
@@ -1831,6 +1847,25 @@ function suggestedEditPanel(row){
 function suggestionAdoption(){ const base={used:130,edited:52,own:70}; const s=suggestionStats;
   const used=base.used+s.used, edited=base.edited+s.edited, own=base.own+s.own; const total=used+edited+own||1;
   return Math.round((used+edited)/total*100); }
+// Fatigue detection (spec §41 Change 9) — PM/Admin session-health panel; rest prompt is annotator-facing, non-punitive.
+function getAnnotatorSessions(){ return scoped(annotatorSessions); }
+function fatiguePanel(){
+  const s=getAnnotatorSessions(); if(!s.length) return '';
+  const rows=s.map(a=>{ const drop=+(a.alphaStart-a.alphaNow).toFixed(2);
+    return '<div class="row-between" style="padding:6px 0;border-bottom:1px solid var(--border);font-size:12.5px"><span>'+escapeHtml(a.name)+' <span class="muted">· '+a.minutes+' min</span></span>'
+      +'<span class="flex gap6"><span class="mono">α '+a.alphaStart.toFixed(2)+'→'+a.alphaNow.toFixed(2)+'</span>'
+      +(a.fatigue?'<span class="pill pill-yellow" style="font-size:10px" title="'+escapeAttr(a.note||'')+'">⚠️ Fatigue</span>':'<span class="pill pill-green" style="font-size:10px">✅ Stable</span>')+'</span></div>'; }).join('');
+  return '<div class="card mt16"><div class="section-h">Session health'+infoTip('fatigue')+'</div>'+rows+'</div>';
+}
+// Non-blocking rest prompt for a fatigued annotator (bottom-right, dismissible, wellbeing framing).
+function restPrompt(){
+  if(appState.restDismissed) return '';
+  const me=getAnnotatorSessions().find(a=>a.userId===currentUser.id && a.fatigue);
+  if(!me) return '';
+  return '<div class="rest-prompt" role="status"><div style="font-weight:600;font-size:13px">You\'ve been reviewing for '+me.minutes+' minutes.</div>'
+    +'<div class="secondary" style="font-size:12px;margin-top:4px">Your best work happens in sessions under 90 minutes. Consider a short break?</div>'
+    +'<div class="flex gap8 mt12"><button class="btn btn-ghost btn-sm" data-action="dismiss-rest">Dismiss</button><button class="btn btn-primary btn-sm" data-action="take-break">Take a break — save progress</button></div></div>';
+}
 function flagExplain(f,row){
   switch(f){ case 'duplicate':return 'Exact duplicate of another row in this dataset.';
     case 'near-duplicate':return 'High token overlap (Jaccard > 0.7) with a similar row.';
@@ -1871,7 +1906,7 @@ function screenReview(){
   if(tab==='seeds' && !canSeeCorpusSeeds()){ appState.reviewTab='datasets'; return screenReview(); }
   if(!subs[tab]){ appState.reviewTab='datasets'; return screenReview(); } // guard stale/removed tabs (e.g. entity §34)
   const tabLabel=(TABS.find(x=>x[0]===tab)||[])[1]||'Text Review';
-  const title=crumb([['Review Queue','review-tab',{tab:'datasets'}],[tabLabel]])
+  const title=restPrompt()+crumb([['Review Queue','review-tab',{tab:'datasets'}],[tabLabel]])
     +'<div class="row-between"><div><h1 class="page-h">Review Queue</h1><p class="page-sub">'+subs[tab]+'</p></div>'
     +(currentUser.role==='Reviewer'&&tab==='datasets'?'<button class="btn btn-ghost" data-action="review-batch">'+ICON.check+'Batch approval</button>':'')+'</div>'+tabBar;
   // Checkpoint the active task position so it can be resumed from the dashboard (gap §37).
@@ -2668,8 +2703,11 @@ function initBulkJobs(){
       workersActive:0, cpuWorkers:8, gpuWorkers:1, startedAt:'2025-06-10T10:00', completedAt:'2025-06-12T16:00',
       computeCostSoFar:2800, computeCostTotal:2800, locked:true, note:'OCR correction paused — row limit reached. Upgrade to continue.', config:defaultBulkConfig() },
   ];
+  // Diversity on completed jobs (spec §41 Patch 10): a low score warns before training.
+  const bulkDiv={ bulk2:{ score:48, top:'Loan eligibility queries', topPct:61, under:'Grievance / complaints' }, bulk3:{ score:72, top:'Dosage guidance', topPct:29, under:null } };
   bulkJobs.forEach(j=>{ j.queued = Math.max(0, j.totalFiles - j.duplicatesSkipped - j.failed - j.complete - j.processing);
-    j.funnel=deriveFunnel(j); j.failures=sampleFailures(j); j.dedupClusters=sampleClusters(j); j.annotators=deriveAnnotators(j); });
+    j.funnel=deriveFunnel(j); j.failures=sampleFailures(j); j.dedupClusters=sampleClusters(j); j.annotators=deriveAnnotators(j);
+    if(j.status==='complete' && bulkDiv[j.id]) j.diversity=bulkDiv[j.id]; });
   log.info('[boot] bulk jobs ready — '+bulkJobs.length);
 }
 function defaultBulkConfig(){ return { source:'s3', bucket:'s3://pravartak-corpus/audit-docs/', types:['pdf-digital','pdf-scanned','docx'], langs:['en','hi','ta'], chunk:'auto', synth:'after', synthTypes:['QA','Summarisation'], dedupThreshold:0.92, cpu:20, gpu:2, ocrThreshold:60, skipAbove:75 }; }
@@ -2801,7 +2839,15 @@ function bulkDashboard(j){
   const dedup=bulkDedupHtml(j);
   const annCta='<div class="card mt16"><div class="row-between"><div><div class="card-title">Annotation backlog</div><div class="secondary mt4">'+fmtNum(j.ocrRegionsFlagged)+' regions flagged · '+fmtNum(j.ocrRegionsCorrected)+' corrected ('+Math.round(j.ocrRegionsCorrected/j.ocrRegionsFlagged*100)+'%)</div></div>'
     +'<button class="btn btn-ghost" data-action="view-annotation-project" data-id="'+j.id+'">'+ICON.users+'View Annotation Project</button></div></div>';
-  return back+'<div class="mt16">'+live+'</div>'+annCta+'<div class="grid-2 mt16" style="align-items:start">'+failures+dedup+'</div>';
+  return back+'<div class="mt16">'+live+'</div>'+bulkDiversityAlert(j)+annCta+'<div class="grid-2 mt16" style="align-items:start">'+failures+dedup+'</div>';
+}
+// Low-diversity warning after a bulk job completes (spec §41 Patch 10 / LIMA 2023).
+function bulkDiversityAlert(j){
+  const dv=j.diversity; if(!dv || dv.score>=60) return '';
+  return '<div class="card mt16" style="border-color:var(--yellow)"><div class="flex gap8" style="font-weight:600;font-size:13px">'+ICON.warn+'Low diversity detected</div>'
+    +'<div class="secondary mt8" style="font-size:13px;line-height:1.7">Dataset diversity score: <b>'+dv.score+' / 100</b>. Top cluster "'+escapeHtml(dv.top)+'" = '+dv.topPct+'% of all rows. Homogeneous datasets underperform diverse ones even at larger sizes (LIMA, 2023). Enrich with under-represented query types before training.</div>'
+    +'<div class="flex gap8 mt12"><button class="btn btn-ghost btn-sm" data-action="bulk-diversity-breakdown" data-id="'+j.id+'">'+ICON.chart+'View diversity breakdown</button>'
+    +'<button class="btn btn-primary btn-sm" data-action="bulk-diversity-sprint" data-id="'+j.id+'">'+ICON.plus+'Create annotation sprint</button></div></div>';
 }
 function bulkLiveHtml(j){
   const total=j.totalFiles; const pct=Math.round(j.complete/total*100);
@@ -3071,15 +3117,26 @@ function initNbfcInferences(){
     completeness:70+Math.floor(rand()*29), policy:85+Math.floor(rand()*14),
     response:'The model produced a response for this NBFC query based on the retrieved product-document chunks.',
     contextChunks:1+Math.floor(rand()*3), feedback:null, addedToTraining:false }, o));
+  // Claim-level (MiniCheck-style) breakdown, spec §41 Change 3 — grounded vs not-grounded per sentence, with source attribution.
+  const contradictionAnalysis={ type:'Contradiction', sentences:[
+    {text:'Home loan interest rates depend on your profile and tenure.', status:'grounded', sourceChunk:'Home Loan Product Guide · Section 3.2'},
+    {text:'Our current rate is 6.5% p.a.', status:'hallucinated', type:'Contradiction', detail:'Document states 8.5% p.a., not 6.5%.', sourceChunk:'Home Loan Product Guide · Section 3.2 Para 1'},
+    {text:'Rates are reviewed quarterly.', status:'grounded', sourceChunk:'Home Loan Product Guide · Section 3.4'} ]};
+  const fabricationAnalysis={ type:'Fabrication', sentences:[
+    {text:'Home loan rates are reviewed periodically.', status:'grounded', sourceChunk:'Home Loan Product Guide · Section 3.4'},
+    {text:'A Q2 2025 rate revision reduced them to 6.75% p.a. effective June.', status:'hallucinated', type:'Fabrication', detail:'"Q2 2025 rate revision" not found in any ingested document.', sourceChunk:'— not found in corpus —'},
+    {text:'Please contact us for the latest schedule.', status:'grounded', sourceChunk:'Support FAQ · General'} ]};
+  const halResponse=a=>a.sentences.map(s=>s.text).join(' ');
   // 23 hallucination cluster — interest rate queries citing wrong rates
   const rateQ=['What is the home loan rate?','What interest rate on gold loan?','ब्याज दर क्या है गृह ऋण पर?','Current car loan interest rate?','Personal loan rate please','Business loan interest rate?'];
   for(let i=0;i<23;i++){ const q=rateQ[i%rateQ.length]; const mm=30+Math.floor(rand()*30), ss=Math.floor(rand()*60);
     push({ instruction:q, language:q.indexOf('ब्याज')>=0?'hi':'en', score:25+Math.floor(rand()*18), flags:['Hallucination'], halType:'Contradiction',
       time:'14:'+String(mm).padStart(2,'0')+':'+String(ss).padStart(2,'0'), factuality:22+Math.floor(rand()*16),
+      response:halResponse(contradictionAnalysis), hallucinationAnalysis:contradictionAnalysis,
       flagDetail:"Rate cited in response contradicts the product document (states a lower rate than Section 3.2).", cluster:'interest_rate' }); }
   // 1 fabrication — model invents a rate revision that exists in no document (standalone, not part of the 23-row contradiction cluster)
   push({ instruction:'Has the home loan rate changed recently?', language:'en', score:24, flags:['Hallucination'], halType:'Fabrication',
-    time:'14:41:12', factuality:19, response:'Yes — a Q2 2025 rate revision reduced home loan rates to 6.75% p.a. effective June.',
+    time:'14:41:12', factuality:19, response:halResponse(fabricationAnalysis), hallucinationAnalysis:fabricationAnalysis,
     flagDetail:'"Q2 2025 rate revision" not found in any ingested document.' });
   // 37 healthy inferences
   for(let i=0;i<37;i++){ const g=NBFC_INFER_GOOD[i%NBFC_INFER_GOOD.length]; const mm=30+Math.floor(rand()*30), ss=Math.floor(rand()*60);
@@ -3246,10 +3303,18 @@ function panelInference(id){
   const x=findInference(id); if(!x||!assertTenant(x)) return;
   const sc=(label,v)=>'<div class="row-between" style="font-size:13px;padding:3px 0"><span class="secondary">'+label+'</span><span>'+v+'% '+(v>80?'✅':v>=60?'🟡':'🔴')+'</span></div>';
   const hall = x.flags.includes('Hallucination') ? '<div class="warn-banner warn-red mt12" style="margin-bottom:0;flex-wrap:wrap;gap:8px">'+ICON.warn+'<span>Hallucination detected — a figure in the response was not found in / conflicts with the source chunks.</span>'+(x.halType?'<div style="flex-basis:100%">'+halTypeBadge(x.halType, x.flagDetail)+'</div>':'')+'</div>' : '';
+  // Response: claim-level highlighting when a MiniCheck analysis is present (spec §41 Change 3), else plain text.
+  const responseHtml = x.hallucinationAnalysis
+    ? x.hallucinationAnalysis.sentences.map(s=>'<mark class="claim '+(s.status==='grounded'?'grounded':(s.type||'Contradiction'))+'" title="'+escapeAttr(s.status==='grounded'?('✓ Grounded — '+s.sourceChunk):((s.type||'')+' — '+(s.detail||'')+' ['+s.sourceChunk+']'))+'">'+escapeHtml(s.text)+'</mark>').join(' ')
+    : escapeHtml(x.response);
+  const claimBreakdown = x.hallucinationAnalysis ? '<div class="section-h mt16">Claim-level analysis (MiniCheck)</div><div class="card" style="padding:0;overflow:hidden">'
+    +x.hallucinationAnalysis.sentences.map(s=>'<div style="padding:10px 12px;border-bottom:1px solid var(--border)"><div style="font-size:13px">'+(s.status==='grounded'?'✅ ':'🔴 ')+escapeHtml(s.text)+'</div>'
+      +'<div class="muted mt4" style="font-size:11.5px">'+(s.status==='grounded'?'Grounded — matches '+escapeHtml(s.sourceChunk):(escapeHtml(s.type||'Hallucinated')+' — '+escapeHtml(s.detail||'')+' · Source: '+escapeHtml(s.sourceChunk)))+'</div></div>').join('')
+    +'</div>' : '';
   const html='<div class="flex gap8"><span class="badge-fmt">'+escapeHtml(x.model)+'</span><span class="badge-fmt">'+escapeHtml(x.time)+'</span>'+mediaConfPill(x.score)+'</div>'
     +'<div class="section-h mt16">Instruction</div><div class="card" style="padding:12px">'+escapeHtml(x.instruction)+'</div>'
     +'<div class="muted mt8" style="font-size:12px">Context provided: '+x.contextChunks+' document chunks</div>'
-    +'<div class="section-h mt16">Model response</div><div class="card" style="padding:12px">'+escapeHtml(x.response)+'</div>'+hall
+    +'<div class="section-h mt16">Model response</div><div class="card" style="padding:12px;line-height:1.8">'+responseHtml+'</div>'+hall+claimBreakdown
     +'<div class="section-h mt16">Score breakdown</div>'+inferenceBreakdown(x)
     +'<div class="warn-banner warn-yellow mt12" style="margin-bottom:0;font-size:12px;align-items:flex-start">'+ICON.info+'<span>Scores reflect what Cueval can verify against known data. Responses may be correct even when flagged, and incorrect even when not flagged. Human review makes the final call.</span></div>'
     +'<div class="section-h mt16">User feedback</div><div class="secondary">'+(x.feedback||'Not yet received')+'</div>'
@@ -3891,6 +3956,9 @@ function dispatch(action, d){
     case 'review-row': reviewRow(d.id, d.do, d.queue==='1'); break;
     case 'edit-row': editRowModal(d.id, false); break;
     // --- AI-suggested edits (spec §41 Change 5) ---
+    // --- Annotator fatigue rest prompt (spec §41 Change 9) ---
+    case 'dismiss-rest': appState.restDismissed=true; renderView(); break;
+    case 'take-break': appState.restDismissed=true; log.event('fatigue:break_taken',{user:currentUser.id}); showToast('Progress saved — enjoy your break 🌱','ok'); renderView(); break;
     case 'use-suggestion': { const f=findRow(d.id); if(f&&f.row.aiSuggestion){ suggestionStats.used++; log.event('suggestion:used',{row:d.id}); saveRowEdit(d.id, f.row.aiSuggestion, false); } break; }
     case 'edit-suggestion': { const f=findRow(d.id); if(f&&f.row.aiSuggestion){ suggestionStats.edited++; log.event('suggestion:edited',{row:d.id}); editRowModal(d.id, false, f.row.aiSuggestion); } break; }
     case 'write-own': suggestionStats.own++; log.event('suggestion:own',{row:d.id}); editRowModal(d.id, false, ''); break;
@@ -3920,6 +3988,12 @@ function dispatch(action, d){
       closeModal(); appState.dlpChecked=false; showToast('Cloud judge enabled — DLP clearance confirmed','ok'); renderView(); break; }
     case 'load-eval': { const e=byId(getEvalRuns(),d.id); if(e){ if(!e.results&&e.status==='completed') computeEval(e); appState.evalResult=e; setView('eval'); } break; }
     case 'new-experiment': newExperimentModal(); break;
+    // --- Bulk diversity alert (spec §41 Patch 10) ---
+    case 'bulk-diversity-breakdown': { const j=byId(getBulkJobs(),d.id); if(j&&j.diversity) showToast('Top cluster "'+j.diversity.top+'" = '+j.diversity.topPct+'%'+(j.diversity.under?'; under-represented: '+j.diversity.under:''),'info'); break; }
+    case 'bulk-diversity-sprint': { const j=byId(getBulkJobs(),d.id); if(j&&j.diversity){ log.event('bulk:diversity_sprint',{job:d.id}); showToast('Annotation sprint created — "Diversity enrichment — '+(j.diversity.under||j.diversity.top)+'" (mocked).','ok'); } break; }
+    // --- Model-relative quality warning (spec §41 Change 10) ---
+    case 'proceed-experiment': if(appState.pendingExp) commitExperiment(appState.pendingExp); break;
+    case 'calibrate-experiment': { const v=appState.pendingExp; appState.pendingExp=null; closeModal(); showToast('Calibration experiment queued — 300 rows on '+(v?v.baseModel:'the new model')+' before full training (mocked).','info'); break; }
     case 'open-experiment': panelExperiment(d.id); break;
     case 'clone-experiment': { const x=byId(getExperiments(),d.id); closePanel(); newExperimentModal(x); break; }
     case 'open-release': openReleaseDetail(d.id); break;
@@ -4120,9 +4194,29 @@ function newExperimentModal(clone){
     +'<div><label class="field-label">LoRA rank</label><input class="input" id="nx-rank" type="number" value="'+c.loraRank+'"></div></div>'
     +'<div class="mt12"></div><label class="field-label">Notes</label><textarea class="input" id="nx-notes" style="font-family:var(--font-body);min-height:50px"></textarea></div>'
     +'<div class="modal-foot"><button class="btn btn-ghost" data-action="close-modal">Cancel</button><button class="btn btn-primary" id="nx-save">'+ICON.check+'Save Experiment</button></div>');
-  el('nx-save').onclick=()=>{ const name=el('nx-name').value.trim()||'Untitled experiment'; const dsId=el('nx-ds').value; const ds=byId(datasets,dsId);
-    const id='x'+Date.now(); experiments.unshift({ id, projectId:ds?ds.projectId:appState.projectId, releaseId:ds?ds.releaseId:null, tenantId:currentTenant.id, name, datasetId:dsId, datasetVersion:'v'+(experiments.length+1)+'.0', checkpointId:'ckpt-'+id.slice(-4), evalRunId:null, costEstimate:1500+Math.round((+el('nx-ep').value||3)*400), status:'completed', createdBy:currentUser.name, createdAt:'2026-07-10', notes:el('nx-notes').value.trim()||'—', trainingConfig:{ baseModel:el('nx-model').value, epochs:+el('nx-ep').value, learningRate:+el('nx-lr').value, batchSize:+el('nx-bs').value, loraRank:+el('nx-rank').value, optimizer:el('nx-opt').value } });
-    closeModal(); log.event('experiment:create',{id}); pushActivity('logged experiment '+name); renderShell(); showToast('Experiment saved','ok'); };
+  el('nx-save').onclick=()=>{ const vals={ name:el('nx-name').value.trim()||'Untitled experiment', dsId:el('nx-ds').value,
+    baseModel:el('nx-model').value, epochs:+el('nx-ep').value, learningRate:+el('nx-lr').value, batchSize:+el('nx-bs').value, loraRank:+el('nx-rank').value, optimizer:el('nx-opt').value, notes:el('nx-notes').value.trim()||'—' };
+    submitExperiment(vals, false); };
+}
+// Model-relative quality: scores are calibrated for one base model and may not transfer (spec §41 Change 10 / Ye et al. 2025).
+function submitExperiment(vals, force){
+  const ds=byId(datasets,vals.dsId); const proj=ds?ds.projectId:appState.projectId;
+  const prior=getExperiments().filter(x=>x.projectId===proj && x.status==='completed').sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)))[0];
+  if(!force && prior && prior.trainingConfig.baseModel!==vals.baseModel){ appState.pendingExp=vals; modelChangeModal(prior.trainingConfig.baseModel, vals.baseModel); return; }
+  commitExperiment(vals);
+}
+function commitExperiment(vals){
+  const ds=byId(datasets,vals.dsId); const id='x'+Date.now();
+  experiments.unshift({ id, projectId:ds?ds.projectId:appState.projectId, releaseId:ds?ds.releaseId:null, tenantId:currentTenant.id, name:vals.name, datasetId:vals.dsId, datasetVersion:'v'+(experiments.length+1)+'.0', checkpointId:'ckpt-'+id.slice(-4), evalRunId:null, costEstimate:1500+Math.round((vals.epochs||3)*400), status:'completed', createdBy:currentUser.name, createdAt:'2026-07-10', notes:vals.notes, trainingConfig:{ baseModel:vals.baseModel, epochs:vals.epochs, learningRate:vals.learningRate, batchSize:vals.batchSize, loraRank:vals.loraRank, optimizer:vals.optimizer } });
+  appState.pendingExp=null; closeModal(); log.event('experiment:create',{id}); pushActivity('logged experiment '+vals.name); renderShell(); showToast('Experiment saved','ok');
+}
+function modelChangeModal(prev, next){
+  openModal('<div class="modal-head"><strong class="flex gap6">'+ICON.warn+'Base model changed</strong></div>'
+    +'<div class="modal-body"><div class="grid-2" style="gap:8px"><div><label class="field-label">Previous</label><div class="input mono" style="background:var(--bg-elevated)">'+escapeHtml(prev)+'</div></div>'
+    +'<div><label class="field-label">New</label><div class="input mono" style="background:var(--bg-elevated)">'+escapeHtml(next)+'</div></div></div>'
+    +'<p class="secondary mt16" style="font-size:13px;line-height:1.7">Quality scores in your dataset were calibrated for <b>'+escapeHtml(prev)+'</b>. Research shows data quality is model-relative — rows that helped '+escapeHtml(prev.split('-')[0])+' may behave differently with '+escapeHtml(next.split('-')[0])+' (Ye et al., 2025).</p>'
+    +'<div class="warn-banner warn-yellow mt12" style="margin:0;font-size:12px">'+ICON.info+'<span>Recommendation: run a calibration experiment on 200–500 rows before committing to full training.</span></div></div>'
+    +'<div class="modal-foot"><button class="btn btn-ghost" data-action="proceed-experiment">Proceed anyway</button><button class="btn btn-primary" data-action="calibrate-experiment">Create calibration experiment</button></div>');
 }
 function uploadModal(){
   if(!can('Datasets')){ showToast('You lack dataset permission','error'); return; }

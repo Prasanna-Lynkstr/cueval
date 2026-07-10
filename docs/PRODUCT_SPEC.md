@@ -3994,3 +3994,24 @@ For rows flagged **short-response / low-clarity only** (never PII/toxic), the ro
 Preference pairs are pre-scored and routed: score-diff > 1.5 → **auto-labelled** (obvious winner, human never sees it); 0.5–1.5 → needs review; < 0.5 → **contested** (needs 2 reviewers). The Preference Ranking pane shows a routing summary ("N total — M auto-labelled, K sent to reviewers"), a collapsed **Auto-labelled** section with an audit sample, and a red **Contested pair** banner on close pairs. Auto-label rate ~74%. NBFC now has preference pairs; `prefQueue` excludes auto-labelled so counts reflect human work only.
 
 Priority 3 (claim-level hallucination highlighting, annotator fatigue detection, model-change warning, bulk diversity alert) remains.
+
+---
+
+## §41 — Research-Backed Quality Improvements (Priority 3)
+
+### 41.8 Claim-level hallucination (Change 3 / Patch 7 full)
+NBFC hallucination inferences carry a MiniCheck-style `hallucinationAnalysis` (per-sentence grounded/hallucinated with source attribution). The inference panel renders the response with **per-sentence `<mark>` highlighting** (green underline = grounded; amber/red/purple = Contradiction/Fabrication/Conflation) and a **Claim-level analysis (MiniCheck)** breakdown listing each sentence, its status, the mismatch detail, and the source chunk (e.g. "Section 3.2 Para 1", or "— not found in corpus —").
+
+### 41.9 Annotator fatigue detection (Change 9 / Patch 5, 9)
+`annotatorSessions` tracks per-annotator session health (time, α-start→now, fatigue flag). A **Session health** panel (PM/Admin board only, wellbeing-framed) shows each annotator's α drift and a Fatigue/Stable pill. A fatigued annotator sees a non-blocking, dismissible **rest prompt** (bottom-right) on the Review Queue ("You've been reviewing for 94 minutes…"). NBFC: Priya Nair fatigued (α 0.81→0.68, 94 min, recovers to 0.79 after break); the fatigue event is also in the activity trail.
+
+### 41.10 Model-relative quality warning (Change 10 / Patch 6)
+Creating an experiment whose base model differs from the project's most recent completed experiment triggers a **Base model changed** modal (cites Ye et al. 2025), recommending a 200–500-row calibration experiment, with **Proceed anyway** / **Create calibration experiment**. Same-model saves proceed silently. (NBFC stays on Mistral; switching to Llama/Gemma warns.)
+
+### 41.11 Bulk low-diversity alert (Patch 10)
+Completed bulk jobs carry a diversity score; when < 60 the job dashboard shows a **Low diversity detected** card (cites LIMA 2023) with the dominant cluster % and **View diversity breakdown** / **Create annotation sprint** actions (sprint pre-named for the under-represented cluster). Legal AI's "Legal Document Corpus v1" scores 48 and demos the alert.
+
+### Notes on fidelity
+- Claim-level uses an inline breakdown list for source attribution rather than a click-popover (note 142); highlighting is inline via `<mark>`.
+- Fatigue sessions are seeded mock data (PM/Admin visibility), not live per-row tracking; the rest prompt has no 30s auto-dismiss timer (avoids leaked timers, CLAUDE.md §10).
+- `finaliseDataset` preserves NBFC fixed rollups so review/edit actions never clobber the narrative counts (added in Priority 2).
