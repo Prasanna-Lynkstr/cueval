@@ -2997,7 +2997,8 @@ function reviewEntityPane(){
   if(!q.length) return '<div class="row-between mb12"><span class="secondary">'+escapeHtml(proj.name)+' · '+proj.completePct+'% complete</span></div>'+emptyState('check','No documents pending','All documents in this project are labelled. ✅','');
   if(appState.entityDocIndex>=q.length) appState.entityDocIndex=0;
   const doc=q[appState.entityDocIndex];
-  const palette='<div class="flex wrap gap6">'+proj.labels.map(l=>'<button class="chip" data-action="entity-apply" data-id="'+doc.id+'" data-label="'+l.key+'" style="border-color:'+l.color+'"><span style="color:'+l.color+'">■</span> '+l.short+' '+escapeHtml(l.key)+'</button>').join('')+'</div>';
+  const addBtn = schemaCanEdit() ? '<button class="chip" data-action="add-entity-label" data-proj="'+proj.id+'" style="border-style:dashed">'+ICON.plus+' Add Label</button>' : '';
+  const palette='<div class="flex wrap gap6">'+proj.labels.map(l=>'<button class="chip" data-action="entity-apply" data-id="'+doc.id+'" data-label="'+l.key+'" style="border-color:'+l.color+'"><span style="color:'+l.color+'">■</span> '+l.short+' '+escapeHtml(l.key)+'</button>').join('')+addBtn+'</div>';
   const rendered=renderEntityText(doc, proj);
   const list=doc.spans.length? doc.spans.map(sp=>'<span class="pill" style="background:'+(labelColor(proj,sp.label))+'22;color:'+labelColor(proj,sp.label)+';border-color:'+labelColor(proj,sp.label)+'55" data-action="entity-remove" data-id="'+doc.id+'" data-idx="'+doc.spans.indexOf(sp)+'">'+escapeHtml(sp.label)+': "'+escapeHtml(truncate(doc.text.slice(sp.start,sp.end),18))+'" ✕</span>').join(' ') : '<span class="muted">No entities yet</span>';
   const pending=appState.entityPendingSel?'<div class="warn-banner warn-yellow" style="margin:12px 0 0">'+ICON.tag+'<span>Selected "'+escapeHtml(truncate(appState.entityPendingSel.text,30))+'" — pick a label above or press its shortcut key.</span></div>':'';
@@ -3369,6 +3370,7 @@ function dispatch(action, d){
     case 'entity-skip': appState.entityDocIndex++; appState.entityPendingSel=null; renderView(); break;
     case 'entity-prev': appState.entityDocIndex=Math.max(0,appState.entityDocIndex-1); appState.entityPendingSel=null; renderView(); break;
     case 'export-entity': exportEntity(); break;
+    case 'add-entity-label': addEntityLabelModal(d.proj); break;
     case 'conflict-accept': case 'conflict-override': { const doc=byId(entityDocs,d.doc); if(doc&&assertTenant(doc)){ doc.conflicts.splice(+d.idx,1); log.event('conflict:'+action,{doc:d.doc}); showToast(action==='conflict-accept'?'Majority accepted':'Override applied','ok'); renderView(); } break; }
     case 'conflict-accept-all': { const doc=byId(entityDocs,d.doc); if(doc&&assertTenant(doc)){ doc.conflicts=[]; doc.status='done'; log.event('conflict:accept-all',{doc:d.doc}); showToast('All majority labels accepted','ok'); renderView(); } break; }
     // --- Experiment lineage (spec §26) ---
@@ -3912,6 +3914,35 @@ function exportEntity(){
   const lines=docs.map(d=>JSON.stringify({ text:d.text, entities:d.spans.map(s=>[s.start,s.end,s.label]) }));
   download(proj.name.replace(/\s+/g,'_')+'_spacy.jsonl', lines.join('\n'), 'application/jsonl');
   log.event('entity:export',{rows:lines.length}); showToast('Exported '+lines.length+' labelled documents (spaCy JSON)','ok');
+}
+// Label schema editing (spec §25 — Architect/Admin only)
+function schemaCanEdit(){ return ['Admin','Architect','SuperAdmin'].includes(currentUser.role); }
+const LABEL_COLORS=[['Blue','#3B82F6'],['Green','#22C55E'],['Yellow','#EAB308'],['Orange','#E85D26'],['Red','#EF4444'],['Purple','#8b5cf6'],['Cyan','#06b6d4'],['Brown','#a16207'],['Pink','#D63384'],['Grey','#9898B0']];
+function addEntityLabelModal(projId){
+  const proj=byId(getEntityProjects(),projId); if(!proj||!assertTenant(proj)) return;
+  if(!schemaCanEdit()){ showToast('Label schema editing is Architect / Admin only','error'); return; }
+  const colorOpts=LABEL_COLORS.map((c,i)=>'<option value="'+c[1]+'"'+(i===0?' selected':'')+'>'+c[0]+'</option>').join('');
+  openModal('<div class="modal-head"><strong>Add Label · '+escapeHtml(proj.name)+'</strong><button class="icon-btn" data-action="close-modal">'+ICON.x+'</button></div>'
+    +'<div class="modal-body"><label class="field-label">Label name</label><input class="input mono" id="nl-name" placeholder="e.g. LOCATION" style="text-transform:uppercase">'
+    +'<div class="grid-2 mt12"><div><label class="field-label">Colour</label><select class="input" id="nl-color">'+colorOpts+'</select></div>'
+    +'<div><label class="field-label">Shortcut key</label><input class="input mono" id="nl-key" maxlength="1" placeholder="L"></div></div>'
+    +'<div id="nl-err" class="field-err hidden"></div>'
+    +'<div class="mt16"><div class="section-h">Current schema</div><div class="flex wrap gap6">'+proj.labels.map(l=>'<span class="chip" style="border-color:'+l.color+'"><span style="color:'+l.color+'">■</span> '+l.short+' '+escapeHtml(l.key)+'</span>').join('')+'</div></div></div>'
+    +'<div class="modal-foot"><button class="btn btn-ghost" data-action="close-modal">Cancel</button><button class="btn btn-primary" id="nl-save">'+ICON.check+'Add Label</button></div>');
+  el('nl-save').onclick=()=>saveEntityLabel(projId);
+}
+function saveEntityLabel(projId){
+  const proj=byId(getEntityProjects(),projId); if(!proj) return;
+  const err=el('nl-err'); const fail=m=>{ err.classList.remove('hidden'); err.innerHTML=ICON.warn+m; };
+  const name=(el('nl-name').value||'').trim().toUpperCase().replace(/\s+/g,'_');
+  const color=el('nl-color').value; const key=(el('nl-key').value||'').trim().toUpperCase().slice(0,1);
+  if(!name) return fail('Label name is required');
+  if(proj.labels.some(l=>l.key===name)) return fail('A label named '+name+' already exists');
+  if(!key) return fail('A shortcut key is required');
+  if(proj.labels.some(l=>l.short===key)) return fail('Shortcut '+key+' is already used by '+proj.labels.find(l=>l.short===key).key);
+  proj.labels.push({ key:name, color, short:key });
+  closeModal(); log.event('entity:add-label',{proj:projId, label:name}); pushActivity('added entity label '+name+' to '+proj.name);
+  showToast('Label '+name+' added','ok'); renderView();
 }
 
 /* ---- Global events ---- */
