@@ -901,7 +901,8 @@ const STATUS_PILL = { draft:'muted','in-review':'yellow', approved:'green', trai
 function statusPill(status){ const c=STATUS_PILL[status]||'muted'; return '<span class="pill pill-'+c+'">'+escapeHtml(status)+'</span>'; }
 
 // Inline Heroicons-style SVGs (ADR-6). All 24x24, stroke=currentColor.
-const S='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">';
+// width/height give bare inline icons a sane default; context CSS (.btn svg, .dock-item svg, …) overrides it.
+const S='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;vertical-align:middle">';
 const ICON = {
   home:S+'<path d="M3 10l9-7 9 7v9a2 2 0 01-2 2h-4v-6H9v6H5a2 2 0 01-2-2z"/></svg>',
   folder:S+'<path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>',
