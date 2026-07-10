@@ -889,3 +889,202 @@ Show all available logins on the login screen as a collapsible "Demo accounts" p
 20. HealthBot India must visually show limit warnings throughout — top bar badge, settings meters, upload blocked state.
 21. Impersonation mode: SuperAdmin can enter a tenant's context (read-only) — show persistent banner "Impersonating [Tenant Name]" with [Exit Impersonation] button.
 22. Login screen: show "Demo accounts ▾" collapsible section listing all 10 credentials grouped by tenant.
+
+---
+
+## 19. DOCUMENT INGESTION MODULE
+
+### Supported Input Formats
+PDF (digital), PDF (scanned/image-based), DOCX, DOC, PPT, PPTX, JPG, PNG, TIFF
+
+### New Navigation Dock Icon
+Add between Datasets and Review Queue:
+```
+📄  Documents  — document upload and ingestion pipeline
+```
+
+### Document Ingestion Screen
+
+**Upload panel:**
+- Drag and drop zone accepting all document formats listed above
+- Auto-detects format on drop
+- Shows document type badge: "Digital PDF" | "Scanned PDF" | "DOCX" | "Image"
+- Bulk upload supported (up to 20 files per batch)
+
+**Per-document pipeline — mock progress steps (animated, sequential):**
+```
+Digital PDF:
+→ Extracting text... → Detecting structure... → Chunking... → Done
+
+Scanned PDF / Image:
+→ Pre-processing (deskew, denoise)...
+→ Detecting layout (columns, tables, headings)...
+→ Detecting script per region (English / Tamil / Hindi / Telugu)...
+→ Running OCR...
+→ Scoring confidence per region...
+→ Post-processing (Unicode normalise, ligature fix)...
+→ Done — X regions extracted, Y flagged for human correction
+```
+
+**Document list view (after processing):**
+Table showing:
+- Document name
+- Type badge (Digital / Scanned)
+- Pages
+- Scripts detected (language badges: EN, HI, TA, TE, KN, ML)
+- Regions extracted
+- Avg OCR confidence (color-coded: green >85%, yellow 60-85%, red <60%)
+- Status: Processed | Needs Review | Ready for Chunking
+
+### OCR Correction Queue (new task type in Review Queue)
+
+When OCR confidence < 60% on any region, creates a correction task:
+
+Split view:
+- Left: image of the scanned region (original scan)
+- Right: editable OCR text output
+- Confidence score shown per region
+- Annotator corrects errors directly in the text field
+- [Accept] [Edit & Accept] [Flag for Expert]
+- Language badge showing detected script for that region
+
+Separate tab in Review Queue: **Datasets** | **OCR Corrections**
+
+Badge on dock icon shows combined pending count.
+
+### Chunking Screen (after OCR/extraction complete)
+
+User selects a processed document and configures chunking:
+
+**Strategy selector (radio buttons with preview):**
+- Structural — split at headings/sections (best for contracts, circulars with clear structure)
+- Semantic — split when topic shifts (best for research papers)
+- Paragraph — split at paragraph boundaries (safe default for unstructured scans)
+- Fixed size — split every N tokens (fallback)
+
+**Live preview panel:**
+- Left: extracted text with chunk boundaries highlighted
+- Right: resulting chunks listed with token count per chunk
+- Slider to adjust chunk size / overlap
+- [Apply Chunking] button
+
+### Instruction Pair Synthesis Screen
+
+After chunking, user can optionally generate instruction pairs:
+
+**Configuration:**
+- Pair types (multi-select): QA Pairs | Summarisation | Information Extraction | Instruction Following
+- Pairs per chunk: 1 / 2 / 3 (slider)
+- LLM to use: Mock (prototype) | Claude API | Local Model
+- [Generate Pairs] → animated progress per chunk
+
+**Results:**
+- Generated pairs shown in table (instruction + output per row)
+- Source chunk visible on click (right panel shows chunk text + page reference)
+- Each pair has: confidence score, source chunk link, pair type badge
+- [Send to Curation Pipeline] → routes all pairs into existing dataset flow with quality scoring
+
+### Mock Logic for Document Module
+
+**OCR confidence simulation:**
+```
+Digital PDF: confidence always 95–99% (text extracted directly)
+Scanned English: confidence 75–92% randomly distributed
+Scanned Indic: confidence 45–80% with ~30% of regions below 60%
+Tables: confidence 50–75%
+```
+
+**Script detection simulation:**
+Assign scripts based on document name:
+- Files with "tamil" / "tn" in name → Tamil regions detected
+- Files with "hindi" / "central" → Hindi regions
+- Otherwise → English default
+
+**Instruction pair synthesis simulation:**
+Generate 2–3 plausible QA pairs per chunk using template:
+```
+Q: "What does this section describe?"
+A: [first 2 sentences of chunk]
+
+Q: "Summarise the following: [chunk title]"
+A: [condensed version of chunk]
+```
+
+### Mock Document Data
+
+Pre-load 3 sample documents per tenant:
+
+**IITM Pravartak:**
+- "Audit_Observation_Report_2024.pdf" — Scanned, Hindi+English, 24 pages, 6 low-confidence regions
+- "Legal_Framework_AI_Guidelines.pdf" — Digital, English, 18 pages, clean
+- "Tamil_Heritage_Research_Paper.pdf" — Scanned, Tamil+English, 12 pages, 14 low-confidence regions
+
+**Legal AI Corp:**
+- "Contract_Template_v3.pdf" — Digital, English, 8 pages
+- "Supreme_Court_Judgment_2023.pdf" — Scanned, English+Hindi, 32 pages, 9 low-confidence regions
+
+**HealthBot India:**
+- "Clinical_Guidelines_Hindi.pdf" — Scanned, Hindi, 16 pages, 22 low-confidence regions (most flagged — drives upgrade CTA)
+
+### Updated Dashboard CTAs
+
+Add document-aware CTAs:
+
+- ML Engineer: "14 regions pending OCR correction in Tamil Heritage paper" → [Correct OCR]
+- Architect: "Tamil Heritage paper ready for chunking" → [Configure Chunking]
+- PM: "3 documents processed, 2 awaiting OCR review" → [View Documents]
+- Annotator: "8 OCR corrections assigned to you" → [Start Corrections]
+
+### Updated Data Model
+
+```javascript
+documents = [
+  {
+    id, tenantId, projectId,
+    name, format,              // pdf-digital | pdf-scanned | docx | image
+    pages, status,
+    scriptsDetected: [],       // ['en', 'ta', 'hi']
+    avgOcrConfidence,          // null for digital PDFs
+    regionsTotal,
+    regionsFlagged,            // confidence < 60%
+    chunks: [...],
+    synthesisedPairs: [...],   // links to dataset rows after synthesis
+    uploadedBy, uploadedAt
+  }
+]
+
+ocr_regions = [
+  {
+    id, documentId, tenantId,
+    pageNumber, regionIndex,
+    regionType,                // text | table | heading | figure
+    script,                    // en | ta | hi | te | kn | ml
+    rawText,                   // OCR output before correction
+    correctedText,             // after human review
+    confidence,                // 0-100
+    correctionStatus,          // pending | corrected | accepted | flagged
+    correctedBy, correctedAt
+  }
+]
+
+chunks = [
+  {
+    id, documentId, tenantId,
+    chunkIndex,
+    text, tokenCount,
+    strategy,                  // structural | semantic | paragraph | fixed
+    sourcePages: [],           // which pages this chunk spans
+    headingContext,            // nearest heading above this chunk
+    synthesisedPairIds: []     // linked dataset rows
+  }
+]
+```
+
+### Updated Command Palette
+
+Add searchable actions:
+- "Upload document"
+- "Correct OCR regions"
+- "Configure chunking for [document name]"
+- "Generate pairs from [document name]"
+- Search documents by name

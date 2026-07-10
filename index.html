@@ -526,7 +526,15 @@ const appState = {
   paletteOpen:false, paletteQuery:'', paletteSel:0,
   evalResult:null,                         // last eval shown in harness
   superView:'tenants', superTenant:null,   // superadmin sub-state
+  docView:'list', docId:null,              // Documents screen: list | chunk | synth
+  reviewTab:'datasets',                    // review queue tab: datasets | ocr
+  chunkStrategy:'structural', chunkSize:220, chunkOverlap:20, // chunking config
+  synthTypes:['QA Pairs'], synthPerChunk:2, synthLLM:'Mock', // synthesis config
 };
+// Document-ingestion collections (populated in initMockData — after Section E)
+let documents = [];
+let ocrRegions = [];
+let chunks = [];
 
 function setView(v){ currentView=v; appState.panel=null; renderShell(); log.event('nav',{view:v}); }
 
@@ -547,6 +555,13 @@ function getExperiments(){ return scoped(experiments); }
 function getUsers(){ if(currentUser && currentUser.role==='SuperAdmin' && !impersonating) return users.slice(); return currentTenant?users.filter(u=>u.tenantId===currentTenant.id):[]; }
 function getNotifications(){ return scoped(notifications); }
 function getActivity(){ return scoped(activity); }
+function getDocuments(){ return scoped(documents); }
+function getOcrRegions(){ return scoped(ocrRegions); }
+function getChunks(){ return scoped(chunks); }
+function regionsForDoc(docId){ return getOcrRegions().filter(r=>r.documentId===docId); }
+function chunksForDoc(docId){ return getChunks().filter(c=>c.documentId===docId).sort((a,b)=>a.chunkIndex-b.chunkIndex); }
+function findRegion(id){ return byId(ocrRegions, id) || null; }
+function activeDoc(){ return byId(getDocuments(), appState.docId) || null; }
 function assertTenant(record){
   if(!record) return false;
   if(currentUser && currentUser.role==='SuperAdmin') return true;
@@ -642,6 +657,42 @@ function computeEval(e){
 function usagePct(t){ const l=t.planLimits.rowsPerMonth; return l===Infinity?0:Math.round(t.usage.rowsThisMonth/l*100); }
 function usageLevel(pct){ if(pct>95)return'red'; if(pct>85)return'orange'; if(pct>=70)return'yellow'; return'green'; }
 
+/* ---- Document ingestion mock logic (spec §19) ---- */
+const DOC_FORMAT_LABEL = { 'pdf-digital':'Digital PDF', 'pdf-scanned':'Scanned PDF', 'docx':'DOCX', 'image':'Image' };
+function docFormatFromName(name){
+  const n=name.toLowerCase();
+  if(/\.(jpg|jpeg|png|tiff|tif)$/.test(n)) return 'image';
+  if(/\.(docx?|pptx?)$/.test(n)) return 'docx';
+  return 'pdf-digital'; // default for pdf; caller may override to scanned
+}
+// Script detection by filename (spec simulation)
+function detectScriptsFromName(name){
+  const n=name.toLowerCase(); const scripts=['en'];
+  if(/tamil|_tn_|heritage/.test(n)) scripts.unshift('ta');
+  if(/hindi|central|clinical_guidelines_hindi/.test(n)) scripts.unshift('hi');
+  if(/telugu|_ap_/.test(n)) scripts.unshift('te');
+  return [...new Set(scripts)];
+}
+// OCR confidence simulation per region (spec §19)
+function simulateConfidence(rand, kind, script){
+  if(kind==='digital') return 95 + Math.floor(rand()*5);            // 95-99
+  if(kind==='table')   return 50 + Math.floor(rand()*25);           // 50-75
+  if(script && script!=='en') return 45 + Math.floor(rand()*35);    // Indic 45-80
+  return 75 + Math.floor(rand()*17);                                // English 75-91
+}
+function ocrConfClass(c){ if(c==null) return 'score-good'; return c>85?'score-good':c>=60?'score-mid':'score-bad'; }
+function confPill(c){ if(c==null) return '<span class="pill pill-blue">n/a (digital)</span>'; const col=c>85?'green':c>=60?'yellow':'red'; return '<span class="pill pill-'+col+'">'+c+'%</span>'; }
+const REGION_TYPES=['heading','text','text','table','text','figure'];
+const OCR_SAMPLES = {
+  en:['In accordance with the provisions of the applicable statute, the authority shall issue a written order within thirty days.','The audit observation notes a discrepancy between the sanctioned budget and the actual expenditure incurred during the financial year.','This clause shall be interpreted in consonance with the principles of natural justice and established precedent.','Table 4.2 — Summary of findings across the sampled units for the review period.'],
+  hi:['इस अधिनियम के प्रावधानों के अनुसार, प्राधिकरण तीस दिनों के भीतर लिखित आदेश जारी करेगा।','लेखापरीक्षा टिप्पणी में स्वीकृत बजट और वास्तविक व्यय के बीच विसंगति दर्ज की गई है।','यह खंड प्राकृतिक न्याय के सिद्धांतों के अनुरूप समझा जाएगा।'],
+  ta:['இந்தச் சட்டத்தின் விதிகளின்படி, அதிகாரம் முப்பது நாட்களுக்குள் எழுத்துப்பூர்வ ஆணையை வழங்கும்.','தணிக்கை அறிக்கை ஒதுக்கப்பட்ட நிதிக்கும் உண்மையான செலவுக்கும் இடையிலான வேறுபாட்டைக் குறிப்பிடுகிறது.','இந்தப் பிரிவு இயற்கை நீதியின் கொள்கைகளுக்கு இணங்க விளக்கப்படும்.'],
+};
+function ocrSample(rand, script){ const arr=OCR_SAMPLES[script]||OCR_SAMPLES.en; return arr[Math.floor(rand()*arr.length)]; }
+// corrupt text a little to simulate low-confidence OCR noise
+function noisyOcr(text, conf){ if(conf>=85) return text; const chars=text.split(''); const rate=(85-conf)/120;
+  return chars.map(c=>{ if(c!==' ' && Math.random()<rate) return (Math.random()<0.5?'▯':(c==='a'?'@':c==='o'?'0':'~')); return c; }).join(''); }
+
 /* ============================================================
    SECTION F — LOGGING & ERRORS  (CLAUDE.md §7; never raw console.*)
    ============================================================ */
@@ -723,6 +774,11 @@ const ICON = {
   clone:S+'<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 012-2h10"/></svg>',
   users:S+'<circle cx="9" cy="8" r="3"/><path d="M3 20a6 6 0 0112 0M16 6a3 3 0 010 6M21 20a6 6 0 00-4-5.6"/></svg>',
   cmd:S+'<path d="M9 3a3 3 0 010 6H3a3 3 0 010-6zM21 15a3 3 0 01-6 0V9a3 3 0 016 0M9 21a3 3 0 006 0v-6a3 3 0 00-6 0"/></svg>',
+  doc:S+'<path d="M7 3h7l5 5v13a1 1 0 01-1 1H7a1 1 0 01-1-1V4a1 1 0 011-1z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></svg>',
+  image:S+'<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="M21 16l-5-5-9 9"/></svg>',
+  scissors:S+'<circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M8.5 8L20 18M8.5 16L20 6"/></svg>',
+  sparkles:S+'<path d="M12 3l1.8 4.2L18 9l-4.2 1.8L12 15l-1.8-4.2L6 9l4.2-1.8z"/><path d="M18 15l.9 2.1L21 18l-2.1.9L18 21l-.9-2.1L15 18l2.1-.9z"/></svg>',
+  grid:S+'<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>',
 };
 
 /* ============================================================
@@ -732,6 +788,7 @@ const TENANT_DOCK = [
   {view:'dashboard', icon:'home', label:'Dashboard'},
   {view:'projects', icon:'folder', label:'Projects'},
   {view:'datasets', icon:'database', label:'Datasets'},
+  {view:'documents', icon:'doc', label:'Documents'},
   {view:'review', icon:'pencil', label:'Review Queue'},
   {view:'eval', icon:'bolt', label:'Eval Harness'},
   {view:'experiments', icon:'beaker', label:'Experiments'},
@@ -746,7 +803,9 @@ const SUPER_DOCK = [
   {view:'config', icon:'sliders', label:'Platform Config'},
 ];
 
-function pendingCount(){ return getDatasets().reduce((a,d)=>a+d.rows.filter(r=>r.reviewStatus==='pending').length,0); }
+function datasetPendingCount(){ return getDatasets().reduce((a,d)=>a+d.rows.filter(r=>r.reviewStatus==='pending').length,0); }
+function ocrPendingCount(){ return getOcrRegions().filter(r=>r.correctionStatus==='pending').length; }
+function pendingCount(){ return datasetPendingCount()+ocrPendingCount(); } // combined for dock badge
 function evalRunning(){ return getEvalRuns().some(e=>e.status==='running'); }
 
 function renderDock(){
@@ -811,7 +870,7 @@ function renderShell(){
 function renderView(){
   const c=el('canvas'); if(!c) return;
   const map = {
-    dashboard:screenDashboard, projects:screenProjects, datasets:screenDatasets, review:screenReview,
+    dashboard:screenDashboard, projects:screenProjects, datasets:screenDatasets, documents:screenDocuments, review:screenReview,
     eval:screenEval, experiments:screenExperiments, releases:screenReleases, settings:screenSettings,
     tenants:screenTenants, platform:screenPlatform, billing:screenBilling, alerts:screenAlerts, config:screenConfig,
   };
@@ -902,18 +961,30 @@ function renderLogin(){
 /* ---- Dashboard (role-aware) ---- */
 function myWorkCard(){
   const role=currentUser.role; const pend=pendingCount();
+  const ocrPend=ocrPendingCount(); const docs=getDocuments();
+  const readyDoc=docs.find(d=>d.status==='ready-chunk'); const flaggedDoc=docs.filter(d=>d.regionsFlagged>0).sort((a,b)=>b.regionsFlagged-a.regionsFlagged)[0];
+  // [title, sub, ctaLabel, action, dataKey, dataVal] — document-aware CTAs (spec §19)
   const map = {
-    Annotator:['Rows pending your review', pend+' rows in your queue', 'Start Reviewing','review'],
-    Reviewer:['Batches awaiting approval','3 batches from annotators','Review Batches','review'],
-    MLEngineer:['Eval run completed on v1.1','Factuality improved +4.2','View Results','eval'],
-    Architect:['Dataset score dropped on v1.2','Medical QA now at 61 — investigate','Investigate','datasets'],
-    ProjectManager:['v1.1 release blocked','8 rows unreviewed before sign-off','Check Status','releases'],
-    Admin:['Users pending role assignment','2 users need roles configured','Manage Users','settings'],
+    Annotator: ocrPend>0
+      ? ['OCR corrections assigned to you', ocrPend+' region'+(ocrPend!==1?'s':'')+' awaiting correction', 'Start Corrections','goto-ocr','','']
+      : ['Rows pending your review', pend+' rows in your queue', 'Start Reviewing','nav','view','review'],
+    Reviewer:['Batches awaiting approval','3 batches from annotators','Review Batches','nav','view','review'],
+    MLEngineer: flaggedDoc
+      ? [flaggedDoc.regionsFlagged+' regions pending OCR correction', 'in '+flaggedDoc.name, 'Correct OCR','goto-ocr','','']
+      : ['Eval run completed on v1.1','Factuality improved +4.2','View Results','nav','view','eval'],
+    Architect: readyDoc
+      ? [readyDoc.name.replace(/\.[^.]+$/,'')+' ready for chunking', 'OCR complete — configure chunk strategy', 'Configure Chunking','configure-chunking','id',readyDoc.id]
+      : ['Dataset score dropped on v1.2','Medical QA now at 61 — investigate','Investigate','nav','view','datasets'],
+    ProjectManager: docs.length
+      ? [docs.length+' documents processed', ocrPend>0?(docs.filter(d=>d.regionsFlagged>0).length+' awaiting OCR review'):'all clear for chunking', 'View Documents','nav','view','documents']
+      : ['v1.1 release blocked','8 rows unreviewed before sign-off','Check Status','nav','view','releases'],
+    Admin:['Users pending role assignment','2 users need roles configured','Manage Users','nav','view','settings'],
   };
   const m=map[role]||map.Admin;
+  const dataAttr = m[4] ? ' data-'+m[4]+'="'+escapeAttr(m[5])+'"' : '';
   return '<div class="card" style="border-color:var(--border-active)"><div class="section-h">My Work Today</div>'
     + '<div class="card-title">'+escapeHtml(m[0])+'</div><div class="secondary mt4">'+escapeHtml(m[1])+'</div>'
-    + '<button class="btn btn-primary mt16" data-action="nav" data-view="'+m[3]+'">'+escapeHtml(m[2])+ICON.arrowR+'</button></div>';
+    + '<button class="btn btn-primary mt16" data-action="'+m[3]+'"'+dataAttr+'>'+escapeHtml(m[2])+ICON.arrowR+'</button></div>';
 }
 function projectHealthCard(p){
   const rel=projectReleases(p.id)[0]; const ds=rel?datasetForRelease(rel.id):null;
@@ -1080,10 +1151,15 @@ function reviewQueue(){
   return rows;
 }
 function screenReview(){
-  const q=reviewQueue();
-  const head='<div class="row-between"><div><h1 class="page-h">Review Queue</h1><p class="page-sub">Worst-scoring rows first · '+q.length+' pending</p></div>'
-    +(currentUser.role==='Reviewer'?'<button class="btn btn-ghost" data-action="review-batch">'+ICON.check+'Batch approval</button>':'')+'</div>';
-  if(!q.length) return head+'<div class="mt24">'+emptyState('check','You\'re all caught up','No rows pending review. ✅','')+'</div>';
+  const q=reviewQueue(); const oq=ocrCorrectionQueue(); const tab=appState.reviewTab;
+  const tabBar='<div class="flex gap8 mt16">'
+    +'<button class="chip '+(tab==='datasets'?'is-on':'')+'" data-action="review-tab" data-tab="datasets">Datasets'+(q.length?' <span class="pill pill-coral" style="padding:1px 6px">'+q.length+'</span>':'')+'</button>'
+    +'<button class="chip '+(tab==='ocr'?'is-on':'')+'" data-action="review-tab" data-tab="ocr">OCR Corrections'+(oq.length?' <span class="pill pill-coral" style="padding:1px 6px">'+oq.length+'</span>':'')+'</button></div>';
+  const title='<div class="row-between"><div><h1 class="page-h">Review Queue</h1><p class="page-sub">'+(tab==='ocr'?'Low-confidence OCR regions · lowest first':'Worst-scoring rows first')+'</p></div>'
+    +(currentUser.role==='Reviewer'&&tab==='datasets'?'<button class="btn btn-ghost" data-action="review-batch">'+ICON.check+'Batch approval</button>':'')+'</div>'+tabBar;
+  if(tab==='ocr') return title+'<div class="mt24">'+reviewOcrPane()+'</div>';
+  if(!q.length) return title+'<div class="mt24">'+emptyState('check','You\'re all caught up','No rows pending review. ✅','')+'</div>';
+  const head=title;
   if(appState.reviewIndex>=q.length) appState.reviewIndex=0;
   const cur=q[appState.reviewIndex]; const r=cur.row;
   const reviewed = q.length; // remaining
@@ -1354,6 +1430,217 @@ function viewTenantDetail(id){
 }
 
 /* ============================================================
+   SECTION I-DOC — DOCUMENT INGESTION MODULE (spec §19)
+   ============================================================ */
+// Seed definitions — regions generated deterministically in initDocuments().
+const DOC_SEEDS = [
+  { id:'doc1', tenantId:'tenant_pravartak', projectId:'p1', name:'Audit_Observation_Report_2024.pdf', kind:'scanned', pages:24, flagged:6, uploadedBy:'Arjun ML', uploadedAt:'2025-06-02', seed:9001 },
+  { id:'doc2', tenantId:'tenant_pravartak', projectId:'p1', name:'Legal_Framework_AI_Guidelines.pdf', kind:'digital', pages:18, flagged:0, uploadedBy:'Rohan Das', uploadedAt:'2025-06-05', seed:9002 },
+  { id:'doc3', tenantId:'tenant_pravartak', projectId:'p3', name:'Tamil_Heritage_Research_Paper.pdf', kind:'scanned', pages:12, flagged:14, uploadedBy:'Neha Shah', uploadedAt:'2025-06-08', seed:9003 },
+  { id:'doc4', tenantId:'tenant_legalai', projectId:'p4', name:'Contract_Template_v3.pdf', kind:'digital', pages:8, flagged:0, uploadedBy:'Sara Iyer', uploadedAt:'2025-05-20', seed:9004 },
+  { id:'doc5', tenantId:'tenant_legalai', projectId:'p4', name:'Supreme_Court_Judgment_2023.pdf', kind:'scanned', pages:32, flagged:9, uploadedBy:'Vikram Rao', uploadedAt:'2025-05-24', seed:9005 },
+  { id:'doc6', tenantId:'tenant_healthbot', projectId:'p7', name:'Clinical_Guidelines_Hindi.pdf', kind:'scanned', pages:16, flagged:22, uploadedBy:'Meera Pillai', uploadedAt:'2025-06-11', seed:9006 },
+];
+let REGION_UID=0, CHUNK_UID=0;
+function initDocuments(){
+  documents=[]; ocrRegions=[]; chunks=[];
+  DOC_SEEDS.forEach(s=>{ buildDocument(s); });
+  log.info('[boot] documents ready — '+documents.length+' docs, '+ocrRegions.length+' OCR regions');
+}
+function buildDocument(s){
+  const rand=mkRand(s.seed);
+  const scripts=detectScriptsFromName(s.name);
+  const digital = s.kind==='digital';
+  const doc={ id:s.id, tenantId:s.tenantId, projectId:s.projectId, name:s.name,
+    format: digital?'pdf-digital':'pdf-scanned', pages:s.pages, uploadedBy:s.uploadedBy, uploadedAt:s.uploadedAt,
+    scriptsDetected:scripts, chunks:[], synthesisedPairs:[], status:'processed' };
+  if(digital){
+    doc.avgOcrConfidence=null; doc.regionsTotal=Math.round(s.pages*1.5); doc.regionsFlagged=0;
+    doc.status='ready-chunk';
+  } else {
+    // generate regions with EXACTLY s.flagged below-60 (<60) regions + higher-confidence rest.
+    const total = Math.max(s.flagged+Math.round(s.pages*1.2), s.flagged+6);
+    for(let i=0;i<total;i++){
+      const isLow = i < s.flagged;                                  // deterministic count
+      const script = scripts.length>1 ? (rand()<0.5?scripts[0]:scripts[scripts.length-1]) : scripts[0];
+      const rtype = REGION_TYPES[Math.floor(rand()*REGION_TYPES.length)];
+      let conf;
+      if(isLow){ conf = 40 + Math.floor(rand()*20); }               // 40-59 → flagged
+      else if(rtype==='table'){ conf = 60 + Math.floor(rand()*18); } // 60-77 tables
+      else if(script!=='en'){ conf = 62 + Math.floor(rand()*24); }   // 62-85 Indic
+      else { conf = 72 + Math.floor(rand()*20); }                    // 72-91 English
+      const clean=ocrSample(rand, script);
+      const region={ id:'reg'+(++REGION_UID), documentId:doc.id, tenantId:doc.tenantId,
+        pageNumber:1+Math.floor(i/2), regionIndex:i, regionType:rtype, script,
+        rawText: conf<85 ? noisyOcr(clean, conf) : clean, cleanText:clean, correctedText:null,
+        confidence:conf, correctionStatus: conf<60?'pending':'accepted', correctedBy:null, correctedAt:null };
+      ocrRegions.push(region);
+    }
+    const regs=ocrRegions.filter(r=>r.documentId===doc.id);
+    doc.regionsTotal=regs.length;
+    doc.regionsFlagged=regs.filter(r=>r.confidence<60).length;
+    doc.avgOcrConfidence=Math.round(regs.reduce((a,r)=>a+r.confidence,0)/regs.length);
+    doc.status = doc.regionsFlagged>0 ? 'needs-review' : 'ready-chunk';
+  }
+  documents.push(doc);
+  return doc;
+}
+const DOC_STATUS_PILL={ processed:'blue', 'needs-review':'yellow', 'ready-chunk':'green', chunked:'coral', synthesised:'pink' };
+const DOC_STATUS_LABEL={ processed:'Processed', 'needs-review':'Needs Review', 'ready-chunk':'Ready for Chunking', chunked:'Chunked', synthesised:'Pairs Synthesised' };
+function docStatusPill(s){ return '<span class="pill pill-'+(DOC_STATUS_PILL[s]||'muted')+'">'+(DOC_STATUS_LABEL[s]||s)+'</span>'; }
+
+/* ---- Documents screen (list / chunk / synth sub-views) ---- */
+function screenDocuments(){
+  if(appState.docView==='chunk' && activeDoc()) return screenChunking(activeDoc());
+  if(appState.docView==='synth' && activeDoc()) return screenSynthesis(activeDoc());
+  return screenDocList();
+}
+function screenDocList(){
+  const docs=getDocuments();
+  const head='<div class="row-between"><div><h1 class="page-h">Documents</h1><p class="page-sub">Ingestion pipeline · OCR · chunking · pair synthesis</p></div>'
+    +(can('Datasets')?'<button class="btn btn-primary" data-action="upload-document">'+ICON.upload+'Upload Documents</button>':'')+'</div>';
+  if(!docs.length) return head+'<div class="mt24">'+emptyState('doc','No documents yet','Upload PDFs, scans, or images to start the ingestion pipeline.',(can('Datasets')?'<button class="btn btn-primary" data-action="upload-document">'+ICON.upload+'Upload Documents</button>':''))+'</div>';
+  let rows='';
+  docs.forEach(d=>{ const scripts=d.scriptsDetected.map(s=>langPill(s)).join(' ');
+    rows+='<tr data-action="open-doc" data-id="'+d.id+'"><td><div class="flex gap8">'+(d.format==='pdf-scanned'?ICON.image:ICON.doc)+'<span>'+escapeHtml(d.name)+'</span></div></td>'
+      +'<td><span class="badge-fmt">'+DOC_FORMAT_LABEL[d.format]+'</span></td>'
+      +'<td class="mono">'+d.pages+'</td><td><div class="flex wrap gap6">'+scripts+'</div></td>'
+      +'<td class="mono">'+d.regionsTotal+(d.regionsFlagged?' <span class="score-bad">('+d.regionsFlagged+'⚠)</span>':'')+'</td>'
+      +'<td>'+confPill(d.avgOcrConfidence)+'</td><td>'+docStatusPill(d.status)+'</td></tr>'; });
+  const table='<div class="card mt24" style="padding:0;overflow:auto"><table class="tbl"><thead><tr><th>Document</th><th>Type</th><th>Pages</th><th>Scripts</th><th>Regions</th><th>Avg OCR</th><th>Status</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+  const pend=ocrPendingCount();
+  const banner = pend>0 ? '<div class="warn-banner warn-yellow">'+ICON.warn+'<span>'+pend+' OCR region'+(pend!==1?'s':'')+' below 60% confidence need human correction.</span><div style="flex:1"></div><button class="btn btn-sm btn-ghost" data-action="goto-ocr">'+ICON.pencil+'Correct OCR</button></div>' : '';
+  return head+'<div class="mt24"></div>'+banner+table;
+}
+function panelDoc(id){
+  const d=byId(getDocuments(),id); if(!d||!assertTenant(d)) return;
+  const regs=regionsForDoc(id); const pend=regs.filter(r=>r.correctionStatus==='pending').length;
+  const dch=chunksForDoc(id);
+  const actions='<div class="stack gap8 mt16">'
+    +(pend>0?'<button class="btn btn-primary" data-action="goto-ocr" data-id="'+id+'">'+ICON.pencil+'Correct OCR ('+pend+' pending)</button>':'')
+    +(can('Datasets')?'<button class="btn '+(pend>0?'btn-ghost':'btn-primary')+'" data-action="configure-chunking" data-id="'+id+'">'+ICON.scissors+'Configure Chunking</button>':'')
+    +(dch.length?'<button class="btn btn-ghost" data-action="configure-synthesis" data-id="'+id+'">'+ICON.sparkles+'Generate Instruction Pairs</button>':'')+'</div>';
+  const html='<div class="flex gap8">'+docStatusPill(d.status)+'<span class="badge-fmt">'+DOC_FORMAT_LABEL[d.format]+'</span></div>'
+    +'<div class="grid-2 mt16"><div class="card" style="padding:12px"><div class="muted" style="font-size:11px">PAGES</div><div class="bignum" style="font-size:22px">'+d.pages+'</div></div>'
+    +'<div class="card" style="padding:12px"><div class="muted" style="font-size:11px">AVG OCR</div><div class="bignum '+ocrConfClass(d.avgOcrConfidence)+'" style="font-size:22px">'+(d.avgOcrConfidence==null?'n/a':d.avgOcrConfidence+'%')+'</div></div></div>'
+    +'<div class="section-h mt16">Scripts detected</div><div class="flex wrap gap6">'+d.scriptsDetected.map(s=>langPill(s)).join(' ')+'</div>'
+    +'<div class="section-h mt16">Regions</div><div class="card" style="padding:12px"><div class="row-between"><span>Extracted</span><strong>'+d.regionsTotal+'</strong></div>'
+    +'<div class="row-between mt8"><span>Flagged (&lt;60%)</span><strong class="'+(d.regionsFlagged?'score-bad':'score-good')+'">'+d.regionsFlagged+'</strong></div>'
+    +'<div class="row-between mt8"><span>Chunks</span><strong>'+dch.length+'</strong></div></div>'
+    +'<div class="section-h mt16">Uploaded</div><div class="secondary">'+escapeHtml(d.uploadedAt)+' by '+escapeHtml(d.uploadedBy)+'</div>'
+    +actions;
+  openPanel(html, d.name);
+}
+
+/* ---- Chunking sub-screen ---- */
+const CHUNK_STRATEGIES=[
+  {key:'structural', label:'Structural', desc:'Split at headings/sections — best for contracts, circulars with clear structure.'},
+  {key:'semantic', label:'Semantic', desc:'Split when the topic shifts — best for research papers.'},
+  {key:'paragraph', label:'Paragraph', desc:'Split at paragraph boundaries — safe default for unstructured scans.'},
+  {key:'fixed', label:'Fixed size', desc:'Split every N tokens — reliable fallback.'},
+];
+function docText(d){
+  // assemble text from OCR regions (corrected where available) or a digital placeholder
+  const regs=regionsForDoc(d.id);
+  if(regs.length) return regs.map(r=>(r.regionType==='heading'?'\n## ':'')+ (r.correctedText||r.cleanText)).join('\n\n');
+  // digital placeholder body
+  const paras=[]; for(let i=0;i<d.pages;i++){ paras.push((i%4===0?'## Section '+(i/4+1|0)+'\n':'')+OCR_SAMPLES.en[i%OCR_SAMPLES.en.length]); }
+  return paras.join('\n\n');
+}
+function computeChunks(d){
+  const text=docText(d); const strat=appState.chunkStrategy; const size=appState.chunkSize;
+  let segs=[];
+  if(strat==='structural'||strat==='semantic'){ segs=text.split(/\n(?=## )/).filter(s=>s.trim()); }
+  else if(strat==='paragraph'){ segs=text.split(/\n\n+/).filter(s=>s.trim()); }
+  else { const words=text.split(/\s+/); const per=Math.max(20,Math.round(size/1.3)); for(let i=0;i<words.length;i+=per) segs.push(words.slice(i,i+per).join(' ')); }
+  // merge tiny segs up toward target size for structural/paragraph
+  return segs.map((s,i)=>{ const heading=(s.match(/## (.+)/)||[])[1]||'—'; const toks=Math.max(1,Math.round(s.split(/\s+/).length*1.3));
+    return { text:s.replace(/## /,'').trim(), tokenCount:toks, headingContext:heading, chunkIndex:i, sourcePages:[1+i] }; });
+}
+function screenChunking(d){
+  const preview=computeChunks(d);
+  const head='<div class="row-between"><div><div class="flex gap8"><button class="btn btn-sm btn-ghost" data-action="doc-back">'+ICON.chevR+' Documents</button></div><h1 class="page-h mt8">Chunking</h1><p class="page-sub">'+escapeHtml(d.name)+'</p></div>'
+    +'<button class="btn btn-primary" data-action="apply-chunking" data-id="'+d.id+'">'+ICON.scissors+'Apply Chunking ('+preview.length+' chunks)</button></div>';
+  let strat=''; CHUNK_STRATEGIES.forEach(s=>{ strat+='<label class="card hover '+(appState.chunkStrategy===s.key?'is-sel-strat':'')+'" data-action="set-chunk-strategy" data-val="'+s.key+'" style="padding:12px;display:block;cursor:pointer;border-color:'+(appState.chunkStrategy===s.key?'var(--coral)':'var(--border)')+'">'
+    +'<div class="flex gap8"><span style="width:16px;height:16px;border-radius:50%;border:2px solid '+(appState.chunkStrategy===s.key?'var(--coral)':'var(--border-active)')+';display:inline-block;'+(appState.chunkStrategy===s.key?'background:var(--coral);box-shadow:inset 0 0 0 3px var(--bg-surface)':'')+'"></span><strong>'+s.label+'</strong></div>'
+    +'<div class="muted mt4" style="font-size:12px">'+s.desc+'</div></label>'; });
+  const controls='<div class="card mt16"><div class="section-h">Parameters</div>'
+    +'<div class="row-between mt8"><span class="secondary">Chunk size (tokens)</span><span class="mono" id="cs-val">'+appState.chunkSize+'</span></div>'
+    +'<input type="range" min="80" max="512" value="'+appState.chunkSize+'" data-action="set-chunk-size" style="width:100%;accent-color:var(--coral)">'
+    +'<div class="row-between mt8"><span class="secondary">Overlap (tokens)</span><span class="mono" id="co-val">'+appState.chunkOverlap+'</span></div>'
+    +'<input type="range" min="0" max="80" value="'+appState.chunkOverlap+'" data-action="set-chunk-overlap" style="width:100%;accent-color:var(--pink)"></div>';
+  // preview: text with boundaries + chunk list
+  let boundaries=''; preview.forEach((c,i)=>{ boundaries+='<div style="border-left:3px solid var(--coral);padding:6px 10px;margin-bottom:8px;background:var(--bg-hover);border-radius:0 8px 8px 0"><div class="muted mono" style="font-size:10px">CHUNK '+(i+1)+' · '+escapeHtml(c.headingContext)+'</div><div style="font-size:12px" class="mono">'+escapeHtml(truncate(c.text,180))+'</div></div>'; });
+  let list=''; preview.forEach((c,i)=>{ list+='<div class="row-between" style="padding:7px 0;border-bottom:1px solid var(--border)"><span class="truncate" style="max-width:220px;font-size:12px">'+escapeHtml(truncate(c.text,44))+'</span><span class="pill pill-muted mono">'+c.tokenCount+' tok</span></div>'; });
+  return head+'<div class="mt24" style="display:grid;grid-template-columns:300px 1fr;gap:20px;align-items:start">'
+    +'<div><div class="section-h">Strategy</div><div class="stack gap8">'+strat+'</div>'+controls+'</div>'
+    +'<div class="grid-2" style="align-items:start"><div class="card"><div class="section-h">Extracted text · chunk boundaries</div><div style="max-height:52vh;overflow:auto">'+boundaries+'</div></div>'
+    +'<div class="card"><div class="section-h">Resulting chunks ('+preview.length+')</div><div style="max-height:52vh;overflow:auto">'+list+'</div></div></div></div>';
+}
+
+/* ---- Synthesis sub-screen ---- */
+const SYNTH_TYPES=['QA Pairs','Summarisation','Information Extraction','Instruction Following'];
+function screenSynthesis(d){
+  const dch=chunksForDoc(d.id);
+  const head='<div class="row-between"><div><button class="btn btn-sm btn-ghost" data-action="doc-back">'+ICON.chevR+' Documents</button><h1 class="page-h mt8">Instruction Pair Synthesis</h1><p class="page-sub">'+escapeHtml(d.name)+' · '+dch.length+' chunks</p></div>'
+    +'<button class="btn btn-primary" data-action="generate-pairs" data-id="'+d.id+'">'+ICON.sparkles+'Generate Pairs</button></div>';
+  if(!dch.length) return head+'<div class="mt24">'+emptyState('scissors','No chunks yet','Configure and apply chunking before synthesising pairs.','<button class="btn btn-primary" data-action="configure-chunking" data-id="'+d.id+'">'+ICON.scissors+'Configure Chunking</button>')+'</div>';
+  let types=''; SYNTH_TYPES.forEach(t=>{ const on=appState.synthTypes.includes(t); types+='<button class="chip '+(on?'is-on':'')+'" data-action="toggle-synth-type" data-val="'+escapeAttr(t)+'">'+escapeHtml(t)+'</button>'; });
+  const cfg='<div class="card"><div class="section-h">Configuration</div>'
+    +'<label class="field-label">Pair types</label><div class="flex wrap gap6">'+types+'</div>'
+    +'<div class="row-between mt16"><span class="secondary">Pairs per chunk</span><span class="mono" id="spc">'+appState.synthPerChunk+'</span></div>'
+    +'<input type="range" min="1" max="3" value="'+appState.synthPerChunk+'" data-action="set-synth-per" style="width:100%;accent-color:var(--coral)">'
+    +'<label class="field-label mt16">LLM</label><div class="flex gap6">'+['Mock','Claude API','Local Model'].map(m=>'<button class="chip '+(appState.synthLLM===m?'is-on':'')+'" data-action="set-synth-llm" data-val="'+escapeAttr(m)+'">'+m+'</button>').join('')+'</div></div>';
+  // existing generated pairs
+  const pairs=(d.synthesisedPairs||[]);
+  let pairRows='';
+  if(pairs.length){ pairs.forEach(p=>{ pairRows+='<tr data-action="open-pair" data-doc="'+d.id+'" data-pid="'+p.id+'"><td class="cell-wide"><div class="truncate">'+escapeHtml(truncate(p.instruction,60))+'</div></td>'
+    +'<td class="cell-wide"><div class="truncate secondary">'+escapeHtml(truncate(p.output,60))+'</div></td><td><span class="pill pill-pink">'+escapeHtml(p.pairType)+'</span></td><td><span class="pill pill-'+pillColorForScore(p.confidence)+'">'+p.confidence+'</span></td></tr>'; }); }
+  const resultCard = pairs.length
+    ? '<div class="card" style="padding:0;overflow:hidden"><div class="row-between" style="padding:14px 16px"><span class="section-h" style="margin:0">Generated pairs ('+pairs.length+')</span><button class="btn btn-primary btn-sm" data-action="send-to-curation" data-id="'+d.id+'">'+ICON.arrowR+'Send to Curation Pipeline</button></div><table class="tbl"><thead><tr><th>Instruction</th><th>Output</th><th>Type</th><th>Conf</th></tr></thead><tbody>'+pairRows+'</tbody></table></div>'
+    : '<div class="card">'+emptyState('sparkles','No pairs generated yet','Configure and click Generate Pairs to synthesise instruction pairs from chunks.','')+'</div>';
+  return head+'<div class="mt24" style="display:grid;grid-template-columns:320px 1fr;gap:20px;align-items:start">'+cfg+resultCard+'</div>';
+}
+function synthesisePairs(d){
+  const dch=chunksForDoc(d.id); const per=appState.synthPerChunk; const types=appState.synthTypes.length?appState.synthTypes:['QA Pairs'];
+  const rand=mkRand(d.id.length*77+dch.length);
+  const pairs=[];
+  dch.forEach((c,ci)=>{ for(let i=0;i<per;i++){ const type=types[i%types.length];
+    const sentences=c.text.split(/(?<=[.।!?])\s+/).filter(Boolean); const first2=sentences.slice(0,2).join(' ');
+    let instruction, output;
+    if(type==='Summarisation'){ instruction='Summarise the following section: '+c.headingContext; output=truncate(first2,160); }
+    else if(type==='Information Extraction'){ instruction='Extract the key obligation or finding from this passage.'; output=truncate(sentences[0]||c.text,140); }
+    else if(type==='Instruction Following'){ instruction='Rewrite the following clause in plain language.'; output=truncate(first2,160); }
+    else { instruction='What does this section describe?'; output=truncate(first2,160); }
+    pairs.push({ id:'pair_'+d.id+'_'+ci+'_'+i, chunkId:c.id, chunkIndex:c.chunkIndex, pairType:type,
+      instruction, input:'', output, confidence:62+Math.floor(rand()*33), sourcePages:c.sourcePages, headingContext:c.headingContext }); } });
+  return pairs;
+}
+
+/* ---- OCR correction (rendered inside Review Queue 'ocr' tab) ---- */
+function ocrCorrectionQueue(){ return getOcrRegions().filter(r=>r.correctionStatus==='pending').sort((a,b)=>a.confidence-b.confidence); }
+function reviewOcrPane(){
+  const q=ocrCorrectionQueue();
+  if(!q.length) return emptyState('check','No OCR corrections pending','All low-confidence regions have been corrected. ✅','');
+  if(appState.reviewIndex>=q.length) appState.reviewIndex=0;
+  const reg=q[appState.reviewIndex]; const doc=byId(documents,reg.documentId);
+  // faux scanned-image of the region (we have no real images — render a "scan" panel)
+  const scanBox='<div style="background:#efe9dd;color:#2a2a2a;border-radius:10px;padding:16px;font-family:var(--font-mono);font-size:13px;line-height:1.9;filter:contrast(1.05);box-shadow:inset 0 0 30px rgba(0,0,0,.12)">'
+    +'<div style="opacity:.5;font-size:10px;letter-spacing:1px;margin-bottom:8px">SCANNED REGION · p.'+reg.pageNumber+' · '+reg.regionType.toUpperCase()+'</div>'
+    +'<div style="transform:skew(-0.6deg)">'+escapeHtml(reg.cleanText)+'</div></div>';
+  const left='<div class="card"><div class="flex gap8">'+langPill(reg.script)+'<span class="pill pill-'+(reg.confidence<60?'red':reg.confidence<85?'yellow':'green')+'">'+reg.confidence+'% conf</span><span class="badge-fmt">'+escapeHtml(truncate(doc?doc.name:'',20))+'</span></div>'
+    +'<div class="section-h mt16">Original scan</div>'+scanBox+'</div>';
+  const right='<div class="card"><div class="section-h">OCR output — correct errors</div>'
+    +'<textarea class="input" id="ocr-text" style="min-height:150px">'+escapeHtml(reg.rawText)+'</textarea>'
+    +'<div class="flex gap8 mt16 wrap"><button class="btn btn-green" data-action="ocr-accept" data-id="'+reg.id+'">'+ICON.check+'Accept</button>'
+    +'<button class="btn btn-primary" data-action="ocr-edit-accept" data-id="'+reg.id+'">'+ICON.pencil+'Edit &amp; Accept</button>'
+    +'<button class="btn btn-ghost" data-action="ocr-flag" data-id="'+reg.id+'">'+ICON.flag+'Flag for Expert</button></div></div>';
+  let qlist=''; q.forEach((r,i)=>{ qlist+='<button class="dropdown-item '+(i===appState.reviewIndex?'is-active':'')+'" data-action="goto-ocr-idx" data-idx="'+i+'" style="justify-content:space-between"><span class="truncate" style="max-width:150px">'+langPill(r.script)+' p.'+r.pageNumber+'</span><span class="pill pill-'+(r.confidence<60?'red':'yellow')+'">'+r.confidence+'%</span></button>'; });
+  const queue='<div class="card" style="padding:8px"><div class="row-between" style="padding:8px 10px"><span class="section-h" style="margin:0">OCR queue</span><span class="muted" style="font-size:12px">'+(appState.reviewIndex+1)+' of '+q.length+'</span></div><div style="max-height:52vh;overflow:auto">'+qlist+'</div></div>';
+  return '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start">'+left+right+'</div><div class="mt16" style="display:grid;grid-template-columns:1fr 1fr;gap:16px"><div></div>'+queue+'</div>';
+}
+
+/* ============================================================
    SECTION J — AUTH, DROPDOWNS, PALETTE, MODALS
    ============================================================ */
 function doLogin(email, pass){
@@ -1428,8 +1715,11 @@ function paletteItems(q){ q=(q||'').toLowerCase(); const items=[];
   getDatasets().forEach(d=>add('Datasets','database',d.name,'goto-dataset',{id:d.id}));
   getEvalRuns().forEach(e=>add('Eval Runs','bolt',e.checkpointB+' — '+e.runAt,'load-eval',{id:e.id}));
   getExperiments().forEach(x=>add('Experiments','beaker',x.name,'open-experiment',{id:x.id}));
+  getDocuments().forEach(dd=>{ add('Documents','doc',dd.name,'open-doc',{id:dd.id});
+    add('Documents','scissors','Configure chunking for '+truncate(dd.name,28),'configure-chunking',{id:dd.id});
+    add('Documents','sparkles','Generate pairs from '+truncate(dd.name,28),'configure-synthesis',{id:dd.id}); });
   let rc=0; if(q) getDatasets().forEach(d=>d.rows.forEach(r=>{ if(rc<40 && (r.instruction||'').toLowerCase().includes(q)){ add('Rows','pencil',truncate(r.instruction,50),'open-row',{id:r.id}); rc++; } }));
-  [['Upload dataset','upload-dataset',null],['Run eval','nav','eval'],['New project','new-project',null],['New experiment','new-experiment',null]].forEach(a=>add('Actions','plus',a[0],a[1],a[2]?{view:a[2]}:{}));
+  [['Upload dataset','upload-dataset',null],['Upload document','upload-document',null],['Correct OCR regions','goto-ocr',null],['Run eval','nav','eval'],['New project','new-project',null],['New experiment','new-experiment',null]].forEach(a=>add('Actions','plus',a[0],a[1],a[2]?{view:a[2]}:{}));
   const filtered = q ? items.filter(i=>i.label.toLowerCase().includes(q)||i.group.toLowerCase().includes(q)) : items.slice(0,12);
   return filtered.slice(0,40);
 }
@@ -1472,6 +1762,28 @@ function dispatch(action, d){
     case 'goto-dataset': setView('datasets'); activeDatasetId=d.id; break;
     case 'ds-filter': appState.dsFilters[d.key]=d.val; mount('ds-detail', datasetDetail(currentDataset())); afterRender(); break;
     case 'export-dataset': exportDataset(d.id); break;
+    // --- Document ingestion module ---
+    case 'upload-document': uploadDocumentModal(); break;
+    case 'open-doc': panelDoc(d.id); break;
+    case 'doc-back': appState.docView='list'; appState.docId=null; closePanel(); renderView(); break;
+    case 'goto-ocr': closePanel(); setView('review'); appState.reviewTab='ocr'; appState.reviewIndex=0; renderView(); break;
+    case 'goto-ocr-idx': appState.reviewIndex=+d.idx; renderView(); break;
+    case 'review-tab': appState.reviewTab=d.tab; appState.reviewIndex=0; renderView(); break;
+    case 'configure-chunking': closePanel(); setView('documents'); appState.docId=d.id; appState.docView='chunk'; renderView(); break;
+    case 'configure-synthesis': closePanel(); setView('documents'); appState.docId=d.id; appState.docView='synth'; renderView(); break;
+    case 'set-chunk-strategy': appState.chunkStrategy=d.val; renderView(); break;
+    case 'set-chunk-size': appState.chunkSize=+d.val||220; { const n=el('cs-val'); if(n) n.textContent=appState.chunkSize; renderView(); } break;
+    case 'set-chunk-overlap': appState.chunkOverlap=+d.val||0; { const n=el('co-val'); if(n) n.textContent=appState.chunkOverlap; } break;
+    case 'apply-chunking': applyChunking(d.id); break;
+    case 'toggle-synth-type': toggleSynthType(d.val); break;
+    case 'set-synth-per': appState.synthPerChunk=+d.val||1; { const n=el('spc'); if(n) n.textContent=appState.synthPerChunk; } break;
+    case 'set-synth-llm': appState.synthLLM=d.val; renderView(); break;
+    case 'generate-pairs': generatePairsFlow(d.id); break;
+    case 'send-to-curation': sendPairsToCuration(d.id); break;
+    case 'open-pair': openPairPanel(d.doc, d.pid); break;
+    case 'ocr-accept': ocrCorrect(d.id, false); break;
+    case 'ocr-edit-accept': ocrCorrect(d.id, true); break;
+    case 'ocr-flag': ocrFlag(d.id); break;
     case 'open-row': panelRow(d.id); break;
     case 'review-row': reviewRow(d.id, d.do, d.queue==='1'); break;
     case 'edit-row': editRowModal(d.id, false); break;
@@ -1678,6 +1990,143 @@ function exportDataset(id){
   showToast('Exported '+approved.length+' approved rows','ok');
 }
 
+/* ---- Document ingestion handlers (spec §19) ---- */
+function uploadDocumentModal(){
+  if(!can('Datasets')){ showToast('You lack document permission','error'); return; }
+  openModal('<div class="modal-head"><strong>Upload Documents</strong><button class="icon-btn" data-action="close-modal">'+ICON.x+'</button></div>'
+    +'<div class="modal-body"><div id="doc-drop" style="border:2px dashed var(--border-active);border-radius:14px;padding:40px;text-align:center;cursor:pointer">'
+    +ICON.doc+'<div class="mt8">Drop files or click to browse — up to 20 per batch</div><div class="muted mt4" style="font-size:12px">PDF · DOCX · DOC · PPT · PPTX · JPG · PNG · TIFF</div>'
+    +'<input type="file" id="doc-file" class="hidden" multiple accept=".pdf,.docx,.doc,.ppt,.pptx,.jpg,.jpeg,.png,.tiff,.tif"></div>'
+    +'<div id="doc-progress" class="hidden mt16"></div></div>');
+  const drop=el('doc-drop'), file=el('doc-file');
+  drop.onclick=()=>file.click();
+  drop.ondragover=e=>{ e.preventDefault(); drop.style.borderColor='var(--coral)'; };
+  drop.ondragleave=()=>{ drop.style.borderColor='var(--border-active)'; };
+  drop.ondrop=e=>{ e.preventDefault(); handleDocUpload(Array.from(e.dataTransfer.files||[])); };
+  file.onchange=()=>{ handleDocUpload(Array.from(file.files||[])); };
+}
+function handleDocUpload(files){
+  if(!files.length) return;
+  const allowed=['pdf','docx','doc','ppt','pptx','jpg','jpeg','png','tiff','tif'];
+  files=files.slice(0,20).filter(f=>{ const ext=(f.name.split('.').pop()||'').toLowerCase(); if(!allowed.includes(ext)){ log.warn('[doc] rejected', f.name); showToast('Skipped unsupported file: '+f.name,'info'); return false; } return true; });
+  if(!files.length) return;
+  const prog=el('doc-progress'); prog.classList.remove('hidden');
+  // process sequentially with animated pipeline steps
+  let fi=0;
+  const nextFile=()=>{
+    if(fi>=files.length){ closeModal(); setView('documents'); appState.docView='list'; showToast(files.length+' document'+(files.length>1?'s':'')+' ingested','ok'); return; }
+    const f=files[fi]; const ext=(f.name.split('.').pop()||'').toLowerCase();
+    const isImage=['jpg','jpeg','png','tiff','tif'].includes(ext);
+    // heuristic: scanned if name hints or is image; digital otherwise
+    const scanned = isImage || /scan|audit|judgment|heritage|clinical|hindi|tamil/i.test(f.name);
+    const steps = scanned
+      ? ['Pre-processing (deskew, denoise)…','Detecting layout (columns, tables, headings)…','Detecting script per region…','Running OCR…','Scoring confidence per region…','Post-processing (Unicode normalise, ligature fix)…','Done']
+      : ['Extracting text…','Detecting structure…','Chunking…','Done'];
+    let si=0;
+    const tick=()=>{ if(!el('doc-progress')) return;
+      const done=si>=steps.length-1;
+      prog.innerHTML='<div class="mono muted" style="font-size:11px;margin-bottom:6px">'+escapeHtml(f.name)+' ('+(fi+1)+'/'+files.length+')</div>'
+        +'<div class="flex gap8">'+(done?ICON.check:'<div class="pill pill-blue">'+(si+1)+'/'+steps.length+'</div>')+'<span>'+escapeHtml(steps[si])+'</span></div>'
+        +'<div class="meter mt8"><div class="meter-fill" style="width:'+Math.round((si+1)/steps.length*100)+'%;background:var(--gradient-brand)"></div></div>';
+      si++; if(si<steps.length){ setTimeout(tick, 480); } else { finalizeDocUpload(f, ext, scanned); fi++; setTimeout(nextFile, 250); } };
+    tick();
+  };
+  nextFile();
+}
+function finalizeDocUpload(f, ext, scanned){
+  const pages = 4+Math.floor((f.size||40000)/20000)%28;
+  const seed=(f.name.length*53+ext.length+pages)>>>0;
+  const s={ id:'doc'+Date.now()+'_'+Math.floor(pages), tenantId:currentTenant.id, projectId:appState.projectId||getProjects()[0]?.id,
+    name:f.name, kind: scanned?'scanned':'digital', pages, flagged: scanned?Math.max(1,Math.round(pages*0.4)):0, uploadedBy:currentUser.name, uploadedAt:'2026-07-10', seed };
+  const doc=buildDocument(s);
+  log.event('doc:upload',{id:doc.id, scanned, pages:doc.pages, flagged:doc.regionsFlagged});
+  pushActivity('uploaded document '+f.name+' ('+doc.pages+' pages)');
+  if(doc.regionsFlagged>0) pushNotif(doc.regionsFlagged+' OCR regions flagged in '+f.name,'flag');
+}
+function applyChunking(id){
+  const d=byId(getDocuments(),id); if(!d||!assertTenant(d)) return;
+  const computed=computeChunks(d);
+  // remove old chunks for this doc, then persist
+  chunks=chunks.filter(c=>c.documentId!==id);
+  computed.forEach(c=>{ chunks.push({ id:'chk'+(++CHUNK_UID), documentId:id, tenantId:d.tenantId, chunkIndex:c.chunkIndex,
+    text:c.text, tokenCount:c.tokenCount, strategy:appState.chunkStrategy, sourcePages:c.sourcePages, headingContext:c.headingContext, synthesisedPairIds:[] }); });
+  d.chunks=chunksForDoc(id).map(c=>c.id); d.status='chunked';
+  log.event('doc:chunk',{id, strategy:appState.chunkStrategy, chunks:computed.length});
+  showToast('Created '+computed.length+' chunks ('+appState.chunkStrategy+')','ok');
+  appState.docView='synth'; renderView();
+}
+function toggleSynthType(t){
+  const i=appState.synthTypes.indexOf(t);
+  if(i>=0){ if(appState.synthTypes.length>1) appState.synthTypes.splice(i,1); } else appState.synthTypes.push(t);
+  renderView();
+}
+function generatePairsFlow(id){
+  const d=byId(getDocuments(),id); if(!d||!assertTenant(d)) return;
+  const dch=chunksForDoc(id); if(!dch.length){ showToast('No chunks — configure chunking first','error'); return; }
+  openModal('<div class="modal-body" style="text-align:center;padding:36px"><div class="bignum" style="font-size:18px" id="syn-step">Generating…</div><div class="muted mt8" id="syn-sub">via '+escapeHtml(appState.synthLLM)+'</div><div class="meter mt16"><div class="meter-fill" id="syn-bar" style="width:0;background:var(--gradient-brand)"></div></div></div>');
+  let i=0; const total=dch.length;
+  const tick=()=>{ if(!el('syn-step')) return; el('syn-step').textContent='Chunk '+(i+1)+' of '+total; el('syn-bar').style.width=Math.round((i+1)/total*100)+'%';
+    i++; if(i<total){ setTimeout(tick, Math.max(120, 700/total)); } else {
+      const pairs=synthesisePairs(d); d.synthesisedPairs=pairs; d.status='synthesised';
+      closeModal(); log.event('doc:synth',{id, pairs:pairs.length}); pushActivity('synthesised '+pairs.length+' instruction pairs from '+d.name);
+      renderView(); showToast('Generated '+pairs.length+' instruction pairs','ok');
+    } };
+  setTimeout(tick, 300);
+}
+function sendPairsToCuration(id){
+  const d=byId(getDocuments(),id); if(!d||!assertTenant(d)) return;
+  const pairs=d.synthesisedPairs||[]; if(!pairs.length){ showToast('No pairs to send','info'); return; }
+  // route into a dataset (existing curation flow with quality scoring)
+  let ds=getDatasets().find(x=>x.name==='synth_'+d.id+'.jsonl');
+  const rel=activeRelease();
+  if(!ds){ ds={ id:'d'+Date.now(), projectId:d.projectId, releaseId:rel?rel.id:null, tenantId:currentTenant.id, name:'synth_'+d.name.replace(/\.[^.]+$/,'')+'.jsonl', format:'jsonl', uploadedBy:currentUser.name, uploadedAt:'2026-07-10', rows:[] }; datasets.push(ds); }
+  pairs.forEach(p=>{ const row={ id:'r'+(++ROW_UID), instruction:p.instruction, input:p.input||'', output:p.output,
+    language:detectLanguage(p.instruction+' '+p.output), reviewStatus:'pending', reviewedBy:null, reviewNote:null, originalOutput:null, flags:[] };
+    row.flags=deriveFlags(row, ds.rows); row.qualityScore=scoreRow(row); ds.rows.push(row); });
+  finaliseDataset(ds);
+  currentTenant.usage.rowsThisMonth += pairs.length;
+  log.event('doc:to-curation',{doc:id, dataset:ds.id, rows:pairs.length});
+  pushNotif(pairs.length+' synthesised pairs sent to curation ('+ds.name+')','database'); pushActivity('sent '+pairs.length+' pairs to curation from '+d.name);
+  activeDatasetId=ds.id; setView('datasets');
+  showToast(pairs.length+' pairs sent to curation pipeline','ok');
+}
+function openPairPanel(docId, pid){
+  const d=byId(getDocuments(),docId); if(!d) return; const p=(d.synthesisedPairs||[]).find(x=>x.id===pid); if(!p) return;
+  const chunk=byId(chunks, p.chunkId);
+  openPanel('<div class="flex gap8"><span class="pill pill-pink">'+escapeHtml(p.pairType)+'</span><span class="pill pill-'+pillColorForScore(p.confidence)+'">conf '+p.confidence+'</span></div>'
+    +'<div class="section-h mt16">Instruction</div><div class="card" style="padding:12px">'+escapeHtml(p.instruction)+'</div>'
+    +'<div class="section-h mt16">Output</div><div class="card" style="padding:12px">'+escapeHtml(p.output)+'</div>'
+    +'<div class="section-h mt16">Source chunk'+(chunk?' · '+escapeHtml(chunk.headingContext):'')+'</div><div class="card mono" style="padding:12px;font-size:12px;color:var(--text-secondary)">'+escapeHtml(chunk?truncate(chunk.text,400):'—')+'</div>'
+    +'<div class="muted mt8" style="font-size:12px">Page reference: '+(p.sourcePages||[]).join(', ')+'</div>', 'Synthesised pair');
+}
+function ocrCorrect(regId, edited){
+  const reg=findRegion(regId); if(!reg||!assertTenant(reg)) return;
+  if(!can('Annotation')){ showToast('You lack annotation permission','error'); return; }
+  const ta=el('ocr-text');
+  reg.correctedText = ta ? ta.value : reg.rawText;
+  reg.correctionStatus = 'corrected';
+  reg.correctedBy=currentUser.name; reg.correctedAt='2026-07-10';
+  recomputeDocOcr(reg.documentId);
+  log.event('ocr:'+(edited?'edit-accept':'accept'),{region:regId});
+  pushActivity((edited?'edited & accepted':'accepted')+' OCR region on p.'+reg.pageNumber);
+  showToast('Region corrected','ok');
+  renderView();
+}
+function ocrFlag(regId){
+  const reg=findRegion(regId); if(!reg||!assertTenant(reg)) return;
+  reg.correctionStatus='flagged'; reg.correctedBy=currentUser.name;
+  recomputeDocOcr(reg.documentId);
+  log.event('ocr:flag',{region:regId}); showToast('Flagged for expert review','info');
+  renderView();
+}
+function recomputeDocOcr(docId){
+  const doc=byId(documents,docId); if(!doc) return;
+  const regs=ocrRegions.filter(r=>r.documentId===docId);
+  const pend=regs.filter(r=>r.correctionStatus==='pending').length;
+  doc.regionsFlagged=pend;
+  if(pend===0 && doc.status==='needs-review') doc.status='ready-chunk';
+}
+
 /* ---- Global events ---- */
 document.addEventListener('click', e=>{
   const stop=e.target.closest('[data-stop]');
@@ -1709,7 +2158,7 @@ document.addEventListener('keydown', e=>{
     return;
   }
   // review queue keyboard shortcuts
-  if(currentUser && currentView==='review' && !el('overlays').innerHTML){
+  if(currentUser && currentView==='review' && appState.reviewTab==='datasets' && !el('overlays').innerHTML){
     const q=reviewQueue(); const cur=q[appState.reviewIndex]; if(!cur) return;
     const k=e.key.toLowerCase();
     if(k==='a'){ reviewRow(cur.row.id,'approve',true); }
@@ -1730,6 +2179,7 @@ function initMockData(){
   // Attach rubric + precompute completed eval results.
   evalRuns.forEach(e=>{ e.rubric = RUBRIC_DEFAULT.map(n=>({dimension:n, weight:20})); if(e.status==='completed') computeEval(e); });
   log.info('[boot] mock data ready — '+datasets.length+' datasets, '+datasets.reduce((a,d)=>a+d.totalRows,0)+' rows');
+  initDocuments(); // document ingestion mock data (spec §19)
 }
 function boot(){ log.info('[boot] Cueval prototype starting'); initMockData(); renderLogin(); }
 boot();
