@@ -3933,3 +3933,29 @@ A fourth tenant, **Finserv NBFC (Case Study)** (`tenant_nbfc`, `isCaseStudy:true
 - NBFC datasets ship explicit rows (`buildNbfcRows`) and fixed narrative rollups; `initMockData` skips `buildRows`/`finaliseDataset`/`computeEval` for them so seeded scores/results are preserved verbatim.
 - `screenEval` only honours a pinned `appState.evalResult` if it belongs to the current tenant's runs (isolation hardening).
 - Represented through existing screens rather than bespoke widgets: the two-checkpoint radar (already two-polygon), the flag-rate trend chart, and the PII edit diff (existing row-panel diff). The agent sprint #7 is told through the activity trail; the NBFC Agents screen uses the standard empty state.
+
+---
+
+## §40 — Eval Harness: Judge-Mode Differentiation, Accuracy Monitoring & Guidance
+
+Builds on §38. The three judge modes now behave distinctly, and the Eval Harness surfaces interpretation guidance and an ongoing judge-accuracy monitor.
+
+### 40.1 Judge-mode-aware runs (`runEvalFlow` / `stampJudge` / `humanEvalFlow`)
+- **Local (sovereign):** animated run with an on-prem scoring step; cost stamped **₹0** with the label "Local judge (on-prem, nothing left your network)".
+- **Cloud API:** animated run whose scoring step reads "Transmitting rows to external API (Claude / GPT-4)…"; cost is a **real per-token ₹ bill** (label shows tokens sent externally). Still gated behind the DLP acknowledgement (§38).
+- **Human eval:** does **not** auto-score. Run diverts to `humanEvalFlow` — a modal that samples up to 5 held-out rows and lets the reviewer score each (Poor/Fair/Good/Excellent), showing the judge's score alongside. On finish it aggregates the human average, computes a mock **human↔judge agreement κ**, produces an eval run (`judgeMode:'human'`, radar/table relabelled **Judge vs Human**), and feeds the accuracy monitor. If κ falls below the configured threshold it raises a recalibration alert (notification + activity + toast) and sets the monitor outcome to "Recalibration triggered".
+- Every produced run is stamped with the `judgeMode` and `referenceGrounded` it used; the result view shows a judge-mode badge and the mode-specific cost.
+
+### 40.2 Interpretation note (`evalInterpretationNote`)
+Shown under every result: *"Eval scores reflect one judge's assessment against the configured rubric. Individual row scores may be inaccurate — aggregate trends across 200+ rows are more reliable. For regulated releases, supplement with human eval on a sample."*
+
+### 40.3 Ongoing judge-accuracy monitoring (`accuracyMonitorPanel`)
+Per-tenant config (`ec.accuracyMonitor`): **every [5/10/20 ▾] eval runs, sample [1/5/10% ▾] of rows** for human review; **if agreement (κ) drops below [0.6/0.65/0.7 ▾] → alert Architect + trigger recalibration.** Shows the last spot-check (date · κ · outcome, red when below threshold) and "Next spot-check: After next eval run". Dropdowns persist to the tenant's config (`eval-am-set`). Seeded: Pravartak/NBFC last spot-check 14 Jun 2025 · κ 0.71 · No action required.
+
+### 40.4 Rubric-writing tip (`rubricTipBox`)
+A tip card in the run configuration: specific rubric instructions reduce judge hallucination, with a before/after example ("Score factuality based on accuracy" → "Score factuality 1 if the response cites any financial figure … not present in the reference document.").
+
+### Implementation notes
+- Added an `evalConfigs` entry for `tenant_nbfc` (previously missing) — calibrated κ=0.74 — plus an `accuracyMonitor` block on every tenant.
+- Human-eval modal uses the locked `.ig-scrim` (no outside-click close); the Next button is disabled until the current row is scored.
+- Isolation: each tenant's judge mode, calibration, and accuracy-monitor settings remain independent.
