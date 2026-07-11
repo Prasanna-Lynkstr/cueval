@@ -74,6 +74,8 @@ a{color:inherit;text-decoration:none}
 .dock-logo{width:40px;height:40px;border-radius:12px;background:var(--gradient-brand);
   display:grid;place-items:center;font-family:var(--font-display);font-weight:700;color:#fff;
   font-size:20px;margin:0 0 8px 2px;box-shadow:0 4px 18px var(--coral-glow);flex-shrink:0}
+button.dock-logo{border:none;cursor:pointer;transition:transform 150ms ease} /* §45 — Domain Expert: logo returns home */
+button.dock-logo:hover{transform:scale(1.05)}
 .dock-group{display:flex;flex-direction:column;gap:2px}
 .dock-group+.dock-group{margin-top:5px;padding-top:6px;border-top:1px solid var(--border)}
 .dock-glabel{font-family:var(--font-mono);font-size:9px;letter-spacing:.14em;text-transform:uppercase;
@@ -429,7 +431,7 @@ const TOKENS = { coral:'#E85D26', pink:'#D63384', green:'#22C55E', yellow:'#EAB3
   border:'#2A2A3A', muted:'#5A5A72', text:'#F0F0F8', surface:'#111118' };
 
 const ROLE_LABEL = { Admin:'Admin', ProjectManager:'Project Manager', Architect:'Architect',
-  MLEngineer:'ML Engineer', Reviewer:'Reviewer', Annotator:'Annotator', SuperAdmin:'Super Admin' };
+  MLEngineer:'ML Engineer', DomainExpert:'Domain Expert', Reviewer:'Reviewer', Annotator:'Annotator', SuperAdmin:'Super Admin' };
 
 // Permission matrix — permission group -> roles allowed. Admin implicitly all.
 const PERMISSIONS = {
@@ -437,7 +439,7 @@ const PERMISSIONS = {
   'Projects':       ['Admin','ProjectManager','Architect'],
   'Releases':       ['Admin','ProjectManager','Architect'],
   'Datasets':       ['Admin','ProjectManager','Architect','MLEngineer'],
-  'Annotation':     ['Admin','ProjectManager','Reviewer','Annotator'],
+  'Annotation':     ['Admin','ProjectManager','Reviewer','Annotator','DomainExpert'], // §45 — DomainExpert approves high-priority rows
   'Eval':           ['Admin','ProjectManager','Architect','MLEngineer'],
   'Experiments':    ['Admin','ProjectManager','Architect','MLEngineer'],
   'Reports':        ['Admin','ProjectManager','Architect','MLEngineer','Reviewer'],
@@ -453,6 +455,10 @@ const FLAG_LABEL = {
   'duplicate':'Exact duplicate', 'near-duplicate':'Near-duplicate', 'short-response':'Short response',
   'format-violation':'Format violation', 'pii-detected':'PII detected', 'toxic':'Toxic / biased', 'low-clarity':'Low clarity', 'hallucination':'Hallucination' };
 const RUBRIC_DEFAULT = ['Factuality','Instruction Following','Tone','Task Completion','Refusal Behaviour'];
+// §45 — Domain Expert never sees raw scores. Map a quality_score to a plain label (notes 172).
+function qualityLabel(score){ return score>=80 ? {text:'Good',tone:'green'} : score>=60 ? {text:'Needs improvement',tone:'yellow'} : {text:'Needs attention',tone:'red'}; }
+// §45 note 173 — Domain Expert's 3-point calibration ratings map onto the 1–5 rubric scale.
+const CAL_RATING_MAP = { wrong:1, partial:3, right:5 };
 
 /* ============================================================
    SECTION B — MOCK DATA
@@ -484,6 +490,8 @@ const users = [
   { id:'u4', email:'mlengineer@cueval.ai', name:'Arjun ML', tenantId:'tenant_pravartak', role:'MLEngineer', lastActive:'5m ago', projects:3 },
   { id:'u5', email:'reviewer@cueval.ai', name:'Ravi Kumar', tenantId:'tenant_pravartak', role:'Reviewer', lastActive:'32m ago', projects:2 },
   { id:'u6', email:'annotator@cueval.ai', name:'Neha Shah', tenantId:'tenant_pravartak', role:'Annotator', lastActive:'just now', projects:1 },
+  // §45 — Domain Expert (knowledge contribution only). Sits between Reviewer and Annotator in trust.
+  { id:'u10', email:'kavitha@cag.gov.in', name:'Kavitha Nair', tenantId:'tenant_pravartak', role:'DomainExpert', lastActive:'just now', projects:1, expertise:['audit','GFR','financial_rules'], languages:['en','hi'] },
   { id:'u7', email:'admin@legalai.com', name:'Vikram Rao', tenantId:'tenant_legalai', role:'Admin', lastActive:'12m ago', projects:3 },
   { id:'u8', email:'ml@legalai.com', name:'Sara Iyer', tenantId:'tenant_legalai', role:'MLEngineer', lastActive:'44m ago', projects:2 },
   { id:'u9', email:'admin@healthbot.in', name:'Meera Pillai', tenantId:'tenant_healthbot', role:'Admin', lastActive:'3h ago', projects:1 },
@@ -685,14 +693,74 @@ function buildCagRows(){
       instruction:'What does GFR Rule 21 require regarding the standards of financial propriety?',
       output:'GFR Rule 21 requires every officer to exercise the same vigilance over public expenditure as a person of ordinary prudence would over their own money. Expenditure should not be prima facie more than the occasion demands, and no authority should sanction expenditure that benefits itself.' }),
   ];
-  return rows;
+  return rows.concat(buildCagExpertRows());
 }
+// §45 — rows routed to the Domain Expert: the judge had low confidence (<0.60) or the content
+// needs regulatory knowledge to evaluate. Pending review; carry a plain-language flag, no scores shown.
+function buildCagExpertRows(){
+  const de=[
+    ['violation_detection','What makes a sanction for re-appropriation of funds irregular under GFR Rule 10?','A re-appropriation is irregular when it diverts funds from a "New Service" or "New Instrument of Service" not contemplated in the budget, exceeds the delegated authority of the sanctioning officer, or is made after the close of the financial year.','The AI may have cited the wrong rule — please check',58],
+    ['finding_formulation','How should an auditor word a finding where tender evaluation criteria were changed after bids were opened?','Criteria: GFR Rule 173 requires evaluation on pre-disclosed criteria. Condition: Evaluation parameters were altered after bid opening on [date]. Cause: absence of a documented evaluation committee decision. Effect: the process favoured [bidder], undermining competitive tendering. Recommendation: annul and re-tender.','This finding may be missing the financial impact — please confirm it is complete',64],
+    ['impact_quantification','How is notional interest computed on an advance lying unrecovered for 14 months?','Notional interest = outstanding advance × prevailing government borrowing rate × (period of non-recovery ÷ 12). For 14 months at 7.1%, interest = advance × 0.071 × (14/12).','The interest rate assumption may not match current CAG guidance — please verify',55],
+    ['rule_explanation','When does splitting a purchase to avoid tender constitute a GFR violation?','Splitting is a violation under GFR Rule 149/166 when a single foreseeable requirement is divided into parts each kept below the tender threshold to avoid competitive procurement. Look for same vendor, same period, related items.','The rule reference may be outdated — please check against the current GFR',59],
+    ['evidence_checklist','What evidence proves a grant-in-aid was diverted from its sanctioned purpose?','(1) Sanction order stating the purpose, (2) Utilisation Certificate, (3) bank statements of the grantee, (4) asset register, (5) physical verification report, (6) correspondence approving any change of purpose.','This answer may be incomplete for grants above ₹10 lakh — please review',62],
+    ['violation_detection','Is payment of mobilisation advance without a bank guarantee always a violation?','Not always — it is a violation only where the contract or GFR requires a bank guarantee for the advance quantum. Below the prescribed threshold an indemnity bond may suffice. Check the contract clause and the advance amount.','The AI gave a conditional answer — please confirm the threshold is stated correctly',57],
+    ['finding_formulation','How to frame a finding for delay in refund of security deposit beyond the contractual period?','Criteria: contract clause [X] requires refund within [N] days of defect-liability expiry. Condition: deposit of ₹Y refunded after [delay]. Cause: procedural delay in no-dues certification. Effect: contractor funds withheld without authority; potential interest liability. Recommendation: fix timelines and accountability.','Please confirm whether an interest liability finding is warranted here',66],
+    ['rule_explanation','What is the difference between a "charged" and a "voted" expenditure for audit purposes?','Charged expenditure is not subject to the vote of the legislature (e.g. debt servicing, salaries of constitutional authorities); voted expenditure requires legislative approval via demands for grants. The distinction affects appropriation-audit treatment.','This is a conceptual answer — please confirm it is accurate for CAG audit context',61],
+    ['impact_quantification','How do you quantify the loss when stores were procured above the last purchase price without justification?','Loss = (rate paid − last reasonable purchase price) × quantity procured, adjusted for any documented price escalation. State the comparison basis and the absence of justification.','The comparison basis may be disputed — please verify the methodology',54],
+    ['evidence_checklist','What documents establish that a works contract was awarded without competitive bidding?','(1) File noting on mode of procurement, (2) any single-tender/nomination justification, (3) NIT publication proof (or its absence), (4) comparative statement, (5) approval of competent authority, (6) CVC guidelines compliance note.','Please confirm the CVC reference is still current',60],
+    ['violation_detection','Does non-maintenance of a Measurement Book by itself make a works payment irregular?','It does not automatically make the payment irregular, but it removes the primary evidence that work was executed — making the payment unverifiable and therefore an audit objection pending production of measurement records.','The AI hedged its answer — please confirm this reflects CAG practice',56],
+    ['finding_formulation','How should an auditor formulate a systemic finding covering repeated advance-recovery lapses across divisions?','Frame as a systemic observation: Criteria (GFR Rule 230), Condition (advances of ₹X across N divisions unrecovered), Cause (absence of a centralised advance-monitoring mechanism), Effect (₹X of public funds at recurring risk), Recommendation (institute a monthly advance-register review).','This systemic finding may need a materiality threshold — please review',63],
+  ];
+  // Each entry: [pairType, instruction, output, plainLanguageFlag, qualityScore(internal — never shown to DE)]
+  return de.map((d,i)=>cagRow({ id:'cag_de_'+String(i+1).padStart(3,'0'), pairType:d[0],
+    instruction:d[1], output:d[2], qualityScore:d[4],
+    reviewStatus:'pending', reviewedBy:null, source:'synthesis_pipeline',
+    requiresDomainExpert:true, plainLanguageFlag:d[3] }));
+}
+
+// §45 — Domain Expert Seeding: pairs Kavitha generated that await her own approve/edit/reject.
+// Approved pairs are tagged source:'domain_expert_seed' (note 174) and get the gold-star badge (note 177).
+let domainSeeds = [
+  { id:'dseed_1', tenantId:'tenant_pravartak', projectId:'proj_cag_audit', status:'pending', kind:'How to identify a violation',
+    instruction:'When does award of a works contract on nomination basis breach GFR competitive-tendering norms?',
+    output:'Nomination is a breach unless it falls within a GFR-recognised exception (proprietary article, emergency, or a single available source), is supported by recorded reasons, and is approved by the competent authority. Absent these, the award defeats GFR Rule 173\'s competitive-tendering requirement.' },
+  { id:'dseed_2', tenantId:'tenant_pravartak', projectId:'proj_cag_audit', status:'pending', kind:'What evidence to collect',
+    instruction:'What should an auditor collect to substantiate an objection on excess payment for extra items in a works contract?',
+    output:'Collect: the sanctioned estimate and BOQ, the agreement rate for comparable items, the analysis of rates for the extra item, competent-authority approval for the deviation, the Measurement Book entries, and the running/final bill showing the payment.' },
+  { id:'dseed_3', tenantId:'tenant_pravartak', projectId:'proj_cag_audit', status:'pending', kind:'How to write a finding',
+    instruction:'How should a finding be framed where a utilisation certificate was accepted without supporting vouchers?',
+    output:'Criteria: GFR requires grants to be substantiated by a genuine UC. Condition: a UC of ₹X was accepted for [scheme] without vouchers or a physical-verification report. Cause: inadequate scrutiny at the sanctioning department. Effect: no assurance the grant was spent on its sanctioned purpose. Recommendation: obtain supporting records and verify end-use.' },
+];
+// Pre-seeded suggestions surfaced when the Domain Expert clicks "Generate examples from this" (note 174, mocked).
+const DOMAIN_SEED_SUGGESTIONS = [
+  { kind:'How to identify a violation', instruction:'What makes reimbursement of an inadmissible allowance an audit irregularity?',
+    output:'It is irregular when the allowance is not authorised by the governing rules for that grade/posting, or is drawn beyond the sanctioned period or rate. Verify the entitlement rule, the sanction, and the drawal period.' },
+  { kind:'How to write a finding', instruction:'Frame a finding for parking of funds in a bank account at year-end to avoid lapse of budget.',
+    output:'Criteria: budget grants lapse at year-end and cannot be parked. Condition: ₹X was transferred to a bank/PD account on [date] to avoid lapse. Cause: rush of expenditure / weak budgetary control. Effect: overstatement of expenditure and idle public funds. Recommendation: surrender unspent funds and strengthen year-end monitoring.' },
+  { kind:'What evidence to collect', instruction:'What evidence supports an objection that stock was issued without proper indent?',
+    output:'Collect the stock/stores ledger, the indent register, the issue vouchers, the authority approving the issue, and any acknowledgement of receipt by the indenting officer.' },
+  { kind:'How to calculate the financial impact', instruction:'How is the impact of an overpayment due to a wrong rate applied in a running bill computed?',
+    output:'Impact = (rate applied − correct agreement rate) × quantity paid in the bill, aggregated across affected bills, plus recovery of any consequential escalation or tax computed on the inflated amount.' },
+];
+// §45 — Calibration: Kavitha has already scored all 50 rows this cycle (completed state, note in delta).
+let calibrationDE = { tenantId:'tenant_pravartak', total:50, done:50, nextBatchDays:3,
+  rows:[
+    { id:'cal_1', query:'What constitutes non-compliance with GFR Rule 230?',
+      answer:'Non-compliance occurs when advance paid without contractual provision or not recovered from the first running bill…',
+      ratings:{ accuracy:'right', usefulness:'very', tone:'good' }, note:'' },
+    { id:'cal_2', query:'How should an auditor quantify an unrecovered advance?',
+      answer:'Report advance paid minus amount recovered as the sum at risk, with the period of non-recovery and notional interest stated separately.',
+      ratings:{ accuracy:'partial', usefulness:'ok', tone:'good' }, note:'Interest basis should cite the government borrowing rate.' },
+  ] };
+// §45 — Domain Expert template-edit suggestions → Architect approves/rejects (notes 175). Sequential, not collaborative.
+let templateSuggestions = [];
 
 const projects = [
   { id:'p1', tenantId:'tenant_pravartak', name:'Legal AI Assistant', description:'Fine-tuned assistant for Indian contract & company law.', status:'active', tags:['legal','en','hi'], members:[{userId:'u2',role:'ProjectManager'},{userId:'u3',role:'Architect'},{userId:'u4',role:'MLEngineer'},{userId:'u5',role:'Reviewer'},{userId:'u6',role:'Annotator'}], createdAt:'2025-02-01', wizardChoice:'all', wizardDismissed:true },
   { id:'p2', tenantId:'tenant_pravartak', name:'Customer Support Bot — Tamil', description:'Bilingual Tamil/English support agent for a telecom client.', status:'active', tags:['support','ta'], members:[{userId:'u2',role:'ProjectManager'},{userId:'u4',role:'MLEngineer'},{userId:'u5',role:'Reviewer'}], createdAt:'2025-03-12' },
   { id:'p3', tenantId:'tenant_pravartak', name:'Medical QA — Multilingual', description:'Multilingual medical triage QA across Indic languages.', status:'active', tags:['medical','hi','te','kn'], members:[{userId:'u3',role:'Architect'},{userId:'u4',role:'MLEngineer'},{userId:'u6',role:'Annotator'}], createdAt:'2025-04-20' },
-  { id:'proj_cag_audit', tenantId:'tenant_pravartak', name:'CAG Audit Intelligence', description:'NLP chatbot for government auditors — GFR compliance, audit observation drafting, financial rules reference.', status:'active', tags:['audit','gfr','en'], synthesisTemplate:'audit_compliance', domainSeedRows:47, corpusSize:1200, members:[{userId:'u3',role:'Architect'},{userId:'u4',role:'MLEngineer'}], createdAt:'2025-05-02' },
+  { id:'proj_cag_audit', tenantId:'tenant_pravartak', name:'CAG Audit Intelligence', description:'NLP chatbot for government auditors — GFR compliance, audit observation drafting, financial rules reference.', status:'active', tags:['audit','gfr','en'], synthesisTemplate:'audit_compliance', domainSeedRows:47, corpusSize:1200, members:[{userId:'u3',role:'Architect'},{userId:'u4',role:'MLEngineer'},{userId:'u10',role:'DomainExpert'}], createdAt:'2025-05-02' },
   { id:'p4', tenantId:'tenant_legalai', name:'Contract Analysis AI', description:'Clause extraction and risk flagging for commercial contracts.', status:'active', tags:['legal','en'], members:[{userId:'u7',role:'Admin'},{userId:'u8',role:'MLEngineer'}], createdAt:'2025-03-05', wizardChoice:'import', wizardDismissed:true },
   { id:'p5', tenantId:'tenant_legalai', name:'Due Diligence Bot', description:'Automated due-diligence Q&A over data rooms.', status:'active', tags:['legal'], members:[{userId:'u7',role:'Admin'},{userId:'u8',role:'MLEngineer'}], createdAt:'2025-04-01' },
   { id:'p6', tenantId:'tenant_legalai', name:'Compliance Checker', description:'Regulatory compliance verification assistant.', status:'active', tags:['compliance'], members:[{userId:'u7',role:'Admin'}], createdAt:'2025-04-18' },
@@ -900,6 +968,7 @@ const appState = {
   dataTabByProject:{}, // remember last active Data tab per project (§43 note 155)
   wizardSel:null, // setup-wizard current radio selection (§43)
   integrityBlock:null, auditFilter:'all', probeOverride:null, // §44 checkpoint integrity + audit log state
+  deSeedKind:null, deSeedText:'', deSuggestions:null, calIndex:0, // §45 Domain Expert seeding + calibration state
 };
 // Document-ingestion collections (populated in initMockData — after Section E)
 let documents = [];
@@ -1001,6 +1070,10 @@ function getColdStart(){ return scoped(coldStartProjects)[0] || null; }
 function getAgents(){ return scoped(agents); }
 function getAgentLog(){ return scoped(agentLog); }
 function getCorpusSeeds(){ return scoped(corpusSeeds); }
+// §45 — Domain Expert data planes (tenant-scoped like every other accessor).
+function getDomainSeeds(){ return scoped(domainSeeds); }
+function getCalibrationDE(){ return scoped([calibrationDE])[0] || null; }
+function getTemplateSuggestions(){ return scoped(templateSuggestions); }
 // Corpus Seeds is an approval decision, not a review task (note 67/68) — ML/Architect/Admin only.
 function canSeeCorpusSeeds(){ return ['MLEngineer','Architect','Admin','SuperAdmin'].includes(currentUser.role) && getCorpusSeeds().length>=50; }
 function isSovereign(){ return !!(currentTenant && currentTenant.planLimits.sovereignDeployment); }
@@ -1233,6 +1306,7 @@ const ICON = {
   chevR:S+'<path d="M9 6l6 6-6 6"/></svg>',
   plus:S+'<path d="M12 5v14M5 12h14"/></svg>',
   arrowR:S+'<path d="M5 12h14M13 6l6 6-6 6"/></svg>',
+  arrowL:S+'<path d="M19 12H5M11 6l-6 6 6 6"/></svg>',
   skip:S+'<path d="M5 4l10 8-10 8zM19 5v14"/></svg>',
   eye:S+'<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>',
   logout:S+'<path d="M16 17l5-5-5-5M21 12H9M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/></svg>',
@@ -1291,7 +1365,9 @@ const SUPER_DOCK = [
   {view:'config', icon:'sliders', label:'Platform Config'},
 ];
 
-function datasetPendingCount(){ return getDatasets().reduce((a,d)=>a+d.rows.filter(r=>r.reviewStatus==='pending').length,0); }
+// §45 — requires_domain_expert rows are routed to the Domain Expert queue, so they don't count toward the standard review badge.
+function datasetPendingCount(){ return getDatasets().reduce((a,d)=>a+d.rows.filter(r=>r.reviewStatus==='pending' && !r.requiresDomainExpert).length,0); }
+function domainQueueCount(){ return getDatasets().reduce((a,d)=>a+d.rows.filter(r=>r.reviewStatus==='pending' && r.requiresDomainExpert).length,0); }
 function ocrPendingCount(){ return getOcrRegions().filter(r=>r.correctionStatus==='pending').length; }
 function pendingCount(){ return datasetPendingCount()+ocrPendingCount()+prefPendingCount(); } // combined for dock badge (spec §27, §34, §36)
 function evalRunning(){ return getEvalRuns().some(e=>e.status==='running'); }
@@ -1300,12 +1376,26 @@ function dockItem(view, icon, label, badge, iconHtml){
   return '<button class="dock-item '+(currentView===view?'is-active':'')+'" data-action="nav" data-view="'+view+'" aria-label="'+escapeAttr(label)+'" aria-current="'+(currentView===view)+'">'
     +'<span class="dock-ic">'+(iconHtml||ICON[icon])+(badge||'')+'</span><span class="dock-label">'+escapeHtml(label)+'</span></button>';
 }
+// §45 — Domain Expert rail: exactly three destinations, no other dock icons (note 170).
+const DE_DOCK = [ ['review','check','My Queue'], ['seeding','sparkles','Seeding'], ['calibration','shield','Calibration'] ];
 function renderDock(){
   const isSuper = currentUser.role==='SuperAdmin' && !impersonating;
+  const isDE = currentUser.role==='DomainExpert';
   const pend = isSuper?0:pendingCount();
   const running = isSuper?false:evalRunning();
-  let html = '<div class="dock-logo" aria-hidden="true">C</div>';
-  if(isSuper){
+  // For the Domain Expert the logo is the way back to the simplified dashboard (no Dashboard dock icon, note 170).
+  let html = isDE
+    ? '<button class="dock-logo" data-action="nav" data-view="dashboard" aria-label="Home — your workspace">C</button>'
+    : '<div class="dock-logo" aria-hidden="true">C</div>';
+  if(isDE){
+    html+='<div class="dock-group">';
+    DE_DOCK.forEach(it=>{ let badge='';
+      if(it[0]==='review'){ const n=domainQueueCount(); if(n>0) badge='<span class="dock-badge">'+n+'</span>'; }
+      if(it[0]==='seeding'){ const n=getDomainSeeds().filter(s=>s.status==='pending').length; if(n>0) badge='<span class="dock-badge">'+n+'</span>'; }
+      html+=dockItem(it[0], it[1], it[2], badge);
+    });
+    html+='</div>';
+  } else if(isSuper){
     html+='<div class="dock-group"><div class="dock-glabel">Platform</div>';
     SUPER_DOCK.forEach(it=>{ const badge = it.view==='alerts' ? '<span class="dock-badge">'+alertsList().length+'</span>' : ''; html+=dockItem(it.view, it.icon, it.label, badge); });
     html+='</div>';
@@ -1411,6 +1501,7 @@ function renderView(){
     eval:screenEval, monitor:screenMonitor, agents:screenAgents, experiments:screenExperiments, releases:screenReleases, settings:screenSettings, guide:screenGuide,
     tenants:screenTenants, platform:screenPlatform, billing:screenBilling, alerts:screenAlerts, config:screenConfig,
     audit:screenAudit,
+    seeding:screenExpertSeeding, calibration:screenCalibration, // §45 — Domain Expert screens
   };
   const fn = map[currentView] || screenDashboard;
   c.innerHTML = '<div class="view-anim">'+guard(fn, currentView)()+'</div>';
@@ -1545,7 +1636,7 @@ function drawRadar(cv){
 /* ---- Login ---- */
 const DEMO_GROUPS = [
   { org:'Lynkstr Labs — Super Admin', accts:[['superadmin@cueval.ai','Super Admin']] },
-  { org:'IITM Pravartak — Enterprise', accts:[['admin@cueval.ai','Admin'],['pm@cueval.ai','Project Manager'],['architect@cueval.ai','Architect'],['mlengineer@cueval.ai','ML Engineer'],['reviewer@cueval.ai','Reviewer'],['annotator@cueval.ai','Annotator']] },
+  { org:'IITM Pravartak — Enterprise', accts:[['admin@cueval.ai','Admin'],['pm@cueval.ai','Project Manager'],['architect@cueval.ai','Architect'],['mlengineer@cueval.ai','ML Engineer'],['kavitha@cag.gov.in','Domain Expert (Kavitha, CAG Audit)'],['reviewer@cueval.ai','Reviewer'],['annotator@cueval.ai','Annotator']] },
   { org:'Legal AI Corp — Pro', accts:[['admin@legalai.com','Admin'],['ml@legalai.com','ML Engineer']] },
   { org:'HealthBot India — Starter', accts:[['admin@healthbot.in','Admin']] },
   { org:'Finserv NBFC (Case Study) — Pro', accts:[['ml@finserv.com','ML Engineer (Arjun)'],['annotator@finserv.com','Annotator (Priya)'],['pm@finserv.com','Project Manager (Rohan)']] },
@@ -1674,6 +1765,7 @@ const WORKSPACE_TITLE={ Annotator:'My Queue', Reviewer:'Review Board', MLEnginee
   Architect:'Quality Cockpit', ProjectManager:'Delivery Board', Admin:'Org Console' };
 function screenDashboard(){
   const t=currentTenant; const role=currentUser.role;
+  if(role==='DomainExpert') return screenDomainDashboard(); // §45 note 171 — simplified three-card landing
   const title=WORKSPACE_TITLE[role]||'Dashboard';
   const warn = usagePct(t)>=70 ? usageBanner(t) : '';
   const header='<div class="row-between"><div><h1 class="page-h">'+escapeHtml(title)+'</h1>'
@@ -1773,6 +1865,158 @@ function usageBanner(t){
   const cls = lvl==='red'?'warn-red':lvl==='orange'?'warn-orange':'warn-yellow';
   const msg = lvl==='red'?'Row limit reached — uploads are blocked. Upgrade to continue.':'Approaching monthly row limit ('+pct+'%). Consider upgrading your plan.';
   return '<div class="warn-banner '+cls+'">'+ICON.warn+'<span>'+msg+'</span><div style="flex:1"></div><button class="btn btn-sm btn-ghost" data-action="nav" data-view="settings">View usage</button></div>';
+}
+
+/* ============================================================
+   DOMAIN EXPERT SCREENS (spec §45) — knowledge-focused, zero technical terminology.
+   Never surface: eval score / quality score as a number, LoRA, checkpoint, embedding,
+   pgvector, rubric, "judge". Scores become plain labels via qualityLabel().
+   ============================================================ */
+function deProject(){ return byId(getProjects(),'proj_cag_audit') || getProjects()[0] || null; }
+// Simplified three-card landing (notes 171). No score numbers, no stage pipeline, no flag-rate chart.
+function screenDomainDashboard(){
+  const p=deProject();
+  const first=escapeHtml((currentUser.name||'').split(' ')[0]);
+  const qn=domainQueueCount();
+  const seedN=getDomainSeeds().filter(s=>s.status==='pending').length;
+  const cal=getCalibrationDE(); const calDone = !cal || cal.done>=cal.total;
+  const header='<div class="row-between"><div><h1 class="page-h">Good morning, '+first+'</h1>'
+    +'<p class="page-sub">'+escapeHtml(p?p.name:'Your workspace')+'</p></div></div>';
+  const card=(emoji,title,sub,status,cta)=>'<div class="card" style="border-color:var(--border-active)"><div class="flex gap12" style="align-items:center">'
+    +'<div style="width:44px;height:44px;border-radius:12px;background:var(--coral-glow);display:grid;place-items:center;font-size:22px;flex-shrink:0">'+emoji+'</div>'
+    +'<div style="flex:1"><div class="card-title">'+escapeHtml(title)+'</div><div class="secondary mt4">'+escapeHtml(sub)+'</div></div>'
+    +'<div style="text-align:right"><div style="font-weight:600;font-size:14px">'+status+'</div>'+(cta||'')+'</div></div></div>';
+  const goQueue = qn>0 ? '<button class="btn btn-primary btn-sm mt8" data-action="nav" data-view="review">Start reviewing'+ICON.arrowR+'</button>' : '<span class="muted" style="font-size:12px">Nothing pending 🎉</span>';
+  const goSeed = '<button class="btn btn-ghost btn-sm mt8" data-action="nav" data-view="seeding">'+(seedN>0?'Review pairs':'Add expertise')+ICON.arrowR+'</button>';
+  const goCal = calDone ? '<span class="muted" style="font-size:12px">Next batch in ~'+cal.nextBatchDays+' days</span>' : '<button class="btn btn-ghost btn-sm mt8" data-action="nav" data-view="calibration">Continue'+ICON.arrowR+'</button>';
+  const cards='<div class="stack gap12 mt24">'
+    +card('📋','Your Queue','High-priority review', qn>0?('<span style="color:var(--coral)">'+qn+'</span> rows need your expertise'):'All clear', goQueue)
+    +card('🌱','Expert Seeding','Domain knowledge pairs', seedN>0?(seedN+' pairs awaiting your review'):'Up to date', goSeed)
+    +card('📏','Calibration','Help calibrate the quality checker', calDone?'All done ✅':(cal.total-cal.done)+' to go', goCal)
+    +'</div>';
+  // Project status — read-only, plain language (note: no scores, no pipeline).
+  const ds=getDatasets().find(d=>d.projectId==='proj_cag_audit');
+  const ql = ds ? qualityLabel(ds.overallScore) : {text:'Good',tone:'green'};
+  const status='<div class="card mt24"><div class="section-h">Project status</div>'
+    +'<div class="row-between" style="padding:7px 0;border-bottom:1px solid var(--border);font-size:14px"><span class="secondary">Stage</span><span>Annotation in progress</span></div>'
+    +'<div class="row-between" style="padding:7px 0;border-bottom:1px solid var(--border);font-size:14px"><span class="secondary">Documents processed</span><span>'+fmtNum(p&&p.corpusSize?p.corpusSize:1200)+' passages</span></div>'
+    +'<div class="row-between" style="padding:7px 0;font-size:14px"><span class="secondary">Data quality</span><span class="pill pill-'+ql.tone+'">'+ql.text+' — no action needed from you</span></div></div>';
+  return header+cards+status;
+}
+// My Queue — routes only requires_domain_expert rows (note 176). No scores; plain-language flags.
+function screenDomainReview(){
+  const q=reviewQueue(); // already routed to DomainExpert
+  const header='<div class="row-between"><div><h1 class="page-h">Your Queue</h1>'
+    +'<p class="page-sub">High-priority rows that need your domain expertise</p></div></div>';
+  if(!q.length) return header+'<div class="mt24">'+emptyState('check','You\'re all caught up','No rows need your expertise right now. ✅','<button class="btn btn-primary btn-sm" data-action="nav" data-view="dashboard">Back to home'+ICON.arrowR+'</button>')+'</div>';
+  if(appState.reviewIndex>=q.length) appState.reviewIndex=0;
+  const cur=q[appState.reviewIndex]; const r=cur.row;
+  const flag = r.plainLanguageFlag ? '<div class="warn-banner warn-yellow mt16" style="margin:0">'+ICON.warn+'<span>'+escapeHtml(r.plainLanguageFlag)+'</span></div>' : '';
+  const left='<div class="card">'
+    +'<div class="section-h">The auditor asked</div><div style="font-size:15px;line-height:1.6">'+escapeHtml(r.instruction||'—')+'</div>'
+    +'<div class="section-h mt16">The AI answered</div><div style="font-family:var(--font-mono);font-size:13px;line-height:1.7">'+escapeHtml(r.output||'—')+'</div>'
+    +flag
+    +'<div class="flex gap8 mt24 wrap"><button class="btn btn-green" data-action="review-row" data-id="'+r.id+'" data-do="approve" data-queue="1">'+ICON.check+'Approve <span class="kbd">A</span></button>'
+    +'<button class="btn btn-red" data-action="review-row" data-id="'+r.id+'" data-do="reject" data-queue="1">'+ICON.x+'Reject <span class="kbd">R</span></button>'
+    +'<button class="btn btn-ghost" data-action="edit-review" data-id="'+r.id+'">'+ICON.pencil+'Edit <span class="kbd">E</span></button>'
+    +'<button class="btn btn-ghost" data-action="skip-review">'+ICON.skip+'Skip <span class="kbd">S</span></button></div></div>';
+  let qlist=''; q.forEach((item,i)=>{ const rr=item.row; qlist+='<button class="dropdown-item '+(i===appState.reviewIndex?'is-active':'')+'" data-action="goto-review" data-idx="'+i+'" style="justify-content:space-between">'
+    +'<span class="truncate" style="max-width:210px">'+escapeHtml(truncate(rr.instruction||rr.output,46))+'</span><span class="pill pill-yellow" style="font-size:10px">Needs review</span></button>'; });
+  const right='<div class="card" style="padding:8px"><div class="row-between" style="padding:8px 10px"><span class="section-h" style="margin:0">Your queue</span><span class="muted" style="font-size:12px">'+q.length+' left</span></div>'
+    +'<div style="max-height:56vh;overflow:auto">'+qlist+'</div></div>';
+  return header+'<div class="mt24" style="display:grid;grid-template-columns:1.5fr 1fr;gap:20px;align-items:start">'+left+right+'</div>';
+}
+// Expert Seeding — contribute real examples; no technical fields (note 174).
+const DE_SEED_KINDS=['How to identify a violation','How to write a finding','What evidence to collect','How to calculate the financial impact','A rule or guideline explained'];
+function screenExpertSeeding(){
+  const header='<div class="row-between"><div><h1 class="page-h">Add Your Expertise</h1>'
+    +'<p class="page-sub">Share real examples from your domain — these directly improve how the AI responds to audit queries.</p></div></div>';
+  const kind=appState.deSeedKind||DE_SEED_KINDS[0];
+  const kinds=DE_SEED_KINDS.map(k=>'<button class="chip '+(kind===k?'is-on':'')+'" data-action="de-seed-kind" data-kind="'+escapeAttr(k)+'">'+escapeHtml(k)+'</button>').join('');
+  const form='<div class="card mt24">'
+    +'<label class="field-label">Paste a real example from your work</label>'
+    +'<textarea class="input" id="de-seed-input" placeholder="Paste an audit observation, finding, or Q&amp;A…" style="min-height:110px">'+escapeHtml(appState.deSeedText||'')+'</textarea>'
+    +'<div class="section-h mt16">What type of example is this?</div><div class="flex wrap gap8">'+kinds+'</div>'
+    +'<div class="flex gap8 mt16 wrap"><button class="btn btn-primary" data-action="de-generate">'+ICON.sparkles+'Generate examples from this</button>'
+    +'<button class="btn btn-ghost" data-action="de-seed-manual">Skip — write my own</button></div>'
+    +'<div class="muted mt16" style="font-size:12px">Gold star ⭐ — your examples get priority in training.</div></div>';
+  // Suggestions surfaced by "Generate" (approve / edit / reject each)
+  let suggBlock='';
+  if(appState.deSuggestions && appState.deSuggestions.length){
+    suggBlock='<div class="card mt16"><div class="section-h">Suggested examples — approve the ones that match your standards</div>'
+      +appState.deSuggestions.map((s,i)=>'<div style="padding:12px 0;border-bottom:1px solid var(--border)">'
+        +'<div class="pill pill-muted" style="font-size:10px">'+escapeHtml(s.kind)+'</div>'
+        +'<div class="mt8" style="font-size:14px"><b>Q:</b> '+escapeHtml(s.instruction)+'</div>'
+        +'<div class="secondary mt4" style="font-family:var(--font-mono);font-size:12px"><b>A:</b> '+escapeHtml(s.output)+'</div>'
+        +'<div class="flex gap6 mt8"><button class="btn btn-green btn-sm" data-action="de-sugg" data-i="'+i+'" data-do="approve">'+ICON.check+'Approve ⭐</button>'
+        +'<button class="btn btn-ghost btn-sm" data-action="de-sugg" data-i="'+i+'" data-do="edit">'+ICON.pencil+'Edit</button>'
+        +'<button class="btn btn-ghost btn-sm" data-action="de-sugg" data-i="'+i+'" data-do="reject">'+ICON.x+'Reject</button></div></div>').join('')
+      +'</div>';
+  }
+  // Pending pairs awaiting Kavitha's review
+  const pend=getDomainSeeds().filter(s=>s.status==='pending');
+  let pendBlock='';
+  if(pend.length){
+    pendBlock='<div class="card mt16"><div class="section-h">Pairs awaiting your review'+' <span class="pill pill-coral" style="padding:1px 6px">'+pend.length+'</span></div>'
+      +pend.map(s=>'<div style="padding:12px 0;border-bottom:1px solid var(--border)">'
+        +'<div class="pill pill-muted" style="font-size:10px">'+escapeHtml(s.kind)+'</div>'
+        +'<div class="mt8" style="font-size:14px"><b>Q:</b> '+escapeHtml(s.instruction)+'</div>'
+        +'<div class="secondary mt4" style="font-family:var(--font-mono);font-size:12px"><b>A:</b> '+escapeHtml(s.output)+'</div>'
+        +'<div class="flex gap6 mt8"><button class="btn btn-green btn-sm" data-action="de-seed" data-id="'+s.id+'" data-do="approve">'+ICON.check+'Approve ⭐</button>'
+        +'<button class="btn btn-ghost btn-sm" data-action="de-seed" data-id="'+s.id+'" data-do="edit">'+ICON.pencil+'Edit</button>'
+        +'<button class="btn btn-ghost btn-sm" data-action="de-seed" data-id="'+s.id+'" data-do="reject">'+ICON.x+'Reject</button></div></div>').join('')
+      +'</div>';
+  }
+  // Template — read + suggest edits only (note 175)
+  const tplCard='<div class="card mt16"><div class="section-h">The template guiding these examples</div>'
+    +'<p class="secondary" style="font-size:13px;line-height:1.7">This template generates questions that help auditors detect violations, collect evidence, and write findings.</p>'
+    +'<div class="flex gap8 mt12"><button class="btn btn-ghost btn-sm" data-action="de-template-view">'+ICON.book+'View template</button>'
+    +'<button class="btn btn-ghost btn-sm" data-action="de-template-suggest">'+ICON.pencil+'Suggest edit</button></div></div>';
+  return header+form+suggBlock+pendBlock+tplCard;
+}
+// Calibration — rate how good the AI's answers are; simple 3-point scales (note 173). No rubric/judge wording.
+const CAL_DIMS=[
+  ['accuracy','Accuracy of facts',[['wrong','Wrong'],['partial','Partially right'],['right','Right']]],
+  ['usefulness','Usefulness',[['notuseful','Not useful'],['ok','OK'],['very','Very useful']]],
+  ['tone','Tone / professionalism',[['poor','Poor'],['ok','OK'],['good','Good']]],
+];
+function screenCalibration(){
+  const cal=getCalibrationDE();
+  const header='<div class="row-between"><div><h1 class="page-h">Help the AI learn your standards</h1>'
+    +'<p class="page-sub">Review how the AI responded to these queries. Your ratings help calibrate its quality checker.</p></div></div>';
+  if(!cal || !cal.rows.length) return header+'<div class="mt24">'+emptyState('shield','Nothing to calibrate','No calibration rows right now.','')+'</div>';
+  const done = cal.done>=cal.total;
+  const banner = done ? '<div class="warn-banner mt16" style="margin:0;background:rgba(34,197,94,.1);border:1px solid var(--border);color:var(--text-secondary)"><span>✅ All '+cal.total+' rows scored this cycle — next batch in ~'+cal.nextBatchDays+' days. You can revisit any answer below.</span></div>' : '';
+  if(appState.calIndex==null || appState.calIndex>=cal.rows.length) appState.calIndex=0;
+  const idx=appState.calIndex; const row=cal.rows[idx];
+  const ratingGroup=(dim,label,opts)=>{ const cur=row.ratings[dim];
+    return '<div class="row-between mt12" style="align-items:center"><span class="secondary" style="width:180px">'+escapeHtml(label)+'</span>'
+      +'<div class="flex gap6 wrap" style="flex:1">'+opts.map(o=>'<button class="chip '+(cur===o[0]?'is-on':'')+'" data-action="de-cal-rate" data-dim="'+dim+'" data-val="'+o[0]+'">'+escapeHtml(o[1])+'</button>').join('')+'</div></div>'; };
+  const card='<div class="card mt16"><div class="row-between"><span class="muted" style="font-size:12px">Row '+(idx+1)+' of '+cal.total+'</span><span class="pill pill-green" style="font-size:10px">Scored</span></div>'
+    +'<div class="section-h mt12">The auditor asked</div><div style="font-size:15px;line-height:1.6">'+escapeHtml(row.query)+'</div>'
+    +'<div class="section-h mt16">The AI answered</div><div style="font-family:var(--font-mono);font-size:13px;line-height:1.7">'+escapeHtml(row.answer)+'</div>'
+    +'<div class="section-h mt16">How good is this answer?</div>'
+    +CAL_DIMS.map(d=>ratingGroup(d[0],d[1],d[2])).join('')
+    +'<div class="mt16"><label class="field-label">Any notes</label><textarea class="input" id="de-cal-note" style="min-height:60px">'+escapeHtml(row.note||'')+'</textarea></div>'
+    +'<div class="flex gap8 mt16"><button class="btn btn-ghost" data-action="de-cal-nav" data-dir="-1"'+(idx===0?' disabled':'')+'>'+ICON.arrowL+' Previous</button>'
+    +'<button class="btn btn-primary" data-action="de-cal-nav" data-dir="1">Save &amp; Next '+ICON.arrowR+'</button></div>'
+    +'<div class="muted mt12" style="font-size:11px">Keyboard: <span class="kbd">1</span>/<span class="kbd">2</span>/<span class="kbd">3</span> rate the next dimension · <span class="kbd">Enter</span> next</div></div>';
+  return header+banner+card;
+}
+// Plain-language template modal for the Domain Expert (note 175). Never shows the raw LLM prompt / temperature / model.
+function deTemplateModal(suggestMode){
+  const suggesting = !!suggestMode;
+  openModal('<div class="modal-head"><strong>Synthesis template — plain language</strong><button class="icon-btn" data-action="close-modal">'+ICON.x+'</button></div>'
+    +'<div class="modal-body"><p class="secondary" style="font-size:13px;line-height:1.7">This template generates questions that help auditors detect violations, collect evidence, and write findings. Your suggested changes will be reviewed by the technical team.</p>'
+    +(suggesting
+      ? '<div class="mt16"><label class="field-label">Your suggested change</label><textarea class="input" id="de-tpl-suggest" placeholder="e.g. Also cover how to word a systemic finding across multiple divisions…" style="min-height:100px"></textarea></div>'
+      : '<div class="warn-banner warn-yellow mt16" style="margin:0;font-size:12px">'+ICON.info+'<span>You can read this template and suggest edits. The technical team approves any change before it takes effect.</span></div>')
+    +'</div>'
+    +'<div class="modal-foot"><button class="btn btn-ghost" data-action="close-modal">Close</button>'
+    +(suggesting
+      ? '<button class="btn btn-primary" data-action="de-template-submit">'+ICON.check+'Submit suggestion</button>'
+      : '<button class="btn btn-primary" data-action="de-template-suggest">'+ICON.pencil+'Suggest edit</button>')
+    +'</div>');
 }
 
 /* ---- Projects ---- */
@@ -2176,7 +2420,12 @@ function flagExplain(f,row){
 
 /* ---- Review Queue ---- */
 function reviewQueue(){
-  const rows=[]; getDatasets().forEach(d=>d.rows.forEach(r=>{ if(r.reviewStatus==='pending') rows.push({row:r,dataset:d}); }));
+  // §45 — Domain Expert sees only rows routed to them; every other role sees the rest.
+  const de = currentUser && currentUser.role==='DomainExpert';
+  const rows=[]; getDatasets().forEach(d=>d.rows.forEach(r=>{
+    if(r.reviewStatus!=='pending') return;
+    if(de ? r.requiresDomainExpert : !r.requiresDomainExpert) rows.push({row:r,dataset:d});
+  }));
   rows.sort((a,b)=>a.row.qualityScore-b.row.qualityScore);
   return rows;
 }
@@ -2193,6 +2442,7 @@ function resumeBanner(){
   return '<div class="warn-banner mt16" style="margin:0;background:var(--bg-hover);border:1px solid var(--border);color:var(--text-secondary);font-size:13px">⏱ <span>Resumed at item '+(p.index+1)+' of '+p.total+' — picked up where you left off this session.</span><div style="flex:1"></div><button class="btn btn-sm btn-ghost" data-action="review-start-fresh">Start fresh</button></div>';
 }
 function screenReview(){
+  if(currentUser.role==='DomainExpert') return screenDomainReview(); // §45 note 176 — simplified, routed queue
   const q=reviewQueue(); const tab=appState.reviewTab;
   const badge=n=>n?' <span class="pill pill-coral" style="padding:1px 6px">'+n+'</span>':'';
   // Final 5-tab structure (spec §27, §34 removed Entity Labelling) + Corpus Seeds (§31, role-gated)
@@ -4233,7 +4483,12 @@ function doLogin(email, pass){
     : (u.role==='Annotator' || u.role==='Reviewer') ? 'review'
     : 'dashboard';
   appState.reviewTab = 'datasets';
-  if(currentTenant){ const p=getProjects()[0]; appState.projectId=p?p.id:null; const r=p?projectReleases(p.id)[0]:null; appState.releaseId=r?r.id:null; }
+  if(currentTenant){
+    // §45 — Domain Expert works within the CAG audit project; land them there.
+    const p = (u.role==='DomainExpert' && byId(getProjects(),'proj_cag_audit')) || getProjects()[0];
+    appState.projectId=p?p.id:null; const r=p?projectReleases(p.id)[0]:null; appState.releaseId=r?r.id:null;
+  }
+  appState.reviewIndex=0; appState.calIndex=0; appState.deSuggestions=null; appState.deSeedKind=null; appState.deSeedText='';
   document.body.classList.remove('impersonating');
   log.event('login',{user:u.email, role:u.role, tenant:currentTenant?currentTenant.id:'platform'});
   renderShell();
@@ -4299,6 +4554,12 @@ function openPalette(){ appState.paletteOpen=true; appState.paletteQuery=''; app
 function closePalette(){ appState.paletteOpen=false; el('overlays').innerHTML=''; }
 function paletteItems(q){ q=(q||'').toLowerCase(); const items=[];
   const add=(group,icon,label,action,data)=>items.push({group,icon,label,action,data});
+  // §45 — Domain Expert palette is restricted to their three destinations (no technical screens).
+  if(currentUser && currentUser.role==='DomainExpert'){
+    [['Home','home','dashboard'],['My Queue','check','review'],['Seeding','sparkles','seeding'],['Calibration','shield','calibration']]
+      .forEach(a=>add('Go to',a[1],a[0],'nav',{view:a[2]}));
+    return q ? items.filter(i=>i.label.toLowerCase().includes(q)) : items;
+  }
   getProjects().forEach(p=>add('Projects','folder',p.name,'open-project',{id:p.id}));
   getDatasets().forEach(d=>add('Datasets','database',d.name,'goto-dataset',{id:d.id}));
   getEvalRuns().forEach(e=>add('Eval Runs','bolt',e.checkpointB+' — '+e.runAt,'load-eval',{id:e.id}));
@@ -4487,6 +4748,17 @@ function dispatch(action, d){
     case 'edit-review': editRowModal(d.id, true); break;
     case 'skip-review': appState.reviewIndex++; renderView(); break;
     case 'goto-review': appState.reviewIndex=+d.idx; renderView(); break;
+    // --- Domain Expert (spec §45) ---
+    case 'de-seed-kind': { const ta=el('de-seed-input'); if(ta) appState.deSeedText=ta.value; appState.deSeedKind=d.kind; renderView(); break; }
+    case 'de-generate': deGenerate(); break;
+    case 'de-seed-manual': deManualSeedModal(); break;
+    case 'de-sugg': deSuggAction(+d.i, d.do); break;
+    case 'de-seed': deSeedAction(d.id, d.do); break;
+    case 'de-cal-rate': { const cal=getCalibrationDE(); const row=cal&&cal.rows[appState.calIndex]; if(row){ row.ratings[d.dim]=d.val; log.event('calibration:rate',{dim:d.dim, val:d.val, scale:CAL_RATING_MAP[d.val]||null}); renderView(); } break; }
+    case 'de-cal-nav': deCalNav(+d.dir); break;
+    case 'de-template-view': deTemplateModal(false); break;
+    case 'de-template-suggest': deTemplateModal(true); break;
+    case 'de-template-submit': deTemplateSubmit(); break;
     case 'review-batch': showToast('Batch approved — 18 approved, 5 rejected','ok'); pushNotif('Reviewer approved a batch of 23 rows','check'); break;
     case 'run-eval': runEvalFlow(d.rel); break;
     case 'add-dimension': showToast('Custom dimension added (mock) — adjust weights to total 100%','info'); break;
@@ -4583,6 +4855,69 @@ function saveRowEdit(rowId, newOutput, fromQueue){
   showToast('Edit saved','ok');
   if(appState.panel&&appState.panel.id===rowId) panelRow(rowId);
   renderView();
+}
+
+/* ---- Domain Expert actions (spec §45) ---- */
+// "Generate examples from this" — mocked: surface pre-seeded suggestions for the CAG project (note 174).
+function deGenerate(){
+  const ta=el('de-seed-input'); appState.deSeedText = ta ? ta.value : (appState.deSeedText||'');
+  appState.deSuggestions = DOMAIN_SEED_SUGGESTIONS.map(s=>Object.assign({}, s));
+  log.event('domain-seed:generate',{count:appState.deSuggestions.length});
+  showToast('Generated '+appState.deSuggestions.length+' example pairs — approve the ones that match your standards','ok');
+  renderView();
+}
+// Approve a domain-expert pair into the CAG dataset with the gold-star source tag (notes 174/177).
+function deApprovePair(kind, instruction, output){
+  const ds=byId(datasets,'ds_cag_v1'); if(!ds || !assertTenant(ds)) return false;
+  const id='cag_seed_'+(ds.rows.filter(r=>r.source==='domain_expert_seed').length+1)+'_'+ds.rows.length;
+  ds.rows.push(cagRow({ id, pairType:'rule_explanation', instruction, output, qualityScore:93,
+    source:'domain_expert_seed', reviewStatus:'approved', reviewedBy:currentUser.name }));
+  log.event('domain-seed:approve',{id, kind});
+  pushActivity('contributed a domain-expert example ⭐ ('+kind+')');
+  showToast('Added to training with priority ⭐','ok');
+  return true;
+}
+function deSuggAction(i, action){
+  const s=appState.deSuggestions && appState.deSuggestions[i]; if(!s) return;
+  if(action==='edit'){ deSeedEditModal(s.kind, s.instruction, s.output, (inst,out)=>{ if(deApprovePair(s.kind,inst,out)){ appState.deSuggestions.splice(i,1); closeModal(); renderView(); } }); return; }
+  if(action==='approve'){ deApprovePair(s.kind, s.instruction, s.output); }
+  else { log.event('domain-seed:reject',{kind:s.kind}); showToast('Suggestion dismissed','info'); }
+  appState.deSuggestions.splice(i,1); renderView();
+}
+function deSeedAction(id, action){
+  const s=byId(getDomainSeeds(), id); if(!s) return;
+  if(action==='edit'){ deSeedEditModal(s.kind, s.instruction, s.output, (inst,out)=>{ s.instruction=inst; s.output=out; if(deApprovePair(s.kind,inst,out)){ s.status='approved'; closeModal(); renderView(); } }); return; }
+  if(action==='approve'){ if(deApprovePair(s.kind, s.instruction, s.output)) s.status='approved'; }
+  else { s.status='rejected'; log.event('domain-seed:reject',{id}); showToast('Pair rejected','info'); }
+  renderView();
+}
+// Manual pair entry ("Skip — write my own") and edit-before-approve share one modal.
+function deSeedEditModal(kind, instruction, output, onSave){
+  openModal('<div class="modal-head"><strong>Your example · '+escapeHtml(kind||'Domain pair')+'</strong><button class="icon-btn" data-action="close-modal">'+ICON.x+'</button></div>'
+    +'<div class="modal-body"><label class="field-label">The question / situation</label><textarea class="input" id="de-seed-inst" style="min-height:70px">'+escapeHtml(instruction||'')+'</textarea>'
+    +'<div class="mt12"></div><label class="field-label">The ideal answer</label><textarea class="input" id="de-seed-out" style="min-height:110px">'+escapeHtml(output||'')+'</textarea></div>'
+    +'<div class="modal-foot"><button class="btn btn-ghost" data-action="close-modal">Cancel</button><button class="btn btn-primary" id="de-seed-save">'+ICON.check+'Add ⭐</button></div>');
+  el('de-seed-save').onclick=()=>{ const inst=el('de-seed-inst').value.trim(), out=el('de-seed-out').value.trim();
+    if(!inst||!out){ showToast('Please fill in both the question and the answer','error'); return; } onSave(inst,out); };
+}
+function deManualSeedModal(){ deSeedEditModal(appState.deSeedKind||'A rule or guideline explained', appState.deSeedText||'', '', (inst,out)=>{ if(deApprovePair(appState.deSeedKind||'manual', inst, out)){ closeModal(); appState.deSeedText=''; renderView(); } }); }
+function deCalNav(dir){
+  const cal=getCalibrationDE(); if(!cal) return;
+  const ta=el('de-cal-note'); if(ta && cal.rows[appState.calIndex]) cal.rows[appState.calIndex].note=ta.value;
+  const next=(appState.calIndex||0)+dir;
+  if(next<0) return;
+  if(next>=cal.rows.length){ showToast('That\'s the last row in this sample — all '+cal.total+' are scored ✅','ok'); return; }
+  appState.calIndex=next; log.event('calibration:nav',{index:next}); renderView();
+}
+function deTemplateSubmit(){
+  const ta=el('de-tpl-suggest'); const txt=ta?ta.value.trim():'';
+  if(!txt){ showToast('Please describe your suggested change','error'); return; }
+  templateSuggestions.push({ id:'tsug_'+(templateSuggestions.length+1), tenantId:currentTenant.id, projectId:'proj_cag_audit',
+    by:currentUser.name, text:txt, status:'pending' });
+  log.event('template:suggest',{by:currentUser.name});
+  pushActivity('suggested an edit to the audit synthesis template');
+  pushNotif('1 template suggestion from '+currentUser.name+' — review and approve','info');
+  closeModal(); showToast('Suggestion sent — the technical team will review it','ok');
 }
 
 /* ---- Eval run flow ---- */
@@ -5088,6 +5423,17 @@ document.addEventListener('keydown', e=>{
       if(typing) return; // A/B/T/X shouldn't fire while typing the reasoning
       if(k==='a'){ p.chosen='A'; renderView(); } else if(k==='b'){ p.chosen='B'; renderView(); }
       else if(k==='t'){ p.chosen='tie'; renderView(); } else if(k==='x'){ p.chosen='both_bad'; renderView(); }
+    }
+  }
+  // §45 — Calibration keyboard: 1/2/3 rate the next dimension; Enter = save & next.
+  if(currentUser && currentView==='calibration' && !el('overlays').innerHTML){
+    const typing = e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
+    if(e.key==='Enter' && !typing){ e.preventDefault(); deCalNav(1); return; }
+    if(typing) return;
+    if(['1','2','3'].includes(e.key)){
+      const cal=getCalibrationDE(); const row=cal&&cal.rows[appState.calIndex||0]; if(!row) return;
+      const dim=CAL_DIMS.find(d=>!row.ratings[d[0]]) || CAL_DIMS[0]; // first unrated, else first
+      const opt=dim[2][+e.key-1]; if(opt){ row.ratings[dim[0]]=opt[0]; log.event('calibration:rate',{dim:dim[0], val:opt[0], scale:CAL_RATING_MAP[opt[0]]||null}); renderView(); }
     }
   }
 });
