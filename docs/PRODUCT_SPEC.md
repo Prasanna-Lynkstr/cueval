@@ -45,7 +45,7 @@
 
 ### Typography
 ```
-Display:  'Space Grotesk' (Google Fonts) — weight 500/600/700. Used for product name, big numbers only. (Superseded 'Syne', which read as too extended/stretched.)
+Display:  'Syne' (Google Fonts) — weight 700/800. Used for product name, big numbers only.
 Body:     'Inter' (Google Fonts) — weight 400/500/600. All UI text.
 Mono:     'JetBrains Mono' (Google Fonts) — code, JSON, dataset rows, scores.
 ```
@@ -628,7 +628,7 @@ Examples:
 ## 14. IMPLEMENTATION NOTES FOR CLAUDE CODE
 
 1. Build as a single `.html` file. All CSS in `<style>`, all JS in `<script>`. No external files.
-2. Load Google Fonts via `<link>` in `<head>`: Space Grotesk, Inter, JetBrains Mono.
+2. Load Google Fonts via `<link>` in `<head>`: Syne, Inter, JetBrains Mono.
 3. No frameworks. Pure DOM manipulation with vanilla JS.
 4. Use SVG icons inline (Heroicons style) — do not import icon libraries.
 5. Routing: simple JS state variable `currentView`. Re-render main canvas on change.
@@ -2530,6 +2530,240 @@ Always visible in inference detail. Sets correct expectations.
 
 ---
 
+## 30. SCORING TRANSPARENCY & COVERAGE INDICATOR
+
+### Overview
+Two additions to the Inference Monitor that set accurate expectations:
+1. "Checked against" source line per signal in inference detail
+2. Coverage indicator on the Monitor screen showing how reliably Cueval can score this project's inferences
+
+---
+
+### Updated Inference Detail Score Breakdown
+
+Replace the existing score breakdown table in the inference detail right panel with this version:
+
+```
+Score Breakdown
+──────────────────────────────────────────────────────────────
+Signal            Score    Checked Against                    
+──────────────────────────────────────────────────────────────
+Factuality        31% 🔴   3 context chunks at inference time
+                           (2 claims contradicted, 1 neutral) 
+
+Hallucination     28% 🔴   Context chunks + domain entity list
+                           "₹45 crore" absent from all sources
+
+Policy            92% ✅   12 configured rules
+                           All passed except tone threshold
+
+Confidence        —   ⬜   Logprobs not available from endpoint
+                           Cannot score — signal disabled
+
+Semantic Drift    71% 🟡   4,203 approved responses in corpus
+                           Moderate distance from cluster centre
+
+User Feedback     —   ⏳   No feedback received yet
+──────────────────────────────────────────────────────────────
+Weighted Overall  43% 🔴
+──────────────────────────────────────────────────────────────
+
+ℹ️  Scores reflect what Cueval can verify against known data.
+    Responses may be correct even when flagged, and incorrect
+    even when not flagged. Human review makes the final call.
+```
+
+"Checked against" text is greyed out secondary text under each signal row. Not prominent — informational only. Reviewers who want to understand a flag can read it. Those who just want to act don't need to.
+
+---
+
+### Coverage Indicator
+
+New panel on the Inference Monitor main screen. Positioned below the top strip metrics, above the live feed. Collapsible — collapsed by default, expandable with one click.
+
+**Collapsed state (always visible):**
+```
+📊 Monitor Coverage: 68%  — Factuality + Hallucination checks limited by corpus size  [▾ Details]
+```
+
+Color coded: green >80%, yellow 60–80%, orange 40–60%, red <40%.
+
+**Expanded state:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Monitor Coverage    What Cueval can reliably score         │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  INFERENCE TYPE BREAKDOWN                                   │
+│                                                             │
+│  Type                    % of traffic   Coverage   Basis   │
+│  RAG (context provided)  74%            89% ✅     Context │
+│  Fine-tune only          18%            51% 🟡     Corpus  │
+│  Open generation         8%             31% 🔴     Policy  │
+│                                                             │
+│  Overall weighted coverage: 68%                            │
+│                                                             │
+├─────────────────────────────────────────────────────────────┤
+│  SIGNAL COVERAGE                                            │
+│                                                             │
+│  Signal              Coverage   Limiting factor            │
+│  Policy compliance   100% ✅     Rules configured           │
+│  User feedback       100% ✅     Always collected           │
+│  Hallucination       71%  🟡     RAG inferences only        │
+│  Factuality          71%  🟡     RAG inferences only        │
+│  Semantic drift      61%  🟡     Corpus has 4,203 responses │
+│                                 Improves as corpus grows   │
+│  Confidence calib.   0%   🔴     Logprobs unavailable       │
+│                                                             │
+├─────────────────────────────────────────────────────────────┤
+│  HOW TO IMPROVE COVERAGE                                    │
+│                                                             │
+│  ✦ Provide context documents at inference time             │
+│    → Factuality + Hallucination coverage: 71% → 89%        │
+│                                                             │
+│  ✦ Add 2,000 more approved responses to corpus             │
+│    → Semantic drift coverage: 61% → 78%                    │
+│    Current corpus: 4,203  Recommended minimum: 10,000      │
+│    [Go to Datasets →]                                       │
+│                                                             │
+│  ✦ Enable logprob access on model endpoint                 │
+│    → Confidence calibration: 0% → full coverage            │
+│    [View endpoint configuration →]                         │
+│                                                             │
+│  ✦ Collect more user feedback                              │
+│    → Add feedback widget to your application               │
+│    Current feedback rate: 3.2% of inferences               │
+│    Recommended: > 8%                                        │
+│    [Copy feedback widget snippet →]                         │
+│                                                             │
+├─────────────────────────────────────────────────────────────┤
+│  WHAT COVERAGE MEANS                                        │
+│                                                             │
+│  Coverage is the % of your inferences where Cueval has     │
+│  enough reference data to produce a meaningful score.      │
+│                                                             │
+│  Low coverage does not mean monitoring is off — policy     │
+│  and user feedback are always collected. It means the      │
+│  automated quality signals have limited reference data     │
+│  for that portion of your inference traffic.               │
+│                                                             │
+│  The monitor becomes more accurate as your approved        │
+│  dataset grows and your team provides feedback on flags.   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### Coverage Calculation Logic (mock)
+
+```javascript
+function calculateCoverage(project) {
+  const ragPct = project.inferenceTypes.rag / project.totalInferences
+  const ftPct  = project.inferenceTypes.finetuneOnly / project.totalInferences
+  const genPct = project.inferenceTypes.openGeneration / project.totalInferences
+
+  const ragCoverage = 0.89     // high — context always available
+  const ftCoverage  = 0.51     // medium — corpus-dependent
+  const genCoverage = 0.31     // low — policy + feedback only
+
+  return (ragPct * ragCoverage)
+       + (ftPct  * ftCoverage)
+       + (genPct * genCoverage)
+}
+
+// Semantic drift coverage scales with corpus size:
+function driftCoverage(corpusSize) {
+  if (corpusSize < 1000)  return 0.30
+  if (corpusSize < 5000)  return 0.61
+  if (corpusSize < 10000) return 0.78
+  return 0.91
+}
+```
+
+---
+
+### Mock Coverage Data Per Tenant
+
+**IITM Pravartak:**
+```javascript
+{
+  overallCoverage: 84,
+  inferenceTypes: { rag: 91, finetuneOnly: 7, openGeneration: 2 },
+  corpusSize: 5203,
+  feedbackRate: 6.8,
+  logprobsAvailable: false,
+  improvements: [
+    "Enable logprob access → +8% coverage",
+    "Corpus growing well — continue annotation"
+  ]
+}
+```
+
+**Legal AI Corp:**
+```javascript
+{
+  overallCoverage: 68,
+  inferenceTypes: { rag: 74, finetuneOnly: 18, openGeneration: 8 },
+  corpusSize: 4203,
+  feedbackRate: 3.2,
+  logprobsAvailable: false,
+  improvements: [
+    "Provide context at inference time for 18% fine-tune traffic",
+    "Add 2,000 more approved responses to corpus",
+    "Increase feedback widget visibility — 3.2% rate is low"
+  ]
+}
+```
+
+**HealthBot India:**
+```javascript
+{
+  overallCoverage: 41,
+  inferenceTypes: { rag: 45, finetuneOnly: 40, openGeneration: 15 },
+  corpusSize: 890,
+  feedbackRate: 1.8,
+  logprobsAvailable: false,
+  improvements: [
+    "Corpus too small — minimum 5,000 responses recommended",
+    "Most inferences are fine-tune only — context not provided",
+    "Upgrade plan to access full corpus size limits"
+  ]
+}
+```
+
+HealthBot India at 41% coverage with upgrade CTA visible in the improvements section.
+
+---
+
+### Corpus Growth Tracker (inside Coverage panel)
+
+Small progress bar showing corpus growth trajectory:
+
+```
+Approved responses in corpus:
+Legal AI Corp    ████████░░░░░░░  4,203 / 10,000 recommended
+                 +312 this month  At current rate: full coverage in 18 months
+                 [Accelerate → Run annotation sprint]
+```
+
+[Accelerate] button opens annotation queue filtered to this project — direct path to growing the corpus faster.
+
+---
+
+### Implementation Notes for Claude Code
+
+56. Coverage indicator collapsed by default. Click [▾ Details] expands with smooth height animation (300ms).
+57. Overall coverage number in collapsed state updates color dynamically: >80% green, 60–80% yellow, 40–60% orange, <40% red.
+58. "How to improve coverage" items each have a specific CTA that navigates to the relevant screen. Navigation uses existing routing — no new screens needed.
+59. Corpus growth progress bar animates fill on expand. Show recommended target (10,000) as a vertical marker on the bar.
+60. "Checked against" text in inference detail is secondary grey text — font size 11px, not competing with the score itself.
+61. HealthBot India coverage panel prominently shows upgrade CTA in the improvements list — styled differently (coral background) from regular improvement suggestions.
+62. Coverage percentage in collapsed state recalculates when switching between projects in top bar — animates number change.
+63. "What Coverage Means" section uses plain language — no technical jargon. Targeted at PM and Admin roles who may not have ML background.
+
+---
+
 ## 31. DELTA — COLD START STATE & CORPUS-FREE INFERENCE SCORING
 
 ### Corrections to Earlier Sections
@@ -3047,243 +3281,6 @@ Referenced in all three integration tabs. Show as a standalone callout:
 
 ---
 
-## 30. SCORING TRANSPARENCY & COVERAGE INDICATOR
-
-### Overview
-Two additions to the Inference Monitor that set accurate expectations:
-1. "Checked against" source line per signal in inference detail
-2. Coverage indicator on the Monitor screen showing how reliably Cueval can score this project's inferences
-
----
-
-### Updated Inference Detail Score Breakdown
-
-Replace the existing score breakdown table in the inference detail right panel with this version:
-
-```
-Score Breakdown
-──────────────────────────────────────────────────────────────
-Signal            Score    Checked Against                    
-──────────────────────────────────────────────────────────────
-Factuality        31% 🔴   3 context chunks at inference time
-                           (2 claims contradicted, 1 neutral) 
-
-Hallucination     28% 🔴   Context chunks + domain entity list
-                           "₹45 crore" absent from all sources
-
-Policy            92% ✅   12 configured rules
-                           All passed except tone threshold
-
-Confidence        —   ⬜   Logprobs not available from endpoint
-                           Cannot score — signal disabled
-
-Semantic Drift    71% 🟡   4,203 approved responses in corpus
-                           Moderate distance from cluster centre
-
-User Feedback     —   ⏳   No feedback received yet
-──────────────────────────────────────────────────────────────
-Weighted Overall  43% 🔴
-──────────────────────────────────────────────────────────────
-
-ℹ️  Scores reflect what Cueval can verify against known data.
-    Responses may be correct even when flagged, and incorrect
-    even when not flagged. Human review makes the final call.
-```
-
-"Checked against" text is greyed out secondary text under each signal row. Not prominent — informational only. Reviewers who want to understand a flag can read it. Those who just want to act don't need to.
-
----
-
-### Coverage Indicator
-
-New panel on the Inference Monitor main screen. Positioned below the top strip metrics, above the live feed. Collapsible — collapsed by default, expandable with one click.
-
-**Collapsed state (always visible):**
-```
-📊 Monitor Coverage: 68%  — Factuality + Hallucination checks limited by corpus size  [▾ Details]
-```
-
-Color coded: green >80%, yellow 60–80%, orange 40–60%, red <40%.
-
-**Expanded state:**
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  Monitor Coverage    What Cueval can reliably score         │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  INFERENCE TYPE BREAKDOWN                                   │
-│                                                             │
-│  Type                    % of traffic   Coverage   Basis   │
-│  RAG (context provided)  74%            89% ✅     Context │
-│  Fine-tune only          18%            51% 🟡     Corpus  │
-│  Open generation         8%             31% 🔴     Policy  │
-│                                                             │
-│  Overall weighted coverage: 68%                            │
-│                                                             │
-├─────────────────────────────────────────────────────────────┤
-│  SIGNAL COVERAGE                                            │
-│                                                             │
-│  Signal              Coverage   Limiting factor            │
-│  Policy compliance   100% ✅     Rules configured           │
-│  User feedback       100% ✅     Always collected           │
-│  Hallucination       71%  🟡     RAG inferences only        │
-│  Factuality          71%  🟡     RAG inferences only        │
-│  Semantic drift      61%  🟡     Corpus has 4,203 responses │
-│                                 Improves as corpus grows   │
-│  Confidence calib.   0%   🔴     Logprobs unavailable       │
-│                                                             │
-├─────────────────────────────────────────────────────────────┤
-│  HOW TO IMPROVE COVERAGE                                    │
-│                                                             │
-│  ✦ Provide context documents at inference time             │
-│    → Factuality + Hallucination coverage: 71% → 89%        │
-│                                                             │
-│  ✦ Add 2,000 more approved responses to corpus             │
-│    → Semantic drift coverage: 61% → 78%                    │
-│    Current corpus: 4,203  Recommended minimum: 10,000      │
-│    [Go to Datasets →]                                       │
-│                                                             │
-│  ✦ Enable logprob access on model endpoint                 │
-│    → Confidence calibration: 0% → full coverage            │
-│    [View endpoint configuration →]                         │
-│                                                             │
-│  ✦ Collect more user feedback                              │
-│    → Add feedback widget to your application               │
-│    Current feedback rate: 3.2% of inferences               │
-│    Recommended: > 8%                                        │
-│    [Copy feedback widget snippet →]                         │
-│                                                             │
-├─────────────────────────────────────────────────────────────┤
-│  WHAT COVERAGE MEANS                                        │
-│                                                             │
-│  Coverage is the % of your inferences where Cueval has     │
-│  enough reference data to produce a meaningful score.      │
-│                                                             │
-│  Low coverage does not mean monitoring is off — policy     │
-│  and user feedback are always collected. It means the      │
-│  automated quality signals have limited reference data     │
-│  for that portion of your inference traffic.               │
-│                                                             │
-│  The monitor becomes more accurate as your approved        │
-│  dataset grows and your team provides feedback on flags.   │
-└─────────────────────────────────────────────────────────────┘
-```
-
----
-
-### Coverage Calculation Logic (mock)
-
-```javascript
-function calculateCoverage(project) {
-  const ragPct = project.inferenceTypes.rag / project.totalInferences
-  const ftPct  = project.inferenceTypes.finetuneOnly / project.totalInferences
-  const genPct = project.inferenceTypes.openGeneration / project.totalInferences
-
-  const ragCoverage = 0.89     // high — context always available
-  const ftCoverage  = 0.51     // medium — corpus-dependent
-  const genCoverage = 0.31     // low — policy + feedback only
-
-  return (ragPct * ragCoverage)
-       + (ftPct  * ftCoverage)
-       + (genPct * genCoverage)
-}
-
-// Semantic drift coverage scales with corpus size:
-function driftCoverage(corpusSize) {
-  if (corpusSize < 1000)  return 0.30
-  if (corpusSize < 5000)  return 0.61
-  if (corpusSize < 10000) return 0.78
-  return 0.91
-}
-```
-
----
-
-### Mock Coverage Data Per Tenant
-
-**IITM Pravartak:**
-```javascript
-{
-  overallCoverage: 84,
-  inferenceTypes: { rag: 91, finetuneOnly: 7, openGeneration: 2 },
-  corpusSize: 5203,
-  feedbackRate: 6.8,
-  logprobsAvailable: false,
-  improvements: [
-    "Enable logprob access → +8% coverage",
-    "Corpus growing well — continue annotation"
-  ]
-}
-```
-
-**Legal AI Corp:**
-```javascript
-{
-  overallCoverage: 68,
-  inferenceTypes: { rag: 74, finetuneOnly: 18, openGeneration: 8 },
-  corpusSize: 4203,
-  feedbackRate: 3.2,
-  logprobsAvailable: false,
-  improvements: [
-    "Provide context at inference time for 18% fine-tune traffic",
-    "Add 2,000 more approved responses to corpus",
-    "Increase feedback widget visibility — 3.2% rate is low"
-  ]
-}
-```
-
-**HealthBot India:**
-```javascript
-{
-  overallCoverage: 41,
-  inferenceTypes: { rag: 45, finetuneOnly: 40, openGeneration: 15 },
-  corpusSize: 890,
-  feedbackRate: 1.8,
-  logprobsAvailable: false,
-  improvements: [
-    "Corpus too small — minimum 5,000 responses recommended",
-    "Most inferences are fine-tune only — context not provided",
-    "Upgrade plan to access full corpus size limits"
-  ]
-}
-```
-
-HealthBot India at 41% coverage with upgrade CTA visible in the improvements section.
-
----
-
-### Corpus Growth Tracker (inside Coverage panel)
-
-Small progress bar showing corpus growth trajectory:
-
-```
-Approved responses in corpus:
-Legal AI Corp    ████████░░░░░░░  4,203 / 10,000 recommended
-                 +312 this month  At current rate: full coverage in 18 months
-                 [Accelerate → Run annotation sprint]
-```
-
-[Accelerate] button opens annotation queue filtered to this project — direct path to growing the corpus faster.
-
----
-
-### Implementation Notes for Claude Code
-
-56. Coverage indicator collapsed by default. Click [▾ Details] expands with smooth height animation (300ms).
-57. Overall coverage number in collapsed state updates color dynamically: >80% green, 60–80% yellow, 40–60% orange, <40% red.
-58. "How to improve coverage" items each have a specific CTA that navigates to the relevant screen. Navigation uses existing routing — no new screens needed.
-59. Corpus growth progress bar animates fill on expand. Show recommended target (10,000) as a vertical marker on the bar.
-60. "Checked against" text in inference detail is secondary grey text — font size 11px, not competing with the score itself.
-61. HealthBot India coverage panel prominently shows upgrade CTA in the improvements list — styled differently (coral background) from regular improvement suggestions.
-62. Coverage percentage in collapsed state recalculates when switching between projects in top bar — animates number change.
-63. "What Coverage Means" section uses plain language — no technical jargon. Targeted at PM and Admin roles who may not have ML background.
-
----
-
-
----
-
 ## 33. DELTA — AGENTIC LAYER (PHASE 3+)
 
 ### Overview
@@ -3793,6 +3790,131 @@ All other tools shown as unconnected (+ Connect state).
 
 ---
 
+## 35. DELTA — WHISPER ON-PREMISE / AIR-GAPPED DEPLOYMENT
+
+### Updates to Section 21 (Audio/Video Module)
+
+Add to audio pipeline description — sovereign mode behaviour:
+
+**Audio transcription — two modes:**
+
+**SaaS mode:**
+Audio sent to Whisper API endpoint (OpenAI hosted or Cueval cloud). Faster, higher throughput. Not available for sovereign clients — data would leave the network.
+
+**Sovereign / on-premise mode:**
+`faster-whisper` container runs locally with quantised weights. No network call. Language auto-routed by FastText detection output:
+- English → Whisper large-v3 (quantised INT8)
+- Hindi/Devanagari → Whisper large-v3 multilingual
+- Tamil/Telugu/Kannada/Malayalam → IndicWhisper (AI4Bharat fine-tuned weights)
+- Mixed/unknown → multilingual model with language detection per segment
+
+**Docker image variants shipped:**
+```
+cueval/whisper:en           — Whisper large-v3, English optimised, ~1.8GB
+cueval/whisper:indic        — IndicWhisper, Indic languages, ~2.1GB
+cueval/whisper:multilingual — Both models, auto-routes, ~3.2GB (recommended)
+```
+
+Client installs once via `docker compose pull`. Weights baked into image. Fully air-gapped after initial pull.
+
+**Processing speed on-premise (faster-whisper INT8):**
+```
+Hardware          Speed (1 hr audio)   Recommended for
+16-core CPU       12–15 min            < 50 hrs/month volume
+GPU (T4/RTX3090)  2–4 min              > 50 hrs/month volume
+GPU (A100)        < 1 min              Bulk corpus ingestion
+```
+
+**Known limitations — add to Ingest stage limitations box:**
+- On-prem CPU: 1-hour audio takes 12–15 min. GPU recommended above 50 hours/month.
+- IndicWhisper WER on legal/medical domain: 18–30%. Human correction mandatory for institutional use.
+- Base Whisper Tamil/Telugu WER without IndicWhisper: 30–40% — use IndicWhisper variant.
+- First Docker pull: ~3GB download. After that fully air-gapped, no connectivity needed.
+- Fine-tuning Whisper on client domain audio not bundled — separate engagement.
+
+---
+
+### Updates to Section 18 (On-Premise Implementation Notes)
+
+Add to Docker Compose service list:
+
+```yaml
+cueval-whisper:
+  image: cueval/whisper:multilingual
+  volumes:
+    - whisper_models:/models      # weights on persistent volume
+  environment:
+    MODEL_SIZE: large-v3
+    QUANTISATION: int8
+    DEVICE: cpu                   # change to cuda if GPU available
+    LANGUAGE_PACK: multilingual
+  ports:
+    - "9001:9001"                 # internal only, not exposed externally
+  restart: unless-stopped
+```
+
+Celery audio worker routes transcription jobs to this container via internal HTTP. Port 9001 not exposed beyond the Docker network. Zero external traffic during transcription.
+
+**First-time setup note (add to on-premise install README):**
+"Run `docker compose pull` before air-gapping the server. This downloads the Whisper model weights (~3GB). After initial pull, the server can be fully isolated. Subsequent Cueval software updates ship as signed packages and do not require re-downloading model weights unless a model upgrade is included."
+
+---
+
+### Updates to Section 20 (Bulk Ingestion)
+
+Add to bulk job configuration panel — audio processing section:
+
+```
+Audio Transcription Engine (Sovereign Mode)
+Model:   ● faster-whisper large-v3 (recommended)
+         ○ faster-whisper medium (faster, lower accuracy)
+         ○ IndicWhisper (Indic languages only)
+
+Language routing:   ● Auto (FastText detection per file)
+                    ○ Force English
+                    ○ Force Indic
+
+Estimated throughput (current hardware):
+  CPU only:   ~4 hrs/hr of audio
+  With GPU:   ~0.5 hrs/hr of audio
+
+For 10,000 hours of audio:
+  CPU only:   40,000 hours (~4.5 years) ← show warning
+  1x A100:    5,000 hours (~7 months)   ← show warning
+  4x A100:    1,250 hours (~7 weeks)    ← show recommendation
+
+⚠️ Bulk audio ingestion at scale requires GPU. Contact Lynkstr
+   for infrastructure sizing guidance before starting.
+```
+
+---
+
+### Mock UI Addition — Whisper Status Panel
+
+Add to Audio screen (Section 21) — small status card visible when project is sovereign:
+
+```
+┌─────────────────────────────────────────────────────┐
+│  🔒 Sovereign Transcription                         │
+│  faster-whisper multilingual · INT8 · CPU mode     │
+│  Model: large-v3 + IndicWhisper                    │
+│  Status: ✅ Ready                                   │
+│  Throughput: ~4x realtime on current hardware      │
+│  [Switch to GPU mode] [View model details]         │
+└─────────────────────────────────────────────────────┘
+```
+
+Show only when project has sovereign mode enabled. Hidden for SaaS clients (they use cloud transcription automatically).
+
+---
+
+### Implementation Note for Claude Code (delta)
+
+91. Whisper status panel: render as a small card below the audio upload zone on the Audio screen. Only visible when current tenant has sovereign=true in mock data. IITM Pravartak = sovereign=true. Legal AI Corp and HealthBot India = sovereign=false (don't show panel).
+92. Bulk ingestion audio throughput warning: if estimated processing time exceeds 30 days on CPU, show red warning and GPU recommendation. If 7–30 days, show amber warning. Under 7 days, show green estimate.
+
+---
+
 ## 36. DELTA — REMOVE AUDIO/VIDEO, ADD COMING SOON PLACEHOLDERS
 
 ### Removed from Prototype Build
@@ -3864,175 +3986,2240 @@ Document types to include:
 
 ---
 
-## §38 — Eval Harness Updates (Judge Configuration, Calibration, DLP)
+## 37. DELTA — EVAL HARNESS: JUDGE SELECTION, DATA SOVEREIGNTY, REFERENCE-GROUNDED SCORING
 
-### 38.1 Judge configuration panel
-The Eval Harness screen leads with a **Judge configuration** panel. The eval judge is selectable between three modes (radio):
-- **Local (Mistral 7B INT8)** — on-prem/in-tenant judge, no data leaves the tenant boundary. Default for privacy-sensitive tenants.
-- **Cloud API** — hosted frontier judge. Selecting Cloud immediately opens the DLP acknowledgement modal (§38.4); the selection does **not** change to Cloud until the modal is confirmed.
-- **Human eval** — routes rows to human reviewers; hides the reference-grounded toggle.
-
-### 38.2 Calibration status
-Each tenant has its own eval configuration (per-tenant isolation). The calibration panel shows the human↔judge agreement (Cohen's κ):
-- Overall κ is color-coded: **green** > 0.70, **yellow** 0.60–0.70, **red** < 0.60 (`kappaColor`).
-- A **Calibrated / Not calibrated** badge, who calibrated it, and when.
-- The weakest dimension is surfaced with a "focus calibration here" CTA.
-- Per-dimension κ is expandable (`kappaOpen` toggle → per-dimension table: Factuality, Instruction Following, etc.).
-- Seed data: Pravartak calibrated (κ=0.74, weakest Factuality 0.61); Legal AI calibrated (κ=0.79, by Compliance Officer); HealthBot **uncalibrated**.
-
-### 38.3 Reference-grounded toggle
-For LLM-judge modes, a toggle chooses what factuality is checked against:
-- **Ingested corpus** (reference-grounded) — claims verified against the tenant's ingested documents.
-- **Model knowledge** — judge uses its own parametric knowledge.
-HealthBot defaults to model-knowledge (referenceGrounded:false). Hidden entirely in Human eval mode.
-
-### 38.4 DLP acknowledgement modal
-Switching the judge to **Cloud API** triggers a mandatory Data-Privacy (DLP) acknowledgement modal:
-- Full-screen scrim; **not dismissable** by outside click or Escape — only Cancel or Confirm.
-- The **Confirm** button is disabled until the acknowledgement checkbox is ticked.
-- **Cancel** reverts the judge to its prior value (stays Local).
-- **Confirm** enables the Cloud judge, sets `dlpConfirmed=true`, writes an audit event (`cloud_judge_dlp_confirmed` with user_id/project_id), pushes an activity + notification, and shows a success toast.
-
-### 38.5 Run gating (`evalRunnable`)
-Run Eval is blocked when:
-- The tenant is **uncalibrated** (must run calibration first — "Start Calibration Run" CTA shown), or
-- Cloud judge is selected but DLP has not been confirmed.
-When blocked, the Run Eval button is disabled with an explanatory tooltip, and `runEvalFlow` refuses (guards even palette/keyboard triggers) with the reason toast.
-
-### Implementation notes
-104. Per-tenant `evalConfigs` keyed by tenantId; `getEvalConfig()` scoped to current tenant; SuperAdmin has none (panel renders empty). Isolation: each tenant's judge mode / calibration / DLP state is independent.
-105. `kappaColor(k)`: >0.7 green, ≥0.6 yellow, else (incl null) red.
-106. Switching to Cloud immediately triggers the DLP modal — do not change the selection until the modal is confirmed. Judge stays on the prior mode meanwhile.
-107. DLP modal is Escape-locked via the global keydown handler (`if(el('dlp-modal')) return;` before `closeModal()`).
-108. Reference-grounded state persists on the eval config and reflects in the eval result view (`refGroundNote`).
+### Corrections to Section 5 (Evaluate) and Section 29 (Monitor Configuration)
 
 ---
 
-## §39 — NBFC Case Study Project (Pre-seeded Demo Tenant)
+### Judge Selection — Three Modes
 
-A fourth tenant, **Finserv NBFC (Case Study)** (`tenant_nbfc`, `isCaseStudy:true`, Pro plan), is pre-seeded to walk the full 8-stage Cueval pipeline end-to-end without manual setup. Standard tenant isolation (§5) applies — its data is invisible to the other three tenants and vice-versa.
+Replace all references to "Claude API as judge" with configurable judge selection. Cloud judge is never the default — it requires explicit opt-in with DLP acknowledgement.
 
-### Seed data
-- **Users** (all `demo123`): `ml@finserv.com` (Arjun Mehta, ML Engineer), `annotator@finserv.com` (Priya Nair, Annotator), `pm@finserv.com` (Rohan Desai, PM). Added as a login demo-credentials group.
-- **Project** `proj_nbfc_chatbot` — Customer Support Chatbot (loan eligibility, EMI, KYC).
-- **Releases** — v1.0 (deployed, historically *blocked* on eval gate then deployed after the v1.1 fix), v1.1 (deployed, full approval audit trail), v1.2 (in-review, interest-rate update).
-- **Datasets** — v1.0 (2,800 rows, score 71, three source badges JSONL/PDF/CSV, curation summary 2,310 auto-approved / 490 flagged), v1.1 (2,398 rows, score 84), v1.2 (2,450 rows, score 93). Each carries explicit representative rows covering every flag type: clean, near-duplicate (rejected against `row_001`), PII-redacted (edit diff on the row panel), short/low-quality (expanded), and **hallucination** (wrong interest rates, pending) — plus corrected interest-rate rows in v1.1/v1.2.
-- **Experiments** — Baseline Mistral 7B (`ckpt_v1_0`) and Factuality Fix / structural chunking (`ckpt_v1_1`), with snapshot hashes and training config.
-- **Eval runs** — `eval_v1_0` Overall **74.2** (Factuality 71, below the 80 gate) and `eval_v1_1` two-checkpoint comparison **74.2 → 81.6** (Factuality 71 → 79). Local judge, ₹0, κ=0.74.
-- **Inference monitor** — NBFC live feed seeded with a **23-strong hallucination cluster** on interest-rate queries (the trigger for v1.2) plus healthy traffic.
-- **Activity feed** — the full chronological 8-stage story (curation → annotation → eval → blocked → fix → deploy → monitor cluster → agent sprint #7 → v1.2 in review).
+```
+Judge Mode         Data leaves network?   Accuracy    When to use
+─────────────────────────────────────────────────────────────────
+Local (sovereign)  No                     Medium*     Default for all clients
+Cloud API          Yes (DLP required)     High        Only with explicit approval
+Human eval         No                     Ground truth Calibration + high-stakes dims
+```
 
-### Case-study chrome
-- **Banner** (`renderCaseBanner`): a persistent, non-dismissable amber banner rendered below the top bar for NBFC tenant users only (never for SuperAdmin's platform view or other tenants). Carries a **"How to demo this"** button.
-- **New flag type** `hallucination` — red pill, with a per-row explanation drawn from the row's reference-mismatch note.
-- **Dataset source badges** (note 116) and a **curation summary** panel on the dataset detail screen.
-- **Demo-flow guide modal** (`demoGuideModal`, note 123) — nine numbered stages, each with a "Go →" button (`demo-goto`) that selects the NBFC project and jumps straight to the relevant screen / dataset / eval.
-- **Release detail** shows the v1.0 blocked → deployed **history** (with a "view what changed" jump to the v1.1 dataset) and the v1.1 **approval audit trail**.
-
-### Implementation notes
-- NBFC datasets ship explicit rows (`buildNbfcRows`) and fixed narrative rollups; `initMockData` skips `buildRows`/`finaliseDataset`/`computeEval` for them so seeded scores/results are preserved verbatim.
-- `screenEval` only honours a pinned `appState.evalResult` if it belongs to the current tenant's runs (isolation hardening).
-- Represented through existing screens rather than bespoke widgets: the two-checkpoint radar (already two-polygon), the flag-rate trend chart, and the PII edit diff (existing row-panel diff). The agent sprint #7 is told through the activity trail; the NBFC Agents screen uses the standard empty state.
+*Accuracy improves significantly after calibration against human reference set.
 
 ---
 
-## §40 — Eval Harness: Judge-Mode Differentiation, Accuracy Monitoring & Guidance
+### Reference-Grounded Evaluation (Default for Regulated Industries)
 
-Builds on §38. The three judge modes now behave distinctly, and the Eval Harness surfaces interpretation guidance and an ongoing judge-accuracy monitor.
+For clients in regulated industries (NBFC, banking, healthcare, legal, government), factuality scoring must check responses against ingested source documents — not the judge's general training knowledge.
 
-### 40.1 Judge-mode-aware runs (`runEvalFlow` / `stampJudge` / `humanEvalFlow`)
-- **Local (sovereign):** animated run with an on-prem scoring step; cost stamped **₹0** with the label "Local judge (on-prem, nothing left your network)".
-- **Cloud API:** animated run whose scoring step reads "Transmitting rows to external API (Claude / GPT-4)…"; cost is a **real per-token ₹ bill** (label shows tokens sent externally). Still gated behind the DLP acknowledgement (§38).
-- **Human eval:** does **not** auto-score. Run diverts to `humanEvalFlow` — a modal that samples up to 5 held-out rows and lets the reviewer score each (Poor/Fair/Good/Excellent), showing the judge's score alongside. On finish it aggregates the human average, computes a mock **human↔judge agreement κ**, produces an eval run (`judgeMode:'human'`, radar/table relabelled **Judge vs Human**), and feeds the accuracy monitor. If κ falls below the configured threshold it raises a recalibration alert (notification + activity + toast) and sets the monitor outcome to "Recalibration triggered".
-- Every produced run is stamped with the `judgeMode` and `referenceGrounded` it used; the result view shows a judge-mode badge and the mode-specific cost.
+**How it works:**
 
-### 40.2 Interpretation note (`evalInterpretationNote`)
-Shown under every result: *"Eval scores reflect one judge's assessment against the configured rubric. Individual row scores may be inaccurate — aggregate trends across 200+ rows are more reliable. For regulated releases, supplement with human eval on a sample."*
+```
+Standard judge prompt (wrong for regulated use):
+"Is this response factually accurate?"
+→ Judge uses its own training knowledge as ground truth
+→ Cannot verify against client-specific documents
+→ May score hallucinated but plausible-sounding content as correct
 
-### 40.3 Ongoing judge-accuracy monitoring (`accuracyMonitorPanel`)
-Per-tenant config (`ec.accuracyMonitor`): **every [5/10/20 ▾] eval runs, sample [1/5/10% ▾] of rows** for human review; **if agreement (κ) drops below [0.6/0.65/0.7 ▾] → alert Architect + trigger recalibration.** Shows the last spot-check (date · κ · outcome, red when below threshold) and "Next spot-check: After next eval run". Dropdowns persist to the tenant's config (`eval-am-set`). Seeded: Pravartak/NBFC last spot-check 14 Jun 2025 · κ 0.71 · No action required.
+Reference-grounded prompt (correct):
+"Given this source document: [retrieved chunk from client corpus]
+ And this customer question: [question]
+ And this model response: [response]
+ 
+ Score 1–5:
+ 1. Does the response contradict any fact in the source document?
+ 2. Does it answer the specific question asked?
+ 3. Does it cite or reference content not present in the source?
+ 
+ Return JSON: {factuality: N, task_completion: N, reasoning: string}"
+```
 
-### 40.4 Rubric-writing tip (`rubricTipBox`)
-A tip card in the run configuration: specific rubric instructions reduce judge hallucination, with a before/after example ("Score factuality based on accuracy" → "Score factuality 1 if the response cites any financial figure … not present in the reference document.").
+The source document chunk is retrieved from Cueval's ingested corpus at eval time — the same corpus used for RAG in production. The judge compares response against document, not against its own priors.
 
-### Implementation notes
-- Added an `evalConfigs` entry for `tenant_nbfc` (previously missing) — calibrated κ=0.74 — plus an `accuracyMonitor` block on every tenant.
-- Human-eval modal uses the locked `.ig-scrim` (no outside-click close); the Next button is disabled until the current row is scored.
-- Isolation: each tenant's judge mode, calibration, and accuracy-monitor settings remain independent.
-
----
-
-## §41 — Research-Backed Quality Improvements (Priority 1)
-
-First tier of the §40/§41 research-backed changes (spec ships its own build order; implemented tier by tier).
-
-### 41.1 Eval confidence intervals (Change 2 / Patch 1)
-Every eval dimension is reported as **mean ± standard deviation** (e.g. "Factuality 79 ± 5") across two judge passes. `computeEval` generates per-dimension variance (Factuality least stable, Tone most; the newer checkpoint B scores tighter). Cells with variance > 7 render on an amber background with a "high variance — consider human eval" tooltip. A **✓ Confidence intervals** badge sits on the result header. NBFC evals carry explicit variance (v1.0 Factuality ±8 → v1.1 ±5; Overall ±5.1 → ±3.8).
-
-### 41.2 Krippendorff's Alpha (Change 8 / Patch 4, 8)
-All user-facing agreement metrics renamed from Cohen's/Fleiss' κ to **Krippendorff's α**. Interpretation bands (`alphaBand`): <0.40 poor, 0.40–0.67 moderate, 0.67–0.80 good, >0.80 excellent. The calibration band now reads "agreement (α) = 0.74 (Good — Krippendorff's Alpha)" with a tooltip, surfaces the **weakest dimension** with guidance ("reviewers disagree on what counts here; add rubric examples"), and the per-dimension table gains a Band column. The accuracy-monitor and human-eval agreement displays use α. (Internal field names remain `kappa`/`overallKappa` for stability — display-only rename per note 140.)
-
-### 41.3 Typed hallucination badges (Change 4 / Patch 7 badge-only)
-Hallucinations are classified: **Contradiction** (amber — conflicts with a source doc), **Fabrication** (red — not in any document), **Conflation** (purple — merges two chunks). `halTypeBadge` renders a coloured pill in the dataset row panel, the monitor inference panel, and the live-feed flags column. NBFC: the 6 wrong-rate dataset rows and the 23-row monitor cluster are Contradictions; a standalone "Q2 2025 rate revision" monitor inference is a Fabrication.
-
-Priority 2 (AI-suggested edits, RLTHF preference routing, dataset diversity, swap-augmented animation) and Priority 3 (claim-level hallucination, fatigue detection, model-change warning, bulk diversity alert) to follow.
+**What this means:** Factuality score = "does this response accurately reflect our documents" not "does this sound right to a general-purpose LLM." For an NBFC, this is the difference between catching a wrong interest rate and missing it.
 
 ---
 
-## §41 — Research-Backed Quality Improvements (Priority 2)
+### Cloud Judge — DLP Gate
 
-### 41.4 Swap-augmented evaluation (Change 1 / Patch 1)
-LLM-judge pairwise runs are now two-pass: the run animation shows "Pass 1 of 2 — scoring responses…" then "Pass 2 of 2 — positions swapped…" then "Aggregating + confidence intervals…". Runs are stamped `swapAugmented` and the result header shows a **✓ Swap-augmented** badge (tooltip cites the ~30%→~8% position-bias reduction, Wang et al. 2024). NBFC seeded evals carry the flag.
+When user selects cloud judge (Claude/GPT-4 API), show mandatory acknowledgement before any eval run proceeds:
 
-### 41.5 Dataset diversity score (Change 7 / Patch 3)
-Dataset detail gains a **Quality & diversity** panel: two gauges (quality + diversity, colour-banded >75 green / 60–75 amber / <60 red) plus an instruction-type distribution bar chart. Over-represented clusters (>30%) are flagged amber, gaps (<5% with production traffic) red. NBFC v1.0 scores 68 with an **interest-rate gap (9%)** that links to the Monitor findings (`View Monitor findings →`); v1.1 rises to 79, v1.2 to 84 as the gap closes. Diversity glossary entry added.
+```
+┌─────────────────────────────────────────────────────────────┐
+│  ⚠️  Data Privacy Acknowledgement Required                  │
+├─────────────────────────────────────────────────────────────┤
+│  Selecting a cloud judge will send the following data       │
+│  to an external API:                                        │
+│                                                             │
+│  ✓ Eval dataset rows (instruction + model response)        │
+│  ✓ Source document chunks (if reference-grounded eval)     │
+│  ✗ Raw customer PII (stripped during curation)             │
+│                                                             │
+│  For regulated industries (NBFC, banking, healthcare,      │
+│  government), verify this is permitted under your          │
+│  data governance and DLP policies before proceeding.       │
+│                                                             │
+│  ☐ I confirm this eval dataset has received DLP           │
+│    clearance for external API transmission                  │
+│                                                             │
+│  [Cancel — Use Local Judge]  [Confirm — Use Cloud Judge]   │
+└─────────────────────────────────────────────────────────────┘
+```
 
-### 41.6 AI-suggested edits (Change 5 / Patch 2)
-For rows flagged **short-response / low-clarity only** (never PII/toxic), the row panel shows a collapsible "💡 Suggested edit available" with the original, an AI suggestion (deliberately good-but-not-perfect), and **Use Suggestion / Edit Suggestion / Write My Own**. Actions are tracked (`suggestionStats`) and the PM board shows an **AI-suggestions used/edited** adoption stat. NBFC short-response rows carry seeded suggestions. `finaliseDataset` now preserves NBFC fixed rollups so edits don't clobber the narrative counts.
-
-### 41.7 RLTHF preference routing (Change 6 / Patch 2)
-Preference pairs are pre-scored and routed: score-diff > 1.5 → **auto-labelled** (obvious winner, human never sees it); 0.5–1.5 → needs review; < 0.5 → **contested** (needs 2 reviewers). The Preference Ranking pane shows a routing summary ("N total — M auto-labelled, K sent to reviewers"), a collapsed **Auto-labelled** section with an audit sample, and a red **Contested pair** banner on close pairs. Auto-label rate ~74%. NBFC now has preference pairs; `prefQueue` excludes auto-labelled so counts reflect human work only.
-
-Priority 3 (claim-level hallucination highlighting, annotator fatigue detection, model-change warning, bulk diversity alert) remains.
-
----
-
-## §41 — Research-Backed Quality Improvements (Priority 3)
-
-### 41.8 Claim-level hallucination (Change 3 / Patch 7 full)
-NBFC hallucination inferences carry a MiniCheck-style `hallucinationAnalysis` (per-sentence grounded/hallucinated with source attribution). The inference panel renders the response with **per-sentence `<mark>` highlighting** (green underline = grounded; amber/red/purple = Contradiction/Fabrication/Conflation) and a **Claim-level analysis (MiniCheck)** breakdown listing each sentence, its status, the mismatch detail, and the source chunk (e.g. "Section 3.2 Para 1", or "— not found in corpus —").
-
-### 41.9 Annotator fatigue detection (Change 9 / Patch 5, 9)
-`annotatorSessions` tracks per-annotator session health (time, α-start→now, fatigue flag). A **Session health** panel (PM/Admin board only, wellbeing-framed) shows each annotator's α drift and a Fatigue/Stable pill. A fatigued annotator sees a non-blocking, dismissible **rest prompt** (bottom-right) on the Review Queue ("You've been reviewing for 94 minutes…"). NBFC: Priya Nair fatigued (α 0.81→0.68, 94 min, recovers to 0.79 after break); the fatigue event is also in the activity trail.
-
-### 41.10 Model-relative quality warning (Change 10 / Patch 6)
-Creating an experiment whose base model differs from the project's most recent completed experiment triggers a **Base model changed** modal (cites Ye et al. 2025), recommending a 200–500-row calibration experiment, with **Proceed anyway** / **Create calibration experiment**. Same-model saves proceed silently. (NBFC stays on Mistral; switching to Llama/Gemma warns.)
-
-### 41.11 Bulk low-diversity alert (Patch 10)
-Completed bulk jobs carry a diversity score; when < 60 the job dashboard shows a **Low diversity detected** card (cites LIMA 2023) with the dominant cluster % and **View diversity breakdown** / **Create annotation sprint** actions (sprint pre-named for the under-represented cluster). Legal AI's "Legal Document Corpus v1" scores 48 and demos the alert.
-
-### Notes on fidelity
-- Claim-level uses an inline breakdown list for source attribution rather than a click-popover (note 142); highlighting is inline via `<mark>`.
-- Fatigue sessions are seeded mock data (PM/Admin visibility), not live per-row tracking; the rest prompt has no 30s auto-dismiss timer (avoids leaked timers, CLAUDE.md §10).
-- `finaliseDataset` preserves NBFC fixed rollups so review/edit actions never clobber the narrative counts (added in Priority 2).
+Checkbox must be ticked. Cannot proceed without confirmation. Decision logged in audit trail with user ID and timestamp.
 
 ---
 
-## §42 — Domain-Aware Synthesis Templates
+### Calibration Run — Human Eval First
 
-The instruction-pair synthesis step (Document Ingestion) gains a configurable domain-template system.
+For sovereign mode, local judge accuracy depends on calibration. Calibration workflow:
 
-### 42.1 Synthesis template config
-The synthesis sub-screen leads with a **Synthesis template** panel: a radio selector across six templates — **Generic Q&A, Audit & Compliance, Legal Reference, Financial Services, Medical / Clinical, Custom** (`SYNTH_TEMPLATES`). Selecting a template checks its recommended **pair types** (checkbox multi-select). A **Pairs per chunk** dropdown and **Preview prompt** button are shown; **Edit prompt** is Architect-only (edits persist per template in `appState.synthPromptEdits`). `synthesisePairs` now generates by the selected pair types and tags every pair with `pairType`, `synthesisTemplate`, `domainTag`, and `source:'synthesis_pipeline'`.
+**Step 1 — Sample calibration set (one-time per project):**
+- Select 50–100 rows from eval dataset
+- Route to domain expert reviewer (not an annotator — needs domain knowledge)
+- Domain expert scores each row manually on all rubric dimensions
+- This becomes the calibration reference set
 
-### 42.2 Pair-type tagging & badges
-Each pair type has a coloured pill (`PAIR_TYPE` / `pairTypePill`): rule/norm=blue, violation=amber, evidence=teal, finding=coral, impact=purple. Badges appear in the synthesis result table, the dataset row table (with a gold ★ for expert-seeded rows), and the row panel (with a Synthesised / Expert-seed source pill).
+**Step 2 — Calibrate local judge:**
+- Run local judge on same 50–100 rows
+- Compare local scores to human scores
+- Fit calibration model (isotonic regression per dimension)
+- Apply calibration to all future eval runs
 
-### 42.3 Pair-type distribution report
-The dataset detail screen shows a **Pair type distribution** bar chart (below diversity) with under-represented types (<10%) flagged and a recommendation to run a domain-expert seeding sprint. The dataset header shows a **Template: …** pill.
+**Step 3 — Ongoing validation:**
+- Every 10th eval run, sample 5% of rows for human spot-check
+- If human-judge agreement drops below 0.7 kappa → trigger recalibration
 
-### 42.4 Domain-expert seeding
-Architect / ML-Engineer only (hidden from Annotator/Reviewer): an **Add Expert Pairs** button opens a seeding modal that turns one pasted observation (rule / violation type / evidence / financial effect) into four typed pairs (violation detection, evidence checklist, finding formulation, impact quantification), tagged `source:'domain_expert_seed'`.
+**Show in UI:**
 
-### 42.5 CAG Audit Intelligence mock project
-A fifth Pravartak project ("CAG Audit Intelligence", `audit_compliance` template, 47 domain-seed rows, corpus 1,200) with a **GFR Audit Corpus v1** dataset (1,247 rows, score 81, pair-type distribution 38/31/14/10/7). Rows carry realistic GFR Rule 230 audit content across all five pair types, two of them domain-expert-seeded. `finaliseDataset` preserves the fixed rollups (`_cag`), so seeding/editing never clobbers the narrative counts.
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Eval Judge: Local (Mistral 7B INT8)     🔒 Sovereign      │
+│                                                             │
+│  Calibration status:                                        │
+│  ✅ Calibrated on 50 rows by Compliance Officer            │
+│     Calibrated: 14 Jun 2025                                 │
+│     Human-judge agreement: κ = 0.74 (good)                 │
+│                                                             │
+│  ⚠️  Factuality calibration weakest (κ = 0.61)            │
+│     Consider expanding calibration set for this dimension  │
+│     [Add calibration rows →]                               │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### Known Limitations — Add to Eval Stage
+
+Add to Stage 05 limitations box in prototype and deck:
+
+- LLM-as-judge has known biases: verbosity bias (longer = higher score), position bias (first response in comparison preferred), self-preference (Claude judge may favour Claude-style responses)
+- Cloud judge does not know client-specific documents unless reference-grounded eval is used — general factuality scoring is unreliable for domain-specific applications
+- Local judge accuracy on nuanced dimensions (tone, refusal behaviour) lower than cloud judge — calibration partially compensates but gap remains
+- Calibration set created by domain expert, not annotator — for regulated industries, this means compliance officer or subject matter expert time required upfront
+- Eval accuracy figures (65–82%) apply to calibrated local judge — uncalibrated local judge accuracy is 45–60%
+
+---
+
+### Mock Data Updates for Prototype
+
+**Eval configuration screen — update default:**
+```javascript
+// Before:
+judgeMode: 'cloud',
+judgeModel: 'claude-api'
+
+// After:
+judgeMode: 'local',
+judgeModel: 'mistral-7b-int8',
+calibrationStatus: {
+  calibrated: true,
+  calibratedBy: 'Compliance Officer',
+  calibratedAt: '2025-06-14',
+  humanJudgeKappa: 0.74,
+  weakestDimension: 'factuality',
+  weakestKappa: 0.61
+}
+```
+
+**DLP acknowledgement modal:** show when user clicks "Switch to Cloud Judge" anywhere in the eval harness. Pre-populated checkbox unchecked. Cancel returns to local judge.
+
+**Calibration status panel:** show on eval harness screen for all projects. HealthBot India shows uncalibrated state (no compliance officer has run the calibration yet) with [Start Calibration Run →] CTA.
+
+---
+
+### Implementation Notes for Claude Code (delta)
+
+101. DLP acknowledgement modal: blocks eval run if cloud judge selected without confirmation. Rendered as full-screen overlay, not dismissable by clicking outside — must use Cancel or Confirm buttons.
+102. Calibration status panel: shown above eval run configuration. Green if κ > 0.7, yellow if 0.6–0.7, red if < 0.6 or uncalibrated.
+103. HealthBot India eval screen: show red "Uncalibrated" badge on judge panel. [Run Eval] button disabled with tooltip: "Complete calibration run first — assign 50 rows to a domain expert."
+104. Reference-grounded eval: show toggle in eval config: "Factuality check against: ○ Judge knowledge  ● Ingested corpus (recommended for regulated industries)". Default to corpus for all projects where documents have been ingested.
+105. Audit log entry on cloud judge use: log {user_id, timestamp, dlp_confirmed: true, judge: 'claude-api', eval_run_id} — visible to Admin in audit log.
+
+---
+
+## 38. DELTA — CLAUDE CODE SPEC: EVAL HARNESS UPDATES
+
+### Updates to Section 8.5 (Eval Harness Screen)
+
+Replace the existing eval configuration panel with the following:
+
+---
+
+**Judge Configuration Panel (add above rubric builder):**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Eval Judge                                                 │
+├─────────────────────────────────────────────────────────────┤
+│  ● Local (Mistral 7B INT8)     🔒 Sovereign — recommended  │
+│  ○ Cloud API (Claude / GPT-4)  Data leaves network         │
+│  ○ Human eval                  Manual — for calibration    │
+│                                                             │
+│  [Calibration status panel — see below]                    │
+│                                                             │
+│  Factuality check against:                                  │
+│  ○ Judge general knowledge                                  │
+│  ● Ingested corpus (recommended for regulated industries)   │
+│    Uses same document chunks ingested during Stage 01       │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Calibration status panel (shown inside judge config, below judge selector):**
+
+```
+// When calibrated (Pravartak, Legal AI Corp):
+┌─────────────────────────────────────────────────────────────┐
+│  ✅ Calibrated  ·  Compliance Officer  ·  14 Jun 2025      │
+│  Human-judge agreement: κ = 0.74 (good)                    │
+│  Weakest: Factuality κ = 0.61  [Add calibration rows →]   │
+└─────────────────────────────────────────────────────────────┘
+
+// When uncalibrated (HealthBot India):
+┌─────────────────────────────────────────────────────────────┐
+│  🔴 Not calibrated — accuracy 45–60% only                  │
+│  Complete a calibration run before relying on eval scores  │
+│  [Start Calibration Run →]                                  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**[Run Eval] button behaviour:**
+- Calibrated project: enabled, runs mock eval
+- Uncalibrated project (HealthBot): disabled, tooltip "Complete calibration run first"
+- Cloud judge selected without DLP modal confirmed: disabled until modal confirmed
+
+---
+
+**Reference-grounded toggle behaviour:**
+- Default: ● Ingested corpus — when project has documents ingested
+- Default: ● Judge knowledge — when project has only structured datasets, no documents
+- Pravartak and Legal AI Corp: corpus toggle active by default (both have documents)
+- HealthBot India: judge knowledge default (structured datasets only, no documents ingested yet)
+
+---
+
+### New Component: DLP Acknowledgement Modal
+
+Triggered when user selects "Cloud API" as judge in any eval configuration.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  ⚠️  Data Privacy Acknowledgement                          │
+│                                                             │
+│  Using a cloud judge will send the following data          │
+│  to an external API (Claude / GPT-4):                      │
+│                                                             │
+│  ✓ Eval dataset rows (instruction + model response)       │
+│  ✓ Source document chunks (reference-grounded eval)       │
+│  ✗ Customer PII (stripped during curation pipeline)       │
+│                                                             │
+│  For regulated industries — NBFC, banking, healthcare,     │
+│  government — verify this is permitted under your data     │
+│  governance and DLP policies before proceeding.            │
+│                                                             │
+│  ☐ I confirm this eval dataset has DLP clearance          │
+│    for external API transmission                           │
+│                                                             │
+│  [← Use Local Judge]    [Confirm — Use Cloud Judge]        │
+└─────────────────────────────────────────────────────────────┘
+```
+
+Behaviour:
+- Full-screen overlay, z-index above everything
+- Not dismissable by clicking outside or pressing Escape — must use buttons
+- Checkbox unchecked by default. [Confirm] button disabled until checked.
+- On confirm: cloud judge selected, mock DLP confirmation logged to audit trail
+- On cancel: returns to Local judge selection
+- Audit log entry: `{ action: 'cloud_judge_dlp_confirmed', user_id, timestamp, project_id, eval_config_id }`
+
+---
+
+### Updated Mock Data — Eval Configs Per Tenant
+
+```javascript
+// IITM Pravartak
+evalConfig = {
+  judgeMode: 'local',
+  judgeModel: 'mistral-7b-int8',
+  sovereign: true,
+  referenceGrounded: true,
+  calibration: {
+    status: 'calibrated',
+    calibratedBy: 'Dr. Anand Krishnan (Domain Expert)',
+    calibratedAt: '2025-06-14',
+    rowsUsed: 50,
+    overallKappa: 0.74,
+    dimensionKappa: {
+      factuality: 0.61,
+      instructionFollowing: 0.78,
+      tone: 0.82,
+      taskCompletion: 0.75,
+      refusalBehaviour: 0.79
+    }
+  }
+}
+
+// Legal AI Corp
+evalConfig = {
+  judgeMode: 'local',
+  judgeModel: 'mistral-7b-int8',
+  sovereign: false,
+  referenceGrounded: true,
+  calibration: {
+    status: 'calibrated',
+    calibratedBy: 'Compliance Officer',
+    calibratedAt: '2025-05-22',
+    rowsUsed: 75,
+    overallKappa: 0.79,
+    dimensionKappa: {
+      factuality: 0.71,
+      instructionFollowing: 0.82,
+      tone: 0.85,
+      taskCompletion: 0.78,
+      refusalBehaviour: 0.81
+    }
+  }
+}
+
+// HealthBot India
+evalConfig = {
+  judgeMode: 'local',
+  judgeModel: 'mistral-7b-int8',
+  sovereign: false,
+  referenceGrounded: false,   // no documents ingested
+  calibration: {
+    status: 'uncalibrated',   // blocks Run Eval button
+    calibratedBy: null,
+    calibratedAt: null,
+    rowsUsed: 0,
+    overallKappa: null
+  }
+}
+```
+
+---
+
+### Implementation Notes for Claude Code (delta)
+
+106. Judge selector: radio buttons, Local pre-selected. Switching to Cloud immediately triggers DLP modal — do not change selection until modal confirmed.
+107. DLP modal [Confirm] button: disabled (opacity 0.4, cursor not-allowed) until checkbox ticked. Enable on tick.
+108. Calibration status panel: colour-coded. κ > 0.7 = green. κ 0.6–0.7 = yellow with [Add calibration rows →] CTA. κ < 0.6 = red. Uncalibrated = red with [Start Calibration Run →].
+109. HealthBot India [Run Eval] button: render as disabled grey with tooltip on hover: "Complete calibration run before running eval. Uncalibrated judge accuracy is 45–60% only."
+110. Reference-grounded toggle: shown only when judge mode is Local or Cloud. Hidden for Human eval (human judges by definition check the content directly).
+111. Kappa values shown per-dimension in an expandable section: "[▾ View per-dimension agreement]" collapsed by default, expands to show a small table of dimension → κ value.
+112. Mock eval results: when reference-grounded is toggled ON, show a note below results: "Factuality scored against ingested corpus — not judge general knowledge." When toggled OFF: "Factuality scored against judge training knowledge — not recommended for domain-specific applications."
+113. Audit log (Admin view): cloud judge DLP confirmations appear as a distinct entry type with a shield icon. Filterable separately from other audit entries.
+
+---
+
+## 39. DELTA — NBFC CASE STUDY PROJECT: SEED DATA & APP FLOW
+
+### Overview
+
+Add a fourth tenant and a dedicated project that mirrors the NBFC illustrative case study exactly. This tenant is pre-seeded to show the complete 8-stage flow — with the model visible at each stage so a demo can walk through the story end to end without manual setup.
+
+---
+
+### New Tenant — NBFC Case Study
+
+```javascript
+tenants.push({
+  id:   "tenant_nbfc",
+  name: "Finserv NBFC (Case Study)",
+  slug: "finserv",
+  plan: "Pro",
+  planLimits: {
+    rowsPerMonth: 500000,
+    evalRunsPerMonth: 50,
+    maxUsers: 20,
+    maxProjects: 10,
+    sovereignDeployment: false
+  },
+  usage: {
+    rowsThisMonth: 2800,
+    evalRunsThisMonth: 2,
+    activeUsers: 3,
+    activeProjects: 1
+  },
+  createdAt: "2025-04-01",
+  status: "active",
+  isCaseStudy: true   // flag — used to show case study banner in app
+})
+```
+
+### New Users — NBFC Tenant
+
+```javascript
+// Add to users array:
+{ email: "ml@finserv.com",         tenantId: "tenant_nbfc", role: "MLEngineer",     name: "Arjun Mehta" },
+{ email: "annotator@finserv.com",  tenantId: "tenant_nbfc", role: "Annotator",      name: "Priya Nair" },
+{ email: "pm@finserv.com",         tenantId: "tenant_nbfc", role: "ProjectManager", name: "Rohan Desai" },
+
+// All passwords: demo123
+```
+
+Add to login screen demo credentials panel under new group "Finserv NBFC (Case Study)":
+```
+ml@finserv.com          / demo123   → ML Engineer (Arjun)
+annotator@finserv.com   / demo123   → Annotator (Priya)
+pm@finserv.com          / demo123   → Project Manager (Rohan)
+```
+
+---
+
+### Case Study Banner
+
+When any user from tenant_nbfc is logged in, show a persistent amber banner below the top bar:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  📖  Illustrative Case Study — Finserv NBFC Customer        │
+│  Support Chatbot. This project is pre-seeded to demonstrate │
+│  the full Cueval pipeline. Data is fictional.               │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### Project Seed Data
+
+```javascript
+const nbfcProject = {
+  id:          "proj_nbfc_chatbot",
+  tenantId:    "tenant_nbfc",
+  name:        "Customer Support Chatbot",
+  description: "NLP chatbot for loan eligibility, EMI calculations, repayment schedules, and KYC queries",
+  status:      "active",
+  members: [
+    { userId: "ml@finserv.com",        role: "MLEngineer" },
+    { userId: "annotator@finserv.com", role: "Annotator" },
+    { userId: "pm@finserv.com",        role: "ProjectManager" },
+  ],
+  createdAt: "2025-04-01"
+}
+```
+
+### Releases
+
+```javascript
+const nbfcReleases = [
+  {
+    id:        "rel_v1_0",
+    projectId: "proj_nbfc_chatbot",
+    tenantId:  "tenant_nbfc",
+    name:      "v1.0 — Initial Build",
+    status:    "deployed",          // completed the full loop
+    createdAt: "2025-04-01",
+    deployedAt: "2025-04-22"
+  },
+  {
+    id:        "rel_v1_1",
+    projectId: "proj_nbfc_chatbot",
+    tenantId:  "tenant_nbfc",
+    name:      "v1.1 — Factuality Fix",
+    status:    "deployed",          // second iteration, now deployed
+    createdAt: "2025-04-23",
+    deployedAt: "2025-04-27"
+  },
+  {
+    id:        "rel_v1_2",
+    projectId: "proj_nbfc_chatbot",
+    tenantId:  "tenant_nbfc",
+    name:      "v1.2 — Interest Rate Update",
+    status:    "in_review",         // current state — monitor improvement in progress
+    createdAt: "2025-06-10"
+  }
+]
+```
+
+---
+
+### Dataset Seed
+
+#### Dataset 1 — Original Upload (v1.0)
+
+```javascript
+{
+  id:          "ds_nbfc_v1",
+  projectId:   "proj_nbfc_chatbot",
+  releaseId:   "rel_v1_0",
+  tenantId:    "tenant_nbfc",
+  name:        "NBFC Support Dataset v1.0",
+  format:      "mixed",             // 3 sources shown as tabs
+  totalRows:   2800,
+  flaggedRows: 490,
+  scoredRows:  2800,
+  overallScore: 71,
+  status:      "approved",
+  languages:   [
+    { lang: "en", label: "English", pct: 78 },
+    { lang: "hi", label: "Hindi",   pct: 22 }
+  ],
+  sources: [
+    { label: "Chat logs (JSONL)",           rows: 2000, icon: "jsonl" },
+    { label: "Product PDFs (15 docs)",      rows: 300,  icon: "pdf"  },
+    { label: "Label Studio export (CSV)",   rows: 500,  icon: "csv"  }
+  ],
+  uploadedAt:  "2025-04-01T09:00:00Z",
+  uploadedBy:  "ml@finserv.com"
+}
+```
+
+#### Dataset Rows — 50 seeded rows covering all flag types
+
+Generate the following mix. Each row has realistic NBFC content:
+
+**10 clean rows (score 88–95, no flags, status: approved)**
+```javascript
+[
+  {
+    id: "row_001", instruction: "What is the minimum CIBIL score required for a personal loan?",
+    input: "", output: "The minimum CIBIL score required for a personal loan at our NBFC is 700. A higher score improves your chances of approval and may qualify you for better interest rates.",
+    qualityScore: 92, flags: [], language: "en", reviewStatus: "approved"
+  },
+  {
+    id: "row_002", instruction: "How do I calculate my EMI for a home loan of ₹50 lakhs?",
+    input: "", output: "Your EMI depends on the loan amount, interest rate, and tenure. For ₹50 lakhs at 8.5% p.a. for 20 years, your EMI would be approximately ₹43,391. Use our EMI calculator at our website for exact figures.",
+    qualityScore: 91, flags: [], language: "en", reviewStatus: "approved"
+  },
+  {
+    id: "row_003", instruction: "मुझे गृह ऋण के लिए कौन से दस्तावेज़ चाहिए?",
+    input: "", output: "गृह ऋण के लिए आपको निम्नलिखित दस्तावेज़ चाहिए: आधार कार्ड, पैन कार्ड, आय प्रमाण, बैंक स्टेटमेंट (6 माह), और संपत्ति के दस्तावेज़।",
+    qualityScore: 89, flags: [], language: "hi", reviewStatus: "approved"
+  },
+  {
+    id: "row_004", instruction: "What documents are needed for KYC verification?",
+    input: "", output: "For KYC, you need: Aadhaar card or passport (identity proof), utility bill or bank statement (address proof), and PAN card. Digital KYC is available through our app.",
+    qualityScore: 93, flags: [], language: "en", reviewStatus: "approved"
+  },
+  {
+    id: "row_005", instruction: "Can I prepay my personal loan without penalty?",
+    input: "", output: "Yes, you can prepay your personal loan after 6 EMIs. A prepayment charge of 2% on the outstanding principal applies. After 12 months, prepayment is free.",
+    qualityScore: 90, flags: [], language: "en", reviewStatus: "approved"
+  },
+  {
+    id: "row_006", instruction: "What is the maximum loan tenure for a business loan?",
+    input: "", output: "Business loans at our NBFC are available for tenures of 12 to 60 months. The maximum tenure depends on your business vintage and loan amount.",
+    qualityScore: 88, flags: [], language: "en", reviewStatus: "approved"
+  },
+  {
+    id: "row_007", instruction: "How long does loan approval take?",
+    input: "", output: "Personal loans are approved within 24–48 hours of submitting complete documents. Home loans take 5–7 working days. Business loans take 3–5 working days.",
+    qualityScore: 91, flags: [], language: "en", reviewStatus: "approved"
+  },
+  {
+    id: "row_008", instruction: "What is the processing fee for a car loan?",
+    input: "", output: "The processing fee for a car loan is 1–2% of the loan amount, with a minimum of ₹2,500 and maximum of ₹15,000. This is a one-time non-refundable fee.",
+    qualityScore: 90, flags: [], language: "en", reviewStatus: "approved"
+  },
+  {
+    id: "row_009", instruction: "क्या मैं अपनी EMI तारीख बदल सकता हूँ?",
+    input: "", output: "हाँ, आप अपनी EMI तारीख बदल सकते हैं। इसके लिए आपको हमारी शाखा में जाकर या ऐप के माध्यम से अनुरोध करना होगा। तारीख परिवर्तन पर कोई शुल्क नहीं है।",
+    qualityScore: 89, flags: [], language: "hi", reviewStatus: "approved"
+  },
+  {
+    id: "row_010", instruction: "Is gold loan interest charged monthly or yearly?",
+    input: "", output: "Gold loan interest is charged monthly on the outstanding principal. The interest rate ranges from 9–14% p.a. depending on the loan-to-value ratio and tenure.",
+    qualityScore: 92, flags: [], language: "en", reviewStatus: "approved"
+  }
+]
+```
+
+**8 near-duplicate rows (score 32–44, flag: near_duplicate, status: rejected)**
+```javascript
+// 8 variations of the CIBIL score question — kept best (row_001), rejected rest
+[
+  { id: "row_011", instruction: "What CIBIL score is needed for a personal loan?", qualityScore: 38, flags: ["near_duplicate"], duplicateOf: "row_001", reviewStatus: "rejected" },
+  { id: "row_012", instruction: "Minimum credit score for personal loan?", qualityScore: 35, flags: ["near_duplicate"], duplicateOf: "row_001", reviewStatus: "rejected" },
+  { id: "row_013", instruction: "What credit score do I need for a loan?", qualityScore: 36, flags: ["near_duplicate"], duplicateOf: "row_001", reviewStatus: "rejected" },
+  { id: "row_014", instruction: "Personal loan minimum CIBIL requirement?", qualityScore: 33, flags: ["near_duplicate"], duplicateOf: "row_001", reviewStatus: "rejected" },
+  { id: "row_015", instruction: "Is 650 CIBIL score enough for personal loan?", qualityScore: 40, flags: ["near_duplicate"], duplicateOf: "row_001", reviewStatus: "rejected" },
+  { id: "row_016", instruction: "What is the credit score requirement for loan approval?", qualityScore: 37, flags: ["near_duplicate"], duplicateOf: "row_001", reviewStatus: "rejected" },
+  { id: "row_017", instruction: "How much CIBIL score is required?", qualityScore: 32, flags: ["near_duplicate"], duplicateOf: "row_001", reviewStatus: "rejected" },
+  { id: "row_018", instruction: "My CIBIL is 720, can I get a personal loan?", qualityScore: 44, flags: ["near_duplicate"], duplicateOf: "row_001", reviewStatus: "rejected" },
+]
+```
+
+**8 PII rows (score 18–28, flag: pii_detected, status: approved after edit)**
+```javascript
+// Customer phone numbers and Aadhaar-like numbers in outputs
+[
+  { id: "row_021", instruction: "I need help with my loan account",
+    output_original: "Please call our customer care at 9876543210 or visit branch at MG Road.",
+    output: "Please call our customer care helpline or visit your nearest branch. Contact details are on our website.",
+    qualityScore: 22, flags: ["pii_detected"], piiType: "phone", reviewStatus: "edited" },
+  { id: "row_022", instruction: "How do I update my Aadhaar in the system?",
+    output_original: "Submit your Aadhaar 8765 4321 0987 at the nearest branch.",
+    output: "Submit your Aadhaar card at the nearest branch or upload via our app's KYC section.",
+    qualityScore: 20, flags: ["pii_detected"], piiType: "aadhaar", reviewStatus: "edited" },
+  // ... 6 more similar
+]
+```
+
+**8 low-quality rows (score 22–35, flag: short_response, status: approved after edit)**
+```javascript
+[
+  { id: "row_031", instruction: "Can I get a loan if I'm self-employed?",
+    output_original: "Yes.",
+    output: "Yes, self-employed individuals are eligible for loans. You will need to provide 2 years of ITR, business bank statements for 12 months, and proof of business vintage of at least 2 years.",
+    qualityScore: 26, flags: ["short_response"], reviewStatus: "edited" },
+  { id: "row_032", instruction: "What happens if I miss an EMI?",
+    output_original: "Please call us.",
+    output: "Missing an EMI attracts a late payment fee of ₹500 or 2% of the EMI amount, whichever is higher. It also negatively impacts your CIBIL score. Please contact us immediately if you anticipate a payment delay.",
+    qualityScore: 24, flags: ["short_response"], reviewStatus: "edited" },
+  // ... 6 more
+]
+```
+
+**6 factuality issue rows (score 28–42, flag: hallucination, from Monitor stage)**
+```javascript
+// These are the rows that triggered the v1.1 fix — wrong interest rates
+[
+  { id: "row_041", instruction: "What is the current home loan interest rate?",
+    output: "Our home loan interest rate is 6.5% p.a. onwards.",
+    qualityScore: 35, flags: ["hallucination"], hallucinationNote: "Rate cited (6.5%) not present in product documents. Actual rate: 8.5% p.a.", reviewStatus: "pending" },
+  { id: "row_042", instruction: "What interest rate will I get on a gold loan?",
+    output: "Gold loans start at 7% per annum at our NBFC.",
+    qualityScore: 28, flags: ["hallucination"], hallucinationNote: "Rate cited (7%) contradicts product doc (9–14% p.a.)", reviewStatus: "pending" },
+  // ... 4 more interest rate hallucinations
+]
+```
+
+**10 clean rows for v1.2 dataset (from re-ingested PDFs — correct interest rates)**
+```javascript
+[
+  { id: "row_051", instruction: "What is the current home loan interest rate?",
+    output: "Our home loan interest rates start at 8.5% p.a. for salaried individuals and 9.0% p.a. for self-employed, subject to credit assessment. Rates are reviewed quarterly.",
+    qualityScore: 94, flags: [], language: "en", reviewStatus: "approved" },
+  { id: "row_052", instruction: "What is the gold loan interest rate?",
+    output: "Gold loan interest rates range from 9% to 14% p.a. depending on the loan-to-value ratio. For LTV up to 65%, rate is 9% p.a. For LTV 65–75%, rate is 12% p.a.",
+    qualityScore: 96, flags: [], language: "en", reviewStatus: "approved" },
+  // ... 8 more corrected interest rate Q&As
+]
+```
+
+---
+
+### Curation Summary (shown on Dataset detail screen)
+
+```javascript
+curationSummary = {
+  totalRows: 2800,
+  autoApproved: 2310,
+  flaggedForReview: 490,
+  breakdown: {
+    nearDuplicates:    142,   // badge: yellow
+    piiDetected:        89,   // badge: red
+    lowQuality:        201,   // badge: yellow
+    formatViolations:   58,   // badge: yellow
+  },
+  afterReview: {
+    approved: 2118,
+    rejected:  182,   // mostly near-duplicates
+    edited:    156,   // PII + low quality rows
+  },
+  overallScore: 71,
+  languageBreakdown: [
+    { lang: "en", pct: 78 },
+    { lang: "hi", pct: 22 }
+  ]
+}
+```
+
+---
+
+### Experiments
+
+```javascript
+const nbfcExperiments = [
+  {
+    id:          "exp_v1_0",
+    projectId:   "proj_nbfc_chatbot",
+    releaseId:   "rel_v1_0",
+    name:        "Baseline Fine-tune — Mistral 7B",
+    datasetId:   "ds_nbfc_v1",
+    datasetRows: 2118,
+    trainingConfig: {
+      baseModel:    "Mistral-7B-Instruct-v0.2",
+      epochs:        3,
+      learningRate:  "2e-4",
+      batchSize:     8,
+      loraRank:      8,
+      optimizer:     "AdamW"
+    },
+    checkpointId:  "ckpt_v1_0",
+    snapshotHash:  "sha256:a3f8c2d9e1b4f7...",
+    evalRunId:     "eval_v1_0",
+    status:        "completed",
+    createdAt:     "2025-04-08T10:00:00Z",
+    completedAt:   "2025-04-08T14:32:00Z",
+    notes:         "Baseline run on cleaned dataset v1.0"
+  },
+  {
+    id:          "exp_v1_1",
+    projectId:   "proj_nbfc_chatbot",
+    releaseId:   "rel_v1_1",
+    name:        "Factuality Fix — Structural Chunking",
+    datasetId:   "ds_nbfc_v1_1",
+    datasetRows: 2398,
+    trainingConfig: {
+      baseModel:    "Mistral-7B-Instruct-v0.2",
+      epochs:        3,
+      learningRate:  "2e-4",
+      batchSize:     8,
+      loraRank:      8,
+      optimizer:     "AdamW"
+    },
+    checkpointId:  "ckpt_v1_1",
+    snapshotHash:  "sha256:b7d2a1e4c9f3...",
+    evalRunId:     "eval_v1_1",
+    status:        "completed",
+    createdAt:     "2025-04-24T09:00:00Z",
+    completedAt:   "2025-04-24T13:18:00Z",
+    notes:         "Re-ingested 15 product PDFs with structural chunking. +280 interest rate rows."
+  }
+]
+```
+
+---
+
+### Eval Runs
+
+```javascript
+const nbfcEvalRuns = [
+  {
+    id:          "eval_v1_0",
+    projectId:   "proj_nbfc_chatbot",
+    releaseId:   "rel_v1_0",
+    checkpointA: "ckpt_v1_0",
+    checkpointB: null,
+    judgeMode:   "local",
+    judgeModel:  "mistral-7b-int8",
+    referenceGrounded: true,
+    calibration: { status: "calibrated", kappa: 0.74 },
+    rubric: [
+      { dimension: "Factuality",          weight: 40 },
+      { dimension: "Task Completion",     weight: 30 },
+      { dimension: "Tone",                weight: 20 },
+      { dimension: "Refusal Behaviour",   weight: 10 },
+    ],
+    results: {
+      "ckpt_v1_0": {
+        Factuality:         71,
+        "Task Completion":  78,
+        Tone:               88,
+        "Refusal Behaviour": 82,
+        Overall:            74.2
+      }
+    },
+    status:   "completed",
+    runAt:    "2025-04-09T08:00:00Z",
+    heldOutRows: 200,
+    humanReviewQueue: 12,   // rows where judge confidence < 70%
+    costEstimate: "₹0 (local judge)"
+  },
+  {
+    id:          "eval_v1_1",
+    projectId:   "proj_nbfc_chatbot",
+    releaseId:   "rel_v1_1",
+    checkpointA: "ckpt_v1_0",
+    checkpointB: "ckpt_v1_1",
+    judgeMode:   "local",
+    judgeModel:  "mistral-7b-int8",
+    referenceGrounded: true,
+    calibration: { status: "calibrated", kappa: 0.74 },
+    rubric: [
+      { dimension: "Factuality",          weight: 40 },
+      { dimension: "Task Completion",     weight: 30 },
+      { dimension: "Tone",                weight: 20 },
+      { dimension: "Refusal Behaviour",   weight: 10 },
+    ],
+    results: {
+      "ckpt_v1_0": {
+        Factuality:          71, "Task Completion": 78,
+        Tone:                88, "Refusal Behaviour": 82, Overall: 74.2
+      },
+      "ckpt_v1_1": {
+        Factuality:          79, "Task Completion": 83,
+        Tone:                89, "Refusal Behaviour": 84, Overall: 81.6
+      }
+    },
+    status:   "completed",
+    runAt:    "2025-04-24T14:00:00Z",
+    heldOutRows: 200,
+    humanReviewQueue: 8,
+    costEstimate: "₹0 (local judge)"
+  }
+]
+```
+
+---
+
+### Release Gate States
+
+**Release v1.0 — historical (blocked, then approved after v1.1 fix):**
+Show in release history as "Blocked — Eval 74.2 < 80 threshold" with timestamp "Blocked: 09 Apr 2025" and "Deployed: 27 Apr 2025 after v1.1 fix".
+
+**Release v1.1 — deployed:**
+All gates green. Show approval audit trail:
+```
+Gate                    Status   Who             When
+Dataset quality > 70    ✅ Pass   System          24 Apr 14:02
+Annotation complete     ✅ Pass   System          24 Apr 14:02
+Eval score ≥ 80         ✅ 81.6   System          24 Apr 14:04
+ML Engineer approval    ✅ Pass   Arjun Mehta     24 Apr 14:30
+PM sign-off             ✅ Pass   Rohan Desai     24 Apr 15:45
+```
+
+---
+
+### Inference Monitor Seed Data
+
+```javascript
+const nbfcMonitor = {
+  projectId:      "proj_nbfc_chatbot",
+  tenantId:       "tenant_nbfc",
+  modelVersion:   "v1.1",
+  monitoringMode: "quality_loop",
+  judgeConfig: {
+    mode: "local",
+    referenceGrounded: true,
+    calibration: { status: "calibrated", kappa: 0.74 }
+  },
+  twoWeekStats: {
+    totalInferences:  14200,
+    flagRate:          6.2,
+    negativeFeedback:  4.1,
+    topFailureCategory: "hallucination",
+    topFailureDetail:   "Incorrect interest rates — product docs not updated"
+  },
+  // 20 mock inferences in live feed
+  liveInferences: [
+    { id: "inf_001", instruction: "What is the home loan rate?",
+      score: 34, flags: ["hallucination"],
+      flagDetail: "'8.5%' in response but product doc shows '8.75% p.a. effective Q2 2025'",
+      userFeedback: null, timestamp: "14:32:04" },
+    { id: "inf_002", instruction: "How to foreclose my personal loan?",
+      score: 88, flags: [], userFeedback: "positive", timestamp: "14:32:11" },
+    { id: "inf_003", instruction: "ब्याज दर क्या है गृह ऋण पर?",
+      score: 31, flags: ["hallucination"],
+      flagDetail: "Rate cited in Hindi response doesn't match updated product doc",
+      userFeedback: "negative", timestamp: "14:32:19" },
+    // ... 17 more mixed score inferences
+  ],
+  // Hallucination cluster that triggered v1.2
+  hallucinationCluster: {
+    count: 23,
+    pattern: "home loan interest rate queries",
+    rootCause: "Product PDF updated with Q2 2025 rates not re-ingested",
+    agentAction: "Created annotation sprint #7: 'Re-ingest updated rate PDFs + add 50 interest rate QA pairs'",
+    sprintId: "sprint_007"
+  }
+}
+```
+
+---
+
+### Activity Feed Seed Data (Dashboard)
+
+```javascript
+const nbfcActivity = [
+  { text: "Curation completed — 2,310 rows auto-approved, 490 flagged", time: "04 Apr 09:48", actor: "System" },
+  { text: "Priya Nair completed annotation batch — 156 rows edited, 182 rejected", time: "06 Apr 16:20", actor: "Priya Nair" },
+  { text: "Eval run completed — Overall 74.2. Factuality flagged as weak point.", time: "09 Apr 08:45", actor: "System" },
+  { text: "Release v1.0 blocked — Eval score 74.2 below threshold of 80", time: "09 Apr 08:46", actor: "System" },
+  { text: "Root cause identified: PDF chunking issue. Re-ingestion started.", time: "22 Apr 11:00", actor: "Arjun Mehta" },
+  { text: "Dataset v1.1 approved — 2,398 rows (280 new interest rate rows)", time: "23 Apr 17:30", actor: "System" },
+  { text: "Eval v1.1 completed — Overall 81.6. Factuality improved 71→79.", time: "24 Apr 14:04", actor: "System" },
+  { text: "Release v1.1 approved by Arjun Mehta", time: "24 Apr 14:30", actor: "Arjun Mehta" },
+  { text: "Release v1.1 signed off by Rohan Desai. Deployed to production.", time: "24 Apr 15:45", actor: "Rohan Desai" },
+  { text: "Monitor: 23 hallucination failures clustered around interest rate queries", time: "10 May 09:00", actor: "Agent" },
+  { text: "Agent created sprint #7: Re-ingest updated rate PDFs", time: "10 May 09:01", actor: "Annotation Router Agent" },
+  { text: "Dataset v1.2 in review — rate PDFs re-ingested", time: "12 Jun 14:00", actor: "Arjun Mehta" },
+]
+```
+
+---
+
+### Role-Specific Dashboard CTAs for NBFC Tenant
+
+```javascript
+// ML Engineer (Arjun) — logged in as ml@finserv.com
+dashboardCTA_MLEngineer = {
+  primaryAction: "v1.2 eval pending — run eval to compare ckpt_v1_2 vs ckpt_v1_1",
+  cta:           "Run Eval →",
+  navigateTo:    "eval_harness",
+  secondaryInfo: "Monitor: flag rate 6.2% → 3.8% after v1.2. 47 inferences pending review."
+}
+
+// Annotator (Priya) — logged in as annotator@finserv.com
+dashboardCTA_Annotator = {
+  primaryAction: "Sprint #7: 12 interest rate QA pairs pending your review",
+  cta:           "Start Review →",
+  navigateTo:    "review_queue",
+  secondaryInfo: "You reviewed 156 rows in v1.0. Agreement rate with reviewer: 94%."
+}
+
+// PM (Rohan) — logged in as pm@finserv.com
+dashboardCTA_PM = {
+  primaryAction: "v1.2 release gate: 3/5 gates green. Eval run needed.",
+  cta:           "View Release Gate →",
+  navigateTo:    "releases",
+  secondaryInfo: "v1.1 deployed 24 Apr. Flag rate improved from 6.2% → 3.8% after v1.2 dataset update."
+}
+```
+
+---
+
+### How the Flow Appears in the App
+
+The NBFC project is designed so a demo can walk through each stage sequentially:
+
+**Stage 01 — Ingest:**
+Navigate to Datasets. Show "NBFC Support Dataset v1.0" with three source badges (JSONL, PDF, CSV). Click dataset → see 2,800 rows ingested, language breakdown (78% EN, 22% HI).
+
+**Stage 02 — Curate:**
+On the same dataset view, show the curation summary panel: 2,310 auto-approved, 490 flagged. Expandable flag breakdown with counts. Quality score: 71 shown in amber.
+
+**Stage 03 — Annotate:**
+Navigate to Review Queue. Switch to annotator@finserv.com to show the queue (or show completed queue with history). Show the PII correction example (row_021/022) — original output with phone number vs edited clean output. Show the near-duplicate cluster (row_011–018) with "Rejected — near-duplicate of row_001" labels.
+
+**Stage 04 — Train:**
+Navigate to Experiment Tracker. Show exp_v1_0 card with Mistral 7B config, snapshot hash, training config. Lineage view shows: Dataset v1.0 → Experiment → Checkpoint v1.0.
+
+**Stage 05 — Evaluate:**
+Navigate to Eval Harness. Show eval_v1_0 results — radar with one polygon (no comparison yet). Factuality 71 in yellow. "Below 80% threshold" warning. Overall: 74.2.
+
+**Stage 06 — Release (blocked):**
+Navigate to Releases. Show v1.0 gate with ❌ on eval score gate. "Blocked: 09 Apr 2025." Root cause note visible.
+
+**Stage 05b — Second eval:**
+Show eval_v1_1 with two-polygon radar (ckpt_v1_0 coral, ckpt_v1_1 pink). Score comparison table showing 71→79 factuality, 74.2→81.6 overall.
+
+**Stage 06b — Release approved:**
+Show v1.1 gate all green with approval audit trail (Arjun + Rohan timestamps).
+
+**Stage 07 — Monitor:**
+Navigate to Monitor. Show live feed with hallucination flags on interest rate queries. Hallucination cluster panel: "23 similar failures — home loan interest rate queries."
+
+**Stage 08 — Improve:**
+Navigate to Agents. Show "Annotation Router Agent" created sprint #7. Navigate to Datasets → show v1.2 dataset with 50 corrected interest rate rows (score 94–96). Show monitor: flag rate 6.2% → 3.8% trend.
+
+---
+
+### Implementation Notes for Claude Code (delta)
+
+114. NBFC tenant isCaseStudy flag: when true, show amber case study banner below top bar on all screens. Banner is non-dismissable.
+115. All NBFC data pre-loaded in mock data arrays with tenantId: "tenant_nbfc". Standard tenant isolation applies — other tenants cannot see this data.
+116. Dataset source badges (JSONL / PDF / CSV): show as three small pill badges on the dataset card and dataset header. Clicking each shows how many rows came from that source.
+117. Near-duplicate cluster view: when viewing row_011–018, each shows "Near-duplicate of row_001" with a [View original →] link that scrolls to row_001. Rejected rows shown with a red strikethrough style on the instruction text.
+118. PII correction diff: when viewing row_021 (edited status), show two-column diff — left: original output (phone number highlighted in red), right: corrected output. Same for all edited rows.
+119. Release gate v1.0: show historical blocked state with a "View what changed →" link that navigates to the v1.1 dataset comparison (what 280 rows were added).
+120. Eval radar chart: eval_v1_0 shows single polygon. eval_v1_1 shows two polygons (coral = v1.0, pink/green = v1.1). Label each polygon with checkpoint name.
+121. Monitor hallucination cluster: clicking "23 similar failures" opens a right panel showing the cluster — all 23 inferences grouped, each with the flag detail showing which rate was cited vs what the product doc says.
+122. Agent sprint creation: in the Agents action log, the sprint creation entry has a [View Sprint →] link that navigates to the Review Queue filtered to sprint #7 (the 12 interest rate rows pending Priya's review).
+123. Demo flow guide: add a floating "?" button on the NBFC tenant dashboard that opens a modal: "How to demo this project" — a numbered checklist of the 9 stages with [Go to this stage →] links for each step.
+124. Flag rate trend chart on Monitor: show two lines — v1.1 period (coral, flag rate ~6.2%) and v1.2 period (green, flag rate ~3.8%). Dashed vertical line at v1.2 deployment date. Annotation: "v1.2 deployed — rate PDFs updated."
+
+---
+
+## 40. DELTA — RESEARCH-BACKED QUALITY IMPROVEMENTS
+
+### Overview
+Ten design changes derived from peer-reviewed research. Each change is cited, justified, and specified precisely enough for Claude Code to implement in the prototype.
+
+---
+
+### Change 1 — Swap-Augmented Pairwise Evaluation
+**Research basis:** Zheng et al. (2023) MT-Bench; Wang et al. (2024) "Large Language Models Are Not Fair Evaluators"
+**Problem solved:** Position bias — LLM judges prefer whichever response appears first, regardless of quality. Error rate ~30% without mitigation.
+
+**Implementation:**
+In eval harness, when comparing two checkpoints (pairwise mode):
+- Run evaluation twice per row: once with checkpoint A response first, once with checkpoint B first
+- Average the two score sets
+- If scores differ by >1.5 points between runs on any dimension: flag that row as "position-sensitive — low reliability"
+- Show in results: "Swap-augmented evaluation used — position bias reduced"
+
+**Mock behaviour:** Pre-compute both orderings in mock eval data. Show a small "±" variance indicator per dimension score.
+
+**UI change:** Add badge on eval results: "✓ Swap-augmented" when this mode is active. Tooltip: "Each response evaluated twice with positions swapped and averaged — reduces position bias from ~30% to ~8% (Wang et al., 2024)."
+
+---
+
+### Change 2 — Eval Score Confidence Intervals
+**Research basis:** Schroeder and Wood-Doughty (2024); CyclicJudge (2025) arxiv.org/abs/2603.01865
+**Problem solved:** Single-judge evaluations yield insufficiently stable scores — the same judge may score the same response differently across runs.
+
+**Implementation:**
+Run each eval row through the judge twice with different temperature/seed settings. Report:
+- Mean score per dimension
+- Standard deviation across both runs
+- Display as: "Factuality: 79 ± 6" not "Factuality: 79"
+
+**UI change in eval results table:**
+```
+Dimension          | ckpt v1.0      | ckpt v1.1      | Delta
+Factuality         | 71 ± 8         | 79 ± 5         | +8 ▲
+Task Completion    | 78 ± 4         | 83 ± 3         | +5 ▲
+Tone               | 88 ± 3         | 89 ± 3         | +1 ▲
+Refusal Behaviour  | 82 ± 4         | 84 ± 4         | +2 ▲
+Overall            | 74.2 ± 5.1     | 81.6 ± 3.8     | +7.4 ▲
+```
+
+High variance (±8 or more) shown in amber — tooltip: "High variance — consider human eval for this dimension."
+
+**Mock data update:** Add variance fields to all eval run results. Factuality always highest variance. Overall variance decreases between v1.0 and v1.1 (better checkpoint = more consistent scores).
+
+---
+
+### Change 3 — MiniCheck Claim-Level Hallucination Detection
+**Research basis:** Tang et al. (EMNLP 2024) "MiniCheck: Efficient Fact-Checking of LLMs on Grounding Documents"
+**Problem solved:** Response-level hallucination flags are too coarse. "This response contains a hallucination" is less useful than "sentence 2 contains a hallucination."
+
+**Implementation:**
+When an inference is flagged for hallucination in the Monitor, show claim-level breakdown in the inference detail panel:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Hallucination Analysis (MiniCheck)                         │
+├─────────────────────────────────────────────────────────────┤
+│  Sentence 1: "For a home loan, you need a CIBIL score"     │
+│  ✅ Grounded — matches Section 3.2 of product doc          │
+│                                                             │
+│  Sentence 2: "of at least 720."                            │
+│  🔴 Not grounded — document states 700, not 720            │
+│  Source: Home Loan Product Guide, Section 3.2, Para 1      │
+│                                                             │
+│  Sentence 3: "Higher scores qualify for better rates."     │
+│  ✅ Grounded — matches Section 3.4                         │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Mock implementation:** Pre-tag sentences in mock inference rows as grounded/not-grounded with source attribution. Colour-highlight in the response text: green underline = grounded, red underline = hallucinated.
+
+**UI note:** Hallucinated sentence shown with red underline inline in the response text. Click sentence → shows source document excerpt it was checked against (or "not found in corpus").
+
+---
+
+### Change 4 — Hallucination Type Classification
+**Research basis:** Huang et al. (2025) "A Survey on Hallucination in LLMs" — ACM Transactions on Information Systems
+**Problem solved:** Different hallucination types require different fixes. Treating all hallucinations as the same misses the root cause.
+
+**Three types to classify in the monitor:**
+- **Fabrication** — model stated a fact not present anywhere in corpus (entity invented)
+- **Contradiction** — model stated something directly conflicting with source document
+- **Conflation** — model merged information from two different chunks incorrectly
+
+**UI change in inference detail:**
+Replace single "hallucination" flag with type badge:
+```
+🔴 Contradiction — "720" contradicts "700" in Section 3.2
+```
+vs
+```
+🔴 Fabrication — "Q2 2025 rate revision" not found in any ingested document
+```
+
+**Mock data:** Tag each hallucination row in NBFC case study with type. Interest rate rows = Contradiction. Invented rate revision = Fabrication.
+
+---
+
+### Change 5 — AI-Suggested Edits in Review Queue
+**Research basis:** CLEAR: Automated Data Curation (arxiv.org/abs/2403.12776) — auto-correction outperforms auto-rejection
+**Problem solved:** Annotators currently write corrections from scratch. CLEAR shows suggesting a corrected output and asking for approval/modification is faster and produces better data.
+
+**Implementation in Text Review queue:**
+For flagged rows (low quality, short response, format violation), add below the output textarea:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  💡 Suggested Edit (AI-generated)                           │
+│                                                             │
+│  Original: "Yes, please call us."                           │
+│                                                             │
+│  Suggested: "Yes, self-employed individuals are eligible.   │
+│  You will need 2 years of ITR, 12 months of business bank  │
+│  statements, and proof of 2+ years business vintage."      │
+│                                                             │
+│  [Use Suggestion] [Edit Suggestion] [Write My Own]         │
+└─────────────────────────────────────────────────────────────┘
+```
+
+[Use Suggestion] → copies to output field, annotator confirms
+[Edit Suggestion] → copies to output field as editable text
+[Write My Own] → clears and lets annotator type
+
+**Mock data:** Pre-populate suggestions for all short-response flagged rows in NBFC case study. Make them realistic and slightly better than the original but not perfect — so annotators have something to edit.
+
+**Tracking:** Log which action was taken (used/edited/own) per row. Surface in PM dashboard: "72% of suggestions used or edited — 28% written from scratch."
+
+---
+
+### Change 6 — RLTHF Routing for Preference Ranking
+**Research basis:** RLTHF: Targeted Human Feedback (2025) — 6–7% annotation effort achieves full-human annotation quality
+**Problem solved:** Most preference pairs are obvious — routing all of them to human annotators wastes time on easy cases.
+
+**Implementation in Preference Ranking queue:**
+Before showing a pair to a human reviewer, run LLM judge pre-score on both responses.
+
+**Routing logic:**
+```
+Score difference > 1.5 points:  AUTO-LABEL (obvious winner)
+                                 Mark as "Auto-labelled" in dataset
+                                 Human never sees this pair
+
+Score difference 0.5–1.5:       ROUTE TO HUMAN
+                                 Show pre-scores AFTER annotator makes choice
+                                 (avoid anchoring — show after, not before)
+
+Score difference < 0.5:         ROUTE TO HUMAN + FLAG AS CONTESTED
+                                 Show "This pair is close — take extra care"
+                                 Require 2 annotators (not 1)
+```
+
+**UI change:**
+Queue progress shows: "47 pairs total — 31 auto-labelled, 16 sent to reviewers"
+Auto-labelled pairs visible in a separate "Auto-labelled" tab — reviewers can audit a sample.
+
+**Mock data in NBFC:** Pre-tag preference pairs as auto-labelled (score diff > 1.5) or human-reviewed (score diff < 1.5). Show auto-label rate as ~70% — realistic based on RLTHF findings.
+
+---
+
+### Change 7 — Dataset Diversity Score
+**Research basis:** LIMA (Zhou et al., 2023) — diversity of fine-tuning data matters as much as quality
+**Problem solved:** A dataset of 2,000 clean rows may all be asking the same thing 2,000 ways. Homogeneous data produces models that can't generalise.
+
+**Implementation:**
+Add diversity analysis to the Dataset detail screen, shown alongside the quality score:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Dataset Diversity Score: 68 / 100   ⚠️ Moderate           │
+│                                                             │
+│  Instruction type distribution:                            │
+│  ██████████████░░░░  EMI / repayment queries    42%  ⚠️     │
+│  ██████░░░░░░░░░░░░  Eligibility queries        18%         │
+│  ████░░░░░░░░░░░░░░  KYC / documentation        12%         │
+│  ███░░░░░░░░░░░░░░░  Interest rate queries       9%  ← gap  │
+│  ██░░░░░░░░░░░░░░░░  Loan closure / prepay       7%         │
+│  ██░░░░░░░░░░░░░░░░  Other                       12%        │
+│                                                             │
+│  ⚠️ EMI queries over-represented (42% vs recommended <30%) │
+│  💡 Interest rate queries under-represented (9%)           │
+│     This matches production failure pattern in v1.0        │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Diversity score calculation (mock):**
+- Cluster approved rows into instruction types using embedding similarity
+- Measure distribution entropy — maximum diversity = equal distribution across types
+- Flag any cluster >30% of total as over-represented
+- Flag any cluster <5% where production queries exist as a gap
+
+**NBFC case study connection:** The interest rate gap detected here directly foreshadows the Monitor finding in Stage 7. Show this link in the UI: "Interest rate queries (9%) — Monitor detected 23 production failures on this topic."
+
+---
+
+### Change 8 — Krippendorff's Alpha (Replace Fleiss' Kappa)
+**Research basis:** "Selecting the Right Inter-Annotator Agreement Metric" (arxiv.org/abs/2603.06865)
+**Problem solved:** Fleiss' Kappa requires the same annotators to label every item — impractical at enterprise scale where different annotators see different subsets. Krippendorff's Alpha handles missing data correctly.
+
+**Implementation:**
+Replace all Fleiss' Kappa calculations and displays with Krippendorff's Alpha.
+
+**UI change:** Everywhere κ (kappa) is shown, change label to α (alpha). Update tooltip: "Krippendorff's Alpha — measures inter-annotator agreement across any number of annotators with partial overlap. Scale: <0.40 poor, 0.40–0.67 moderate, 0.67–0.80 good, >0.80 excellent (Krippendorff, 2011)."
+
+**Interpretation guidance shown inline:**
+```
+Agreement (α): 0.74   ✅ Good
+Weakest dimension: Factuality α = 0.61  ⚠️ Moderate
+→ Domain expert disagreeing on what counts as a factual error
+  Consider adding rubric examples for this dimension
+```
+
+---
+
+### Change 9 — Annotator Fatigue Detection
+**Research basis:** Snow et al. (2008); annotator performance degrades with session length and repetition; Temporal Simultaneity paper (2025) shows visible kappa decline across batches
+**Problem solved:** Annotation quality degrades invisibly within long sessions. No current system tracks this.
+
+**Implementation:**
+Track per-annotator, per-session metrics invisibly (not shown to annotator):
+
+```
+Fatigue signals monitored:
+- Time per row: if drops below 30s for 5+ consecutive rows → speed flag
+- Agreement with consensus: if drops >15% from session start → quality flag
+- Edit length: if edits getting shorter over time → effort flag
+
+When 2+ signals fire simultaneously → show rest prompt:
+┌──────────────────────────────────────────────────────┐
+│  You've been reviewing for 94 minutes. Take a break? │
+│  Your review quality is best maintained in sessions  │
+│  under 90 minutes.                          [Resume] │
+└──────────────────────────────────────────────────────┘
+```
+
+**PM dashboard addition:**
+```
+Annotator Reliability (This Session)
+Priya Nair:    α = 0.81 → 0.68 over 2hrs  ⚠️  Fatigue signal
+Ravi Kumar:    α = 0.79 → 0.77 stable     ✅
+```
+
+**Note:** Fatigue detection is PM/Admin visible only. Never shown to the annotator in a way that feels punitive. Frame as wellbeing, not surveillance.
+
+---
+
+### Change 10 — Model-Relative Quality Labels
+**Research basis:** "Towards Understanding Valuable Preference Data" (arxiv.org/abs/2510.13212) — data quality is a property of the model, not just the data
+**Problem solved:** A quality score assigned when training Mistral 7B may not transfer when the client switches to Llama 3. No current system warns about this.
+
+**Implementation:**
+Every dataset row's quality score is tagged with the base model it was calibrated against:
+
+```
+row_quality_score: {
+  score: 87,
+  calibrated_for: "Mistral-7B-Instruct-v0.2",
+  calibrated_at: "2025-04-08",
+  transferability: "unknown"  // until a cross-model eval is run
+}
+```
+
+**Warning shown when experiment config changes base model:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  ⚠️  Base model changed: Mistral 7B → Llama 3.1 8B        │
+│                                                             │
+│  Your dataset quality scores were calibrated for Mistral.  │
+│  Research shows quality scores are model-relative —        │
+│  rows that improved Mistral may behave differently with    │
+│  Llama (Ye et al., 2025).                                  │
+│                                                             │
+│  Recommendation: Run a small calibration experiment        │
+│  (200–500 rows) before full training.                      │
+│                                                             │
+│  [Proceed anyway]  [Run calibration experiment first]      │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### Implementation Notes for Claude Code (delta)
+
+125. Swap-augmented eval: mock by storing two score sets per checkpoint in eval run data. Display averaged scores with ± variance. Run animation shows "Pass 1 of 2..." then "Pass 2 of 2 (positions swapped)..." before showing results.
+126. Confidence intervals: show ± values in eval table. High variance (±8+) cells shown with amber background. Tooltip on variance: "High score variance — judge was inconsistent on this dimension. Consider human eval."
+127. Claim-level hallucination: in inference detail panel, split response text into sentences. Each sentence has a status indicator (green dot = grounded, red dot = hallucinated). Click sentence → shows source excerpt in right sub-panel.
+128. Hallucination type badge: replace generic "hallucination" flag label with typed badge: "Contradiction", "Fabrication", or "Conflation" with colour coding (Contradiction = amber, Fabrication = red, Conflation = purple).
+129. AI-suggested edit: shown only for rows flagged as short_response or low_quality. Not shown for PII rows (too risky to auto-suggest). Pre-populated in mock data for NBFC low-quality rows.
+130. RLTHF routing: preference ranking queue shows two sections: "Auto-labelled (31)" collapsed by default with [Audit sample] option, and "Needs review (16)" active. Auto-labelled badge on each auto-labelled row.
+131. Diversity score: shown on dataset detail header alongside quality score. Two circular gauges side by side: Quality 71 and Diversity 68. Instruction type distribution as horizontal bar chart below.
+132. Krippendorff's Alpha: global find-replace κ → α in all UI labels. Update all tooltips. Scale interpretation text updated per Krippendorff (2011) thresholds.
+133. Fatigue detection: rest prompt appears as a gentle overlay (not blocking) after fatigue signals. Annotator can dismiss. Logged silently. PM dashboard shows session-level α trend chart per annotator.
+134. Model-relative warning: fires only when experiment config base_model field changes between experiments in the same project. Does not fire on first experiment. Compare against most recent completed experiment's base_model.
+
+---
+
+## 41. DELTA — PATCHES TO EARLIER SECTIONS FROM SECTION 40 CHANGES
+
+### Purpose
+Section 40 introduced 10 research-backed changes. Several earlier sections now contradict or are incomplete relative to these changes. This section patches those conflicts precisely. Claude Code should treat Section 40 + Section 41 as overriding the corresponding earlier text.
+
+---
+
+### Patch 1 — Section 8.5 (Eval Harness): Add Swap-Augmented Mode + Confidence Intervals
+
+**Replaces:** "Run Eval → animated progress 3–4 seconds → radar chart"
+
+**Updated eval run behaviour:**
+```
+[Run Eval] triggers two-pass evaluation:
+
+Pass 1 animation: "Evaluating checkpoint A responses..."  (1.5s)
+Pass 2 animation: "Re-evaluating with positions swapped..." (1.5s)
+Aggregation:       "Computing scores + confidence intervals..." (0.5s)
+
+Results display:
+- All dimension scores shown as "79 ± 5" format
+- Variance > 8: cell background amber, tooltip explaining instability
+- Badge on results header: "✓ Swap-augmented  ✓ Confidence intervals"
+```
+
+**Updated results table columns:**
+```
+Dimension | ckpt v1.0    | ckpt v1.1    | Delta | Variance flag
+```
+
+**Mock data update:** Add `variance` field to every eval dimension score in all three tenants. Factuality always highest variance (±7–9). Tone always lowest (±2–3). Overall variance decreases between older and newer checkpoints.
+
+---
+
+### Patch 2 — Section 8.4 (Review Queue): Add AI-Suggested Edits + RLTHF Routing
+
+**Add to Text Review task UI** (after the output textarea, for short_response and low_quality flagged rows only):
+```
+Suggested Edit panel — visible only when flag is short_response OR low_quality
+NOT shown for: pii_detected, toxic, near_duplicate, format_violation
+```
+
+**Add to Preference Ranking tab** — replace current single queue with two-section layout:
+```
+Tab: Preference Ranking (badge = human-review count only, not auto-labelled)
+
+Section A: "Auto-labelled (31)"  [collapsed]  [Audit 5 samples ▾]
+Section B: "Needs Review (16)"   [active]
+  - Contested pairs (score diff < 0.5): red badge "Contested — 2 reviewers needed"
+  - Regular pairs (score diff 0.5–1.5): standard queue
+```
+
+**Mock data:** Pre-tag all NBFC preference pairs. 70% auto-labelled (score diff > 1.5), 30% human-reviewed. Of human-reviewed, 20% marked as contested.
+
+---
+
+### Patch 3 — Section 8.3 (Datasets): Add Diversity Score Panel
+
+**Add to Dataset detail screen** — below the quality score summary, above the row table:
+
+```
+Two gauges side by side:
+[Quality Score: 71 🟡]    [Diversity Score: 68 ⚠️]
+
+Below gauges: instruction type distribution horizontal bar chart
+Flags: over-represented clusters (>30%) in amber, under-represented (<5% with prod traffic) in red
+```
+
+**Diversity score calculation (mock):**
+```javascript
+// Pre-compute for each dataset
+diversityScore = {
+  score: 68,
+  clusters: [
+    { label: 'EMI / repayment',   pct: 42, flag: 'over' },
+    { label: 'Eligibility',        pct: 18, flag: null   },
+    { label: 'KYC / documentation', pct: 12, flag: null  },
+    { label: 'Interest rates',     pct: 9,  flag: 'under' },
+    { label: 'Loan closure',       pct: 7,  flag: null   },
+    { label: 'Other',              pct: 12, flag: null   },
+  ],
+  insight: "Interest rate queries under-represented — matches Monitor failure pattern"
+}
+```
+
+**NBFC dataset connection:** For the NBFC case study dataset, the "Interest rates: 9% — under-represented" flag links to a callout: "This gap matches 23 production failures detected in Stage 07 Monitor." Show a [View Monitor findings →] link.
+
+---
+
+### Patch 4 — Section 8.4 (Review Queue): Replace Fleiss' κ with Krippendorff's α
+
+**Global replacement throughout prototype:**
+- All `κ` symbols → `α`
+- All "Fleiss' Kappa" text → "Krippendorff's Alpha"
+- All kappa field names in mock data → alpha
+- Tooltip update: "Krippendorff's Alpha — correct for annotation pools where not all annotators label all items. <0.40 poor, 0.40–0.67 moderate, 0.67–0.80 good, >0.80 excellent."
+
+**Mock data field rename (all tenants, all annotation objects):**
+```javascript
+// Before:
+{ overallKappa: 0.74, dimensionKappa: { factuality: 0.61 } }
+
+// After:
+{ overallAlpha: 0.74, dimensionAlpha: { factuality: 0.61 } }
+```
+
+All calibration status panels, reviewer dashboards, and batch approval screens use α.
+
+---
+
+### Patch 5 — Review Queue: Add Annotator Fatigue Detection
+
+**Add to annotator session (invisible to annotator, visible to PM/Admin):**
+
+Per-session tracking object:
+```javascript
+annotatorSession = {
+  userId: "annotator@finserv.com",
+  startTime: "14:00",
+  rowsReviewed: 47,
+  avgTimePerRow: [45, 42, 38, 31, 28],  // trend — decreasing = speed flag
+  alphaAtStart: 0.81,
+  alphaNow: 0.68,                         // dropping = quality flag
+  fatigueSignals: ["speed", "quality"],   // 2 signals = show rest prompt
+  restPromptShown: false
+}
+```
+
+**Rest prompt (shown to annotator when 2+ signals fire):**
+```
+Gentle overlay, not blocking:
+"You've been reviewing for 94 minutes.
+ Your best work happens in sessions under 90 minutes.
+ Consider a short break?"
+[Dismiss]  [Take a break — save progress]
+```
+
+**PM dashboard addition (new row in annotation project view):**
+```
+Session Health
+Priya Nair:  α 0.81→0.68  ⚠️ Fatigue detected (94 min session)
+Ravi Kumar:  α 0.79→0.77  ✅ Stable (67 min session)
+```
+
+**NBFC case study mock:** Priya Nair's session shows fatigue signal after 90 minutes. PM dashboard shows the α drop. Rest prompt shown. After break, α recovers to 0.79.
+
+---
+
+### Patch 6 — Section 6 (Experiment Tracker): Add Model-Relative Quality Warning
+
+**Add to New Experiment form** — when user selects a base model different from the most recent completed experiment:
+
+```javascript
+// Trigger condition:
+if (newExperiment.baseModel !== mostRecentExperiment.baseModel) {
+  showModelChangeWarning()
+}
+```
+
+**Warning modal:**
+```
+┌─────────────────────────────────────────────────────────────┐
+│  ⚠️  Base Model Changed                                     │
+│  Previous: Mistral-7B-Instruct-v0.2                        │
+│  New:      Llama-3.1-8B-Instruct                           │
+│                                                             │
+│  Quality scores in your dataset were calibrated for        │
+│  Mistral. Research shows data quality is model-relative    │
+│  — rows that helped Mistral may behave differently         │
+│  with Llama (Ye et al., 2025, arxiv:2510.13212).          │
+│                                                             │
+│  Recommendation: Run a calibration experiment on           │
+│  200–500 rows before committing to full training.          │
+│                                                             │
+│  [Proceed anyway]  [Create calibration experiment]         │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Mock data:** NBFC case study stays on Mistral — no warning fires. Legal AI Corp has a third experiment switching to Llama 3 — this triggers the warning. Show the modal in the Legal AI Corp demo flow.
+
+---
+
+### Patch 7 — Section 23 (Inference Monitor): Upgrade Hallucination to Claim-Level + Typed
+
+**Replace** the current inference detail hallucination flag display with:
+
+**Claim-level breakdown panel (shown when hallucination flag present):**
+```javascript
+// Each mock inference row with hallucination flag now has:
+hallucinationAnalysis: {
+  type: "Contradiction",  // or "Fabrication" or "Conflation"
+  sentences: [
+    { text: "For a home loan, you need a CIBIL score", status: "grounded",
+      sourceChunk: "Section 3.2 Para 1" },
+    { text: "of at least 720.", status: "hallucinated",
+      type: "Contradiction",
+      detail: "Document states 700, not 720",
+      sourceChunk: "Section 3.2 Para 1" },
+    { text: "Higher scores qualify for better rates.", status: "grounded",
+      sourceChunk: "Section 3.4" },
+  ]
+}
+```
+
+**Typed badge colours:**
+- Contradiction: amber `F59E0B` background
+- Fabrication: red `EF4444` background
+- Conflation: purple `8B5CF6` background
+
+**Inline highlighting in response text:**
+- Green underline = grounded sentence
+- Red/amber/purple underline = hallucinated (colour matches type)
+- Click any underlined sentence → shows source chunk excerpt in sub-panel
+
+**NBFC mock inferences:** All 6 interest rate hallucination rows tagged as Contradiction type. The "Q2 rate revision" invented row tagged as Fabrication.
+
+---
+
+### Patch 8 — Section 38 (Eval Harness): Calibration α field rename
+
+All kappa references in calibration status panel renamed to alpha:
+```javascript
+// Before:
+calibration: { humanJudgeKappa: 0.74, dimensionKappa: { factuality: 0.61 } }
+
+// After:
+calibration: { humanJudgeAlpha: 0.74, dimensionAlpha: { factuality: 0.61 } }
+```
+
+Calibration status panel text:
+```
+// Before:
+Human-judge agreement: κ = 0.74 (good)
+
+// After:
+Human-judge agreement: α = 0.74 (good — Krippendorff's Alpha)
+```
+
+---
+
+### Patch 9 — Section 33 (Agents): Fatigue Agent Action in Log
+
+**Add to Annotation Router Agent action log:**
+
+```javascript
+{
+  type: "fatigue_detected",
+  icon: "⏸️",
+  text: "Fatigue signal: Priya Nair — α dropped 0.81→0.68 over 94 min session. Rest prompt shown.",
+  action: "Rest prompt delivered. Session paused.",
+  timestamp: "15:34",
+  reversible: false,
+  requiresHuman: false,
+  note: "Annotator resumed at 15:52. α recovered to 0.79."
+}
+```
+
+---
+
+### Patch 10 — Section 20 (Bulk Ingestion): Diversity Warning on Large Datasets
+
+After bulk ingestion completes, if diversity score < 60 on the resulting dataset, show alert in bulk job dashboard:
+
+```
+⚠️  Low Diversity Detected
+Dataset diversity score: 48 / 100
+Top cluster "loan eligibility queries" = 61% of all rows.
+LIMA (2023) shows homogeneous datasets underperform diverse
+ones even at larger sizes.
+Recommendation: Enrich with under-represented query types
+before training.
+[View diversity breakdown]  [Create annotation sprint]
+```
+
+---
+
+### Summary: Implementation Priority for Claude Code
+
+Build in this order — each builds on the previous:
+
+```
+Priority 1 (visual, high impact, low complexity):
+  - Confidence intervals on eval scores (Patch 1)
+  - Krippendorff's α rename everywhere (Patch 4)
+  - Typed hallucination badges (Patch 7 — badge only, no inline highlighting yet)
+
+Priority 2 (interaction, medium complexity):
+  - AI-suggested edits panel (Patch 2)
+  - RLTHF two-section preference queue (Patch 2)
+  - Dataset diversity score gauges (Patch 3)
+  - Swap-augmented eval animation (Patch 1)
+
+Priority 3 (data + logic, higher complexity):
+  - Claim-level hallucination with inline highlighting (Patch 7 — full)
+  - Fatigue detection + PM dashboard (Patch 5 + Patch 9)
+  - Model change warning modal (Patch 6)
+  - Bulk ingestion diversity alert (Patch 10)
+```
+
+---
+
+### Implementation Notes for Claude Code (delta)
+
+135. Confidence intervals: stored as `{ mean: 79, variance: 5 }` per dimension in mock eval data. Display as "79 ± 5". High variance threshold for amber: variance > 7.
+136. Swap-augmented animation: two-phase progress bar. Label changes between phases. Total mock duration: 3.5 seconds (not 3–4 as previously specified).
+137. AI-suggested edit panel: collapsed by default. Expands on click of "💡 Suggested edit available" link below the output. Not auto-expanded — annotator must opt in.
+138. RLTHF auto-label badge: small grey "Auto" pill on each auto-labelled pair in the collapsed section. Clicking "Audit 5 samples" expands 5 random auto-labelled pairs for human spot-check.
+139. Diversity gauge: same visual style as quality score gauge (circular, colour-coded). Place side-by-side. Score < 60 = red, 60–75 = amber, > 75 = green.
+140. α rename: this is a global find-replace in all UI text strings. No logic changes — purely display. Ensure all tooltip text, table headers, and badge labels are updated.
+141. Typed hallucination badge: rendered as a small coloured pill replacing the generic "hallucination" flag label. Three colours as specified. Badge click opens the claim-level breakdown panel (if available in mock data).
+142. Inline sentence highlighting: implemented using `<mark>` elements with CSS class per type. Green = grounded, amber = contradiction, red = fabrication, purple = conflation. Click opens a tooltip-style popover with the source chunk text.
+143. Fatigue rest prompt: z-index above content but below modals. Positioned bottom-right corner. Does not block annotation — annotator can continue without dismissing. Auto-dismisses after 30 seconds if no interaction.
+144. Model change warning: fires once per experiment creation when base_model changes. Stores "warned" flag in session so it doesn't repeat if user dismisses and re-opens the form.
+145. Bulk diversity alert: shown in the post-completion summary panel of bulk job dashboard. Only fires when diversity score < 60. [Create annotation sprint] pre-fills sprint name with "Diversity enrichment — [underrepresented cluster name]".
+
+---
+
+## 42. DELTA — DOMAIN-AWARE SYNTHESIS TEMPLATES
+
+### Overview
+The instruction pair synthesis pipeline (Section 19 — Document Ingestion) currently uses a generic prompt. This delta adds a configurable domain template system — pre-loaded templates per use case, editable by Architects, typed pair output.
+
+---
+
+### Synthesis Template Configuration Screen
+
+**Where:** Document Ingestion → Chunking screen → after [Apply Chunking] → "Configure Synthesis" step
+
+**New UI panel:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Synthesis Template                                         │
+├─────────────────────────────────────────────────────────────┤
+│  Select domain template:                                    │
+│                                                             │
+│  ○ Generic Q&A          General purpose — any domain       │
+│  ● Audit & Compliance   Government audit, GFR, CAG-type    │
+│  ○ Legal Reference      Contracts, case law, statutes      │
+│  ○ Financial Services   NBFC, banking, RBI guidelines      │
+│  ○ Medical / Clinical   Clinical guidelines, diagnostics   │
+│  ○ Custom               Edit prompt directly               │
+│                                                             │
+│  Pair types to generate (multi-select):                    │
+│  ☑ Rule / Norm explanation                                 │
+│  ☑ Violation detection                                     │
+│  ☑ Evidence checklist                                      │
+│  ☑ Finding formulation                                     │
+│  ☑ Recovery / impact quantification                        │
+│                                                             │
+│  Pairs per chunk: [2 ▾]                                    │
+│  [Preview prompt] [Edit prompt ▾ — Architect only]         │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### Built-In Templates (mock — not real LLM calls)
+
+**Template 1 — Generic Q&A (default)**
+```
+Instruction shown in UI:
+"Generate factual Q&A pairs from the text. 
+Focus on what the text says."
+
+Sample output pair type: Rule explanation only
+```
+
+**Template 2 — Audit & Compliance**
+```
+Instruction shown in UI:
+"Generate pairs that reflect how a government auditor 
+would use this text — focused on compliance checking, 
+violation detection, and finding formulation."
+
+Five pair types generated:
+1. Rule explanation:     "What does [rule] require?"
+2. Violation detection:  "What constitutes non-compliance with [rule]?"
+3. Evidence checklist:   "What documents should an auditor examine to 
+                          verify compliance with [rule]?"
+4. Finding formulation:  "How should an auditor frame a finding when 
+                          [rule] has been violated?"
+5. Impact quantification:"How is the financial impact of a [rule] 
+                          violation calculated and reported?"
+```
+
+**Template 3 — Legal Reference**
+```
+Pair types:
+1. Provision explanation
+2. Applicability conditions
+3. Exception and exclusion identification
+4. Precedent and interpretation questions
+5. Cross-reference to related provisions
+```
+
+**Template 4 — Financial Services**
+```
+Pair types:
+1. Product/rule explanation
+2. Eligibility and threshold questions
+3. Compliance violation scenarios
+4. Customer-facing response formulation
+5. Regulatory cross-reference (RBI/SEBI/IRDAI)
+```
+
+**Template 5 — Medical / Clinical**
+```
+Pair types:
+1. Clinical guideline explanation
+2. Contraindication and risk identification
+3. Diagnostic criteria questions
+4. Treatment protocol steps
+5. Differential diagnosis scenarios
+```
+
+---
+
+### Pair Type Tagging in Dataset
+
+Each synthesised row tagged with its pair type:
+
+```javascript
+{
+  id: "row_201",
+  instruction: "What constitutes non-compliance with GFR Rule 230 on contractor advances?",
+  input: "",
+  output: "Non-compliance with GFR Rule 230 occurs when: (1) advance paid without contractual provision, (2) advance not recovered from first running bill, (3) recovery deferred beyond scheduled instalments. Auditor should verify contract terms, payment voucher, and running bill dates.",
+  qualityScore: 88,
+  flags: [],
+  language: "en",
+  reviewStatus: "approved",
+  pairType: "violation_detection",         // ← new field
+  sourceChunk: "chunk_gfr_rule230_para1",  // ← traceability
+  synthesisTemplate: "audit_compliance",   // ← which template generated this
+  domainTag: "audit"                       // ← domain
+}
+```
+
+---
+
+### Domain Expert Seeding Queue (New Feature)
+
+Separate from the annotation queue. Accessible via: Datasets → [+ Add Seed Annotations]
+
+**Purpose:** Allow domain experts (not general annotators) to contribute high-value institutional knowledge pairs that synthesis cannot generate.
+
+**UI:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Domain Expert Seed Annotation                              │
+│  Contribute expert knowledge pairs directly                 │
+├─────────────────────────────────────────────────────────────┤
+│  Add from: ○ Scratch  ● Existing audit observation          │
+│                                                             │
+│  Source observation (paste):                               │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │ "Audit of PWD revealed that advances of ₹2.3 Cr    │   │
+│  │  were paid to contractors without contractual       │   │
+│  │  provision during 2021-22, in violation of GFR      │   │
+│  │  Rule 230. Recovery was not initiated as of date    │   │
+│  │  of audit. Financial effect: ₹2.3 Cr."             │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                                                             │
+│  Tag this observation:                                      │
+│  Rule violated:    [GFR Rule 230                      ]    │
+│  Violation type:   [Advance without contractual basis ]    │
+│  Evidence needed:  [Contract, payment voucher, bills  ]    │
+│  Financial effect: [₹2.3 Cr outstanding advance      ]    │
+│  Finding type:     [Compliance — financial irregularity]   │
+│                                                             │
+│  This generates:                                           │
+│  → 1 violation detection pair                              │
+│  → 1 evidence checklist pair                               │
+│  → 1 finding formulation pair                              │
+│  → 1 impact quantification pair                            │
+│                                                             │
+│  [Generate pairs] [Preview] [Save to dataset]              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Who can use this:** Architect and ML Engineer roles only (not Annotator). Reflects that domain seeding requires expertise, not just task completion.
+
+---
+
+### Pair Type Distribution Report
+
+Add to Dataset detail screen — below diversity score:
+
+```
+Pair Type Distribution
+──────────────────────────────────────────────
+Rule explanation        ████████████  38%
+Violation detection     ██████████    31%   ← good for audit use case
+Evidence checklist      ████          14%
+Finding formulation     ███           10%   ← under-represented
+Impact quantification   ██             7%   ← under-represented
+
+⚠️  Finding formulation and impact quantification under-represented.
+   For an audit chatbot, these are the highest-value pair types.
+   Recommendation: Run domain expert seeding sprint focused on 
+   these two types.
+```
+
+---
+
+### Mock Data — CAG / Audit Project
+
+Add a fifth project to IITM Pravartak tenant (or as a separate demo): "CAG Audit Intelligence"
+
+```javascript
+{
+  id:          "proj_cag_audit",
+  tenantId:    "tenant_pravartak",
+  name:        "CAG Audit Intelligence",
+  description: "NLP chatbot for government auditors — GFR compliance, audit observation drafting, financial rules reference",
+  status:      "active",
+  synthesisTemplate: "audit_compliance",
+  pairTypeDistribution: {
+    rule_explanation:      38,
+    violation_detection:   31,
+    evidence_checklist:    14,
+    finding_formulation:   10,
+    impact_quantification:  7
+  },
+  domainSeedRows: 47,   // contributed by senior auditors
+  corpusSize: 1200,     // chunks from ingested GFR + circulars
+  diversityScore: 72,
+  qualityScore: 81
+}
+```
+
+**Mock synthesised pairs (pre-loaded in dataset):**
+
+```javascript
+[
+  {
+    id: "cag_row_001",
+    pairType: "violation_detection",
+    instruction: "What conditions would cause advance payment to a contractor to constitute an audit irregularity under GFR?",
+    output: "An advance payment constitutes an audit irregularity under GFR Rule 230 when: (1) paid without contractual provision, (2) not recovered from the first running bill, or (3) recovery deferred beyond scheduled instalments. Examine the contract terms, payment voucher date, and first running bill to establish timing of recovery.",
+    qualityScore: 91, flags: [], synthesisTemplate: "audit_compliance"
+  },
+  {
+    id: "cag_row_002",
+    pairType: "evidence_checklist",
+    instruction: "What documents should an auditor examine to verify compliance with GFR Rule 230 on contractor advances?",
+    output: "Documents to examine: (1) Original contract — verify advance clause and quantum, (2) Sanction order for advance — check authorisation level, (3) Payment voucher — verify date and amount, (4) First running bill — verify recovery deduction, (5) Subsequent bills if recovery spread — verify instalment schedule, (6) Correspondence if recovery disputed.",
+    qualityScore: 89, flags: [], synthesisTemplate: "audit_compliance"
+  },
+  {
+    id: "cag_row_003",
+    pairType: "finding_formulation",
+    instruction: "How should an auditor frame an audit finding when GFR Rule 230 has been violated through unrecovered advance?",
+    output: "Structure the finding as: Criteria: GFR Rule 230 requires advances to contractors to be recovered from the first running bill. Condition: Advances totalling ₹X were paid to M/s [contractor] during [period] but recovery was not initiated as of [audit date]. Cause: [reason — lack of monitoring / oversight failure]. Effect: Government funds of ₹X remain at risk with no assurance of recovery. Recommendation: Initiate immediate recovery and fix accountability.",
+    qualityScore: 94, flags: [], synthesisTemplate: "audit_compliance"
+  },
+  {
+    id: "cag_row_004",
+    pairType: "rule_explanation",
+    instruction: "What is the purpose of GFR Rule 230 and when does it apply?",
+    output: "GFR Rule 230 regulates advance payments to contractors in government procurement. It applies whenever a contract involves advance payment and requires: (a) advances be permitted only under explicit contract terms, (b) recovery commence from the first running bill. The rule protects government funds by ensuring advances are not converted into interest-free loans to contractors.",
+    qualityScore: 88, flags: [], synthesisTemplate: "audit_compliance"
+  }
+]
+```
+
+---
+
+### Implementation Notes for Claude Code (delta)
+
+146. Synthesis template selector: shown as radio buttons in the synthesis configuration step. Selecting a template updates the pair type checkboxes to the recommended selection for that domain.
+147. [Preview prompt] button: opens a read-only modal showing the full prompt text that will be sent to the judge for this template + pair type combination. Architect role can edit; others read-only.
+148. Pair type badge: shown on each row card in the dataset table as a small coloured pill. Rule explanation = blue, Violation detection = amber, Evidence checklist = teal, Finding formulation = coral, Impact quantification = purple.
+149. Pair type distribution chart: horizontal bar chart, same styling as instruction type diversity chart from Patch 3. Under-represented types shown with recommendation callout below chart.
+150. Domain expert seeding form: Architect/ML Engineer only. Hidden from Annotator and Reviewer roles. Accessible from Dataset detail → [+ Add Expert Pairs] button (appears only for users with correct role).
+151. CAG audit mock project: pre-load in Pravartak tenant. Pair type distribution pre-computed. 4 sample rows pre-loaded with realistic audit content as above.
+152. Generated pairs from domain seeding tagged with `source: "domain_expert_seed"` vs `source: "synthesis_pipeline"` — visible in row detail panel. Expert seed rows shown with a gold star badge.
+153. Synthesis template name shown in dataset header: "Template: Audit & Compliance" visible alongside quality and diversity scores.
+
+---
+
+## 43. DELTA — MERGE DATASETS + DOCUMENTS INTO UNIFIED "DATA" MODULE
+
+### Navigation Change
+
+Remove "Datasets" and "Documents" as separate dock icons.
+
+Replace with a single dock icon:
+
+```
+📁  Data
+```
+
+Position: first item in the dock (above Review Queue).
+
+---
+
+### Data Screen — Three Tabs
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Data    [Structured ▾]  [Documents ▾]  [Import ▾]         │
+│          (active tab underlined in coral)                   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Tab 1 — Structured**
+Everything previously in the Datasets screen. Upload JSONL, CSV, TSV, Parquet. View curated rows, quality scores, flag breakdown, diversity score, pair type distribution. Manage snapshots. Export.
+
+**Tab 2 — Documents**
+Everything previously in the Documents screen. Upload PDFs (digital or scanned). Configure chunking strategy. Select synthesis template. View OCR confidence per document. Track generated pairs.
+
+**Tab 3 — Import**
+The annotation import connector (Section 34). Connect Label Studio, Argilla, Prodigy. Map annotation fields to instruction pairs. View import history.
+
+---
+
+### Project Setup Wizard (New — shown on first visit to Data when project has no data)
+
+When a user opens Data on a new project with zero rows:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Where does your training data come from?                   │
+│                                                             │
+│  ○ Structured files                                         │
+│    CSV, JSONL, Parquet — already formatted as Q&A pairs    │
+│    → Start in Structured tab                               │
+│                                                             │
+│  ○ Documents                                                │
+│    PDFs, circulars, reports — need conversion to pairs     │
+│    → Start in Documents tab                                │
+│                                                             │
+│  ○ Annotation tool export                                   │
+│    Label Studio, Argilla, Prodigy                           │
+│    → Start in Import tab                                    │
+│                                                             │
+│  ○ All of the above                                         │
+│    → See recommended sequence below                        │
+│                                                             │
+│  [Continue →]                                               │
+└─────────────────────────────────────────────────────────────┘
+```
+
+When "All of the above" is selected, show sequence guidance:
+
+```
+Recommended sequence for your project:
+
+1. Documents tab    → ingest PDFs, generate pairs
+2. Import tab       → bring in annotation tool exports
+3. Structured tab   → upload any existing JSONL/CSV
+4. Review Queue     → all rows from all sources appear here
+                      for curation and annotation
+```
+
+Wizard shown once. Dismissed on Continue. Not shown again.
+
+---
+
+### How All Paths Converge
+
+All three ingestion paths produce rows in the same dataset:
+
+```
+Documents tab  →  chunk → synthesise  →  rows enter Structured tab
+Import tab     →  convert format      →  rows enter Structured tab
+Structured tab →  upload directly     →  rows in Structured tab
+```
+
+The Structured tab is always the single view of all approved rows regardless of how they were ingested. The distinction between tabs is ingestion method only — not data type.
+
+---
+
+### Reference Updates Throughout Spec
+
+All earlier sections that reference "Datasets screen" or "Documents screen" now point to:
+
+```
+"Datasets screen"  →  "Data → Structured tab"
+"Documents screen" →  "Data → Documents tab"
+```
+
+Specific sections affected:
+- Section 8.3 (Datasets screen spec) → now Data → Structured tab
+- Section 8 (Documents) → now Data → Documents tab
+- Section 19 (Document Ingestion) → entry point is Data → Documents tab
+- Section 20 (Bulk Ingestion) → accessible from Data → Documents tab → [Bulk Upload]
+- Section 34 (Import Connector) → now Data → Import tab
+- Section 39 (NBFC mock data) → dataset navigation updated to Data → Structured
+- All dashboard CTAs → update "Go to Datasets" → "Go to Data"
+- All dock icon references → replace two icons with one
+
+---
+
+### Mock Data Update
+
+NBFC case study project setup wizard response: "Documents" selected (PDFs were the primary source). Wizard shows: "Start in Documents tab → then review generated pairs in Structured tab."
+
+Pravartak project: "All of the above" selected. Wizard shows the recommended sequence.
+
+Legal AI Corp: "Import" selected (Label Studio is their primary annotation tool).
+
+HealthBot India: "Structured" selected (they upload JSONL directly).
+
+---
+
+### Implementation Notes for Claude Code (delta)
+
+154. Remove Datasets and Documents from dock. Add single Data icon. Badge on Data icon = total flagged rows across both Structured and Import sources (same count that was previously on Datasets badge).
+155. Tab memory: remember last active tab per project. If user was on Documents tab last session, Data opens on Documents tab next visit.
+156. Setup wizard: show only when project has zero rows in all three tabs. Dismiss permanently on Continue. Store dismissed state in project mock data.
+157. "All of the above" sequence guidance: render as a numbered list with coloured step indicators. Not interactive — informational only. Clicking Continue takes user to Documents tab (first step in the sequence).
+158. Structured tab header: show combined row count from all ingestion sources. Below count, show source breakdown as small pills: "2,000 from upload · 300 from documents · 500 from import."
+159. Documents tab: retain all existing Documents screen functionality. No content changes — location change only.
+160. Import tab: retain all existing Import Connector functionality from Section 34. No content changes — location change only.
+161. Breadcrumb: when navigating to Data from a dashboard CTA, land on the correct tab. "View flagged rows" CTA → Data → Structured. "Review OCR corrections" → Data → Documents. "View import history" → Data → Import.
+
+---
+
+## 44. DELTA — CHECKPOINT INTEGRITY AND TAMPER DETECTION
+
+### Overview
+Three additions to checkpoint registration and eval harness to detect weight modifications, endpoint drift, and base model changes.
+
+---
+
+### Addition 1 — Hash Verification on Every Eval Run
+
+Before calling the inference endpoint for any eval run, Cueval recomputes the checkpoint file hash and compares against the value stored at registration.
+
+**Flow:**
+```
+[Run Eval] clicked
+        ↓
+Cueval worker reads checkpoint.location from DB
+        ↓
+Recomputes SHA256 of adapter_model.safetensors (or full model if not LoRA)
+        ↓
+Compares against stored checkpoint.weightsHash
+        ↓
+Match:    proceed with eval
+Mismatch: block eval, log to audit trail, alert Admin
+```
+
+**Mismatch UI (shown instead of eval results):**
+```
+┌─────────────────────────────────────────────────────────────┐
+│  ⛔  Checkpoint Integrity Check Failed                      │
+│                                                             │
+│  Checkpoint:    ckpt_cag_v1.1                              │
+│  Registered:    08 Apr 2025 14:32  by Rohan Sinha          │
+│  Checked:       15 Jun 2025 10:14                          │
+│                                                             │
+│  Stored hash:   e4f2a9b1c7d3e8f5...                        │
+│  Current hash:  a1b2c3d4e5f6a7b8...                        │
+│                                                             │
+│  The weights file at /data/models/cag-llm/v1.1/ has been  │
+│  modified since checkpoint registration. Eval blocked.     │
+│                                                             │
+│  This event has been logged to the audit trail.            │
+│  Admin has been notified.                                  │
+│                                                             │
+│  If the model was intentionally updated, register a        │
+│  new checkpoint before running eval.                       │
+│                                                             │
+│  [Register New Checkpoint]  [View Audit Log]               │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Audit log entry created automatically:**
+```javascript
+{
+  event:        "checkpoint_integrity_failure",
+  checkpointId: "ckpt_cag_v1.1",
+  storedHash:   "e4f2a9b1...",
+  foundHash:    "a1b2c3d4...",
+  detectedBy:   "eval_worker",
+  detectedAt:   "2025-06-15T10:14:22Z",
+  evalRunId:    "eval_003",
+  projectId:    "proj_cag_audit",
+  notified:     ["admin@cag.gov.in"]
+}
+```
+
+---
+
+### Addition 2 — Probe Fingerprint Check
+
+At checkpoint registration, Cueval sends a fixed probe question to the inference endpoint and stores the response embedding. At eval time, resends the same probe and compares embeddings. Catches the case where the endpoint URL is the same but serves different weights.
+
+**At registration — probe capture:**
+```
+Fixed probe question (hardcoded, same for all projects):
+"Describe the capital city of France in one sentence."
+
+→ sent to inference endpoint
+→ response received
+→ MiniLM embedding computed from response
+→ embedding stored in checkpoint record
+```
+
+**At eval time — probe comparison:**
+```
+Same probe sent to same endpoint
+→ new response received
+→ new embedding computed
+→ cosine similarity against stored embedding
+
+similarity ≥ 0.95:  ✅ Endpoint fingerprint matches — proceed
+similarity 0.85–0.95: ⚠️ Endpoint fingerprint shifted — warn but allow
+similarity < 0.85:   ⛔ Endpoint fingerprint mismatch — block + alert
+```
+
+**Warning UI (similarity 0.85–0.95):**
+```
+⚠️  Endpoint fingerprint has shifted since checkpoint registration.
+    The model at http://cag-llm-internal:8080 may have been updated.
+    Similarity: 0.89 (threshold: 0.95)
+    
+    Proceed only if you are certain this endpoint still serves
+    ckpt_cag_v1.1. Otherwise register a new checkpoint.
+    
+    [Proceed anyway — log this]  [Cancel — Register New Checkpoint]
+```
+
+**Mock data:**
+```javascript
+checkpoint.probeFingerprint = {
+  probeQuestion: "Describe the capital city of France in one sentence.",
+  responseEmbedding: [0.23, -0.41, 0.87, ...],  // 384 floats
+  capturedAt: "2025-04-08T14:35:00Z",
+  capturedBy: "registration_worker"
+}
+```
+
+---
+
+### Addition 3 — Base Model Version Stored and Checked
+
+Checkpoint record stores base model ID and version. Warning shown when base model changes between experiments in the same project.
+
+**Updated checkpoint record:**
+```javascript
+{
+  id:               "ckpt_cag_v1.1",
+  experimentId:     "exp_002",
+  location:         "/data/models/cag-llm/v1.1/",
+  inferenceEndpoint:"http://cag-llm-internal:8080/generate",
+  weightsHash:      "e4f2a9b1c7d3e8f5...",    // adapter weights
+  baseModel: {
+    id:      "mistralai/Mistral-7B-Instruct-v0.2",
+    version: "v0.2",
+    source:  "huggingface"
+  },
+  adapterType:  "lora",
+  loraRank:     8,
+  createdAt:    "2025-04-08T14:32:00Z",
+  probeFingerprint: { ... }
+}
+```
+
+**Warning when experiment uses different base model from previous:**
+
+Shown when creating a new experiment and the selected base model differs from the most recent completed experiment's checkpoint.baseModel.id:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  ⚠️  Base Model Changed                                     │
+│                                                             │
+│  Previous experiment:  Mistral-7B-Instruct-v0.2            │
+│  This experiment:      Mistral-7B-Instruct-v0.3            │
+│                                                             │
+│  Dataset quality scores were calibrated for v0.2.          │
+│  Quality scores may not transfer to v0.3 — rows that       │
+│  helped v0.2 may behave differently with v0.3              │
+│  (Ye et al., 2025, arxiv:2510.13212).                      │
+│                                                             │
+│  Also: eval scores from ckpt_v1.1 (v0.2) are not          │
+│  directly comparable to new checkpoints on v0.3.           │
+│  Run a fresh baseline eval after switching.                │
+│                                                             │
+│  [Proceed anyway]  [Run calibration experiment first]      │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### Updated Checkpoint Registration UI
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Register Checkpoint                                        │
+├─────────────────────────────────────────────────────────────┤
+│  Checkpoint name:   [ckpt_cag_v1.1                    ]    │
+│                                                             │
+│  Location type:                                             │
+│  ● Local path    ○ S3 / MinIO    ○ HuggingFace             │
+│                                                             │
+│  Path: [/data/models/cag-llm/v1.1/               ]        │
+│                                                             │
+│  Inference endpoint:                                        │
+│  [http://cag-llm-internal:8080/generate           ]        │
+│                                                             │
+│  Base model:                                                │
+│  [mistralai/Mistral-7B-Instruct-v0.2              ]        │
+│                                                             │
+│  Adapter type:  ● LoRA  ○ Full fine-tune  ○ Other         │
+│  LoRA rank:     [8]                                         │
+│                                                             │
+│  [Compute hash + capture probe fingerprint]                │
+│                                                             │
+│  Hash:        ✅ e4f2a9b1c7d3e8f5...  (computed)           │
+│  Fingerprint: ✅ Captured — cosine self-check 1.00         │
+│                                                             │
+│  [Register Checkpoint]                                     │
+└─────────────────────────────────────────────────────────────┘
+```
+
+[Compute hash + capture probe fingerprint] is a single action:
+1. SHA256 of weights file
+2. Sends probe to inference endpoint
+3. Computes and stores embedding
+4. Shows both results before registration is confirmed
+
+---
+
+### What Should Happen Operationally (shown as a callout in the UI)
+
+Shown on the checkpoint registration screen as a permanent note:
+
+```
+📋  If the model weights are updated for any reason — hotfix,
+    rate change, version bump — register a NEW checkpoint.
+    Do not reuse an existing checkpoint record.
+    Cueval will detect the hash mismatch and block eval anyway.
+```
+
+---
+
+### Mock Data Updates
+
+**NBFC case study — add integrity metadata to existing checkpoints:**
+```javascript
+ckpt_cag_v1.0.weightsHash = "a3f8c2d9e1b4f7c3..."
+ckpt_cag_v1.0.baseModel = { id: "mistralai/Mistral-7B-Instruct-v0.2", version: "v0.2" }
+ckpt_cag_v1.0.probeFingerprint = { capturedAt: "2025-04-08T14:35:00Z" }
+ckpt_cag_v1.0.integrityStatus = "verified"  // hash matched on last eval run
+
+ckpt_cag_v1.1.weightsHash = "b7d2a1e4c9f3..."
+ckpt_cag_v1.1.integrityStatus = "verified"
+```
+
+**Add one mock integrity failure to Legal AI Corp for demo purposes:**
+```javascript
+{
+  checkpointId: "ckpt_legal_v2.0",
+  integrityStatus: "failed",
+  failureDetectedAt: "2025-06-10T09:22:00Z",
+  storedHash: "c4e5f6a7b8...",
+  foundHash:  "d1e2f3a4b5...",
+  evalRunBlocked: true
+}
+```
+
+Legal AI Corp eval harness shows the blocked state with the integrity failure UI above. [Register New Checkpoint] CTA links to registration form pre-filled with the same endpoint.
+
+---
+
+### Implementation Notes for Claude Code (delta)
+
+162. Hash computation: mock with a pre-stored hash value per checkpoint. [Compute hash] button shows a 2-second spinner then reveals the hash. Do not implement real SHA256 computation — store mock values.
+163. Probe fingerprint: mock with a stored cosine similarity value per checkpoint. [Compute hash + capture probe fingerprint] captures both in one mock action.
+164. Integrity status badge: shown on each checkpoint card in experiment tracker. Green shield "✓ Verified" for passing, red shield "✗ Integrity failure" for failing. Legal AI Corp ckpt_legal_v2.0 shows red.
+165. Integrity failure UI: full-screen warning replacing the normal eval results view. Not dismissable — user must choose [Register New Checkpoint] or [View Audit Log]. No way to proceed with a failed integrity check.
+166. Probe similarity warning (0.85–0.95): shown as an amber interstitial before eval results. User can proceed — logged if they do.
+167. Base model change warning: shown once per experiment creation when base_model differs from previous experiment's checkpoint. Proceed closes the modal. "Run calibration" opens a new experiment form pre-filled with 200-row subset config.
+168. Audit log entry for integrity failure: auto-created, visible to Admin role in audit log. Shown with red background in the log list. Filterable by event type "checkpoint_integrity_failure".

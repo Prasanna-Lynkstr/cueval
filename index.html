@@ -154,6 +154,19 @@ a{color:inherit;text-decoration:none}
 .page-h{font-family:var(--font-display);font-weight:700;font-size:26px;letter-spacing:-.5px}
 .page-sub{color:var(--text-secondary);margin-top:4px}
 .section-h{font-size:12px;text-transform:uppercase;letter-spacing:.7px;color:var(--text-muted);font-weight:600;margin-bottom:12px}
+/* §43 Data module — primary tab bar (active underlined in coral) */
+.data-tabs{display:flex;gap:4px;border-bottom:1px solid var(--border);margin-top:18px}
+.data-tab{position:relative;display:inline-flex;align-items:center;gap:7px;padding:10px 14px;font-size:14px;font-weight:500;color:var(--text-secondary);border-bottom:2px solid transparent;margin-bottom:-1px;transition:color var(--t-fast)}
+.data-tab:hover{color:var(--text-primary)}
+.data-tab.is-active{color:var(--coral);border-bottom-color:var(--coral)}
+.data-tab .dt-count{font-size:11px;color:var(--text-muted);background:var(--bg-elevated);border-radius:20px;padding:1px 7px}
+.data-tab.is-active .dt-count{color:var(--coral)}
+/* §43 setup wizard */
+.wiz-radio{flex-shrink:0;width:18px;height:18px;border-radius:50%;border:2px solid var(--border);margin-top:2px;position:relative;transition:border-color var(--t-fast)}
+.wiz-radio.is-on{border-color:var(--coral)}
+.wiz-radio.is-on::after{content:"";position:absolute;inset:3px;border-radius:50%;background:var(--coral)}
+.card.is-sel{background:var(--coral-glow)}
+.wiz-step{flex-shrink:0;width:26px;height:26px;border-radius:50%;background:var(--gradient-brand);color:#fff;font-weight:700;font-size:13px;display:grid;place-items:center}
 
 .btn{display:inline-flex;align-items:center;gap:7px;padding:8px 15px;border-radius:9px;font-weight:600;font-size:13px;
   transition:background var(--t-fast),border var(--t-fast),opacity var(--t-fast);border:1px solid transparent;white-space:nowrap}
@@ -676,15 +689,15 @@ function buildCagRows(){
 }
 
 const projects = [
-  { id:'p1', tenantId:'tenant_pravartak', name:'Legal AI Assistant', description:'Fine-tuned assistant for Indian contract & company law.', status:'active', tags:['legal','en','hi'], members:[{userId:'u2',role:'ProjectManager'},{userId:'u3',role:'Architect'},{userId:'u4',role:'MLEngineer'},{userId:'u5',role:'Reviewer'},{userId:'u6',role:'Annotator'}], createdAt:'2025-02-01' },
+  { id:'p1', tenantId:'tenant_pravartak', name:'Legal AI Assistant', description:'Fine-tuned assistant for Indian contract & company law.', status:'active', tags:['legal','en','hi'], members:[{userId:'u2',role:'ProjectManager'},{userId:'u3',role:'Architect'},{userId:'u4',role:'MLEngineer'},{userId:'u5',role:'Reviewer'},{userId:'u6',role:'Annotator'}], createdAt:'2025-02-01', wizardChoice:'all', wizardDismissed:true },
   { id:'p2', tenantId:'tenant_pravartak', name:'Customer Support Bot — Tamil', description:'Bilingual Tamil/English support agent for a telecom client.', status:'active', tags:['support','ta'], members:[{userId:'u2',role:'ProjectManager'},{userId:'u4',role:'MLEngineer'},{userId:'u5',role:'Reviewer'}], createdAt:'2025-03-12' },
   { id:'p3', tenantId:'tenant_pravartak', name:'Medical QA — Multilingual', description:'Multilingual medical triage QA across Indic languages.', status:'active', tags:['medical','hi','te','kn'], members:[{userId:'u3',role:'Architect'},{userId:'u4',role:'MLEngineer'},{userId:'u6',role:'Annotator'}], createdAt:'2025-04-20' },
   { id:'proj_cag_audit', tenantId:'tenant_pravartak', name:'CAG Audit Intelligence', description:'NLP chatbot for government auditors — GFR compliance, audit observation drafting, financial rules reference.', status:'active', tags:['audit','gfr','en'], synthesisTemplate:'audit_compliance', domainSeedRows:47, corpusSize:1200, members:[{userId:'u3',role:'Architect'},{userId:'u4',role:'MLEngineer'}], createdAt:'2025-05-02' },
-  { id:'p4', tenantId:'tenant_legalai', name:'Contract Analysis AI', description:'Clause extraction and risk flagging for commercial contracts.', status:'active', tags:['legal','en'], members:[{userId:'u7',role:'Admin'},{userId:'u8',role:'MLEngineer'}], createdAt:'2025-03-05' },
+  { id:'p4', tenantId:'tenant_legalai', name:'Contract Analysis AI', description:'Clause extraction and risk flagging for commercial contracts.', status:'active', tags:['legal','en'], members:[{userId:'u7',role:'Admin'},{userId:'u8',role:'MLEngineer'}], createdAt:'2025-03-05', wizardChoice:'import', wizardDismissed:true },
   { id:'p5', tenantId:'tenant_legalai', name:'Due Diligence Bot', description:'Automated due-diligence Q&A over data rooms.', status:'active', tags:['legal'], members:[{userId:'u7',role:'Admin'},{userId:'u8',role:'MLEngineer'}], createdAt:'2025-04-01' },
   { id:'p6', tenantId:'tenant_legalai', name:'Compliance Checker', description:'Regulatory compliance verification assistant.', status:'active', tags:['compliance'], members:[{userId:'u7',role:'Admin'}], createdAt:'2025-04-18' },
-  { id:'p7', tenantId:'tenant_healthbot', name:'Symptom Triage Assistant', description:'Hindi/English symptom triage for primary care.', status:'active', tags:['medical','hi'], members:[{userId:'u9',role:'Admin'}], createdAt:'2025-05-12' },
-  { id:'proj_nbfc_chatbot', tenantId:'tenant_nbfc', name:'Customer Support Chatbot', description:'NLP chatbot for loan eligibility, EMI calculations, repayment schedules, and KYC queries.', status:'active', tags:['nbfc','en','hi'], members:[{userId:'un1',role:'MLEngineer'},{userId:'un2',role:'Annotator'},{userId:'un3',role:'ProjectManager'}], createdAt:'2025-04-01' },
+  { id:'p7', tenantId:'tenant_healthbot', name:'Symptom Triage Assistant', description:'Hindi/English symptom triage for primary care.', status:'active', tags:['medical','hi'], members:[{userId:'u9',role:'Admin'}], createdAt:'2025-05-12', wizardChoice:'structured', wizardDismissed:true },
+  { id:'proj_nbfc_chatbot', tenantId:'tenant_nbfc', name:'Customer Support Chatbot', description:'NLP chatbot for loan eligibility, EMI calculations, repayment schedules, and KYC queries.', status:'active', tags:['nbfc','en','hi'], members:[{userId:'un1',role:'MLEngineer'},{userId:'un2',role:'Annotator'},{userId:'un3',role:'ProjectManager'}], createdAt:'2025-04-01', wizardChoice:'documents', wizardDismissed:true },
 ];
 
 const releases = [
@@ -778,9 +791,41 @@ const experiments = [
   { id:'x2', projectId:'p1', releaseId:'rel2', tenantId:'tenant_pravartak', name:'Legal v1.1 curated', datasetId:'d1', datasetVersion:'v2.1', checkpointId:'ckpt-v1.1', evalRunId:'e2', costEstimate:2340, status:'completed', createdBy:'Arjun ML', createdAt:'2025-05-14', notes:'Retrained after removing near-duplicates and PII rows.', trainingConfig:{ baseModel:'Llama-3.1-8B', epochs:4, learningRate:0.00018, batchSize:16, loraRank:32, optimizer:'adamw' } },
   { id:'x3', projectId:'p2', releaseId:'rel4', tenantId:'tenant_pravartak', name:'Tamil support v1', datasetId:'d2', datasetVersion:'v1.0', checkpointId:'ckpt-tamil', evalRunId:'e3', costEstimate:2760, status:'running', createdBy:'Arjun ML', createdAt:'2025-07-08', notes:'Bilingual Tamil/English run, LoRA rank 32.', trainingConfig:{ baseModel:'Sarvam-2B', epochs:5, learningRate:0.0003, batchSize:8, loraRank:32, optimizer:'adamw' } },
   { id:'x4', projectId:'p4', releaseId:'rel7', tenantId:'tenant_legalai', name:'Clause refinement', datasetId:'d4', datasetVersion:'v1.1', checkpointId:'ckpt-clause', evalRunId:'e5', costEstimate:3120, status:'completed', createdBy:'Sara Iyer', createdAt:'2025-06-08', notes:'Refined clause extraction with higher rank.', trainingConfig:{ baseModel:'Llama-3.1-8B', epochs:4, learningRate:0.00015, batchSize:32, loraRank:64, optimizer:'adamw' } },
+  // §44 — Legal AI contract-base run whose checkpoint later failed integrity (weights modified post-registration).
+  { id:'x_legal_v2', projectId:'p4', releaseId:'rel6', tenantId:'tenant_legalai', name:'Contract base v2.0', datasetId:'d4', datasetVersion:'v2.0', checkpointId:'ckpt_legal_v2.0', evalRunId:'e4', costEstimate:2900, status:'completed', createdBy:'Sara Iyer', createdAt:'2025-05-28', notes:'Contract base fine-tune, registered 28 May.', trainingConfig:{ baseModel:'Llama-3.1-8B', epochs:3, learningRate:0.0002, batchSize:16, loraRank:16, optimizer:'adamw' } },
   // NBFC case study experiments (spec §39)
   { id:'exp_v1_0', projectId:'proj_nbfc_chatbot', releaseId:'rel_v1_0', tenantId:'tenant_nbfc', name:'Baseline Fine-tune — Mistral 7B', datasetId:'ds_nbfc_v1', datasetVersion:'v1.0', checkpointId:'ckpt_v1_0', evalRunId:'eval_v1_0', costEstimate:0, status:'completed', createdBy:'Arjun Mehta', createdAt:'2025-04-08', notes:'Baseline run on cleaned dataset v1.0.', snapshotHash:'sha256:a3f8c2d9e1b4f7', trainingConfig:{ baseModel:'Mistral-7B-Instruct-v0.2', epochs:3, learningRate:0.0002, batchSize:8, loraRank:8, optimizer:'adamw' } },
   { id:'exp_v1_1', projectId:'proj_nbfc_chatbot', releaseId:'rel_v1_1', tenantId:'tenant_nbfc', name:'Factuality Fix — Structural Chunking', datasetId:'ds_nbfc_v1_1', datasetVersion:'v1.1', checkpointId:'ckpt_v1_1', evalRunId:'eval_v1_1', costEstimate:0, status:'completed', createdBy:'Arjun Mehta', createdAt:'2025-04-24', notes:'Re-ingested 15 product PDFs with structural chunking. +280 interest-rate rows.', snapshotHash:'sha256:b7d2a1e4c9f3', trainingConfig:{ baseModel:'Mistral-7B-Instruct-v0.2', epochs:3, learningRate:0.0002, batchSize:8, loraRank:8, optimizer:'adamw' } },
+];
+// §44 — Checkpoint integrity registry. Real records (weights hash, probe fingerprint, base model)
+// so eval can detect tampered weights / drifted endpoints. All values mock/deterministic (notes 162-163).
+const PROBE_QUESTION = 'Describe the capital city of France in one sentence.';
+const checkpoints = [
+  { id:'ckpt_v1_0', experimentId:'exp_v1_0', releaseId:'rel_v1_0', projectId:'proj_nbfc_chatbot', tenantId:'tenant_nbfc',
+    locationType:'local', location:'/data/models/nbfc-llm/v1.0/', inferenceEndpoint:'http://nbfc-llm-internal:8080/generate',
+    weightsHash:'a3f8c2d9e1b4f7c3d8e2a1b9c4f6d7e2', baseModel:{ id:'mistralai/Mistral-7B-Instruct-v0.2', version:'v0.2', source:'huggingface' },
+    adapterType:'lora', loraRank:8, registeredAt:'2025-04-08T14:32:00Z', registeredBy:'Arjun Mehta',
+    probeFingerprint:{ probeQuestion:PROBE_QUESTION, capturedAt:'2025-04-08T14:35:00Z', capturedBy:'registration_worker', selfCheck:1.00, cosineSim:1.00 },
+    integrityStatus:'verified' },
+  { id:'ckpt_v1_1', experimentId:'exp_v1_1', releaseId:'rel_v1_1', projectId:'proj_nbfc_chatbot', tenantId:'tenant_nbfc',
+    locationType:'local', location:'/data/models/nbfc-llm/v1.1/', inferenceEndpoint:'http://nbfc-llm-internal:8080/generate',
+    weightsHash:'b7d2a1e4c9f3a8b5e1d4c7f2a9b3e6d1', baseModel:{ id:'mistralai/Mistral-7B-Instruct-v0.2', version:'v0.2', source:'huggingface' },
+    adapterType:'lora', loraRank:8, registeredAt:'2025-04-24T11:05:00Z', registeredBy:'Arjun Mehta',
+    probeFingerprint:{ probeQuestion:PROBE_QUESTION, capturedAt:'2025-04-24T11:07:00Z', capturedBy:'registration_worker', selfCheck:1.00, cosineSim:1.00 },
+    integrityStatus:'verified' },
+  // Legal AI Corp — weights modified after registration; eval blocked (spec §44 mock failure).
+  { id:'ckpt_legal_v2.0', experimentId:'x_legal_v2', releaseId:'rel6', projectId:'p4', tenantId:'tenant_legalai',
+    locationType:'local', location:'/data/models/contract-llm/v2.0/', inferenceEndpoint:'http://contract-llm-internal:8080/generate',
+    weightsHash:'c4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9', baseModel:{ id:'mistralai/Mistral-7B-Instruct-v0.2', version:'v0.2', source:'huggingface' },
+    adapterType:'lora', loraRank:16, registeredAt:'2025-05-28T10:15:00Z', registeredBy:'Sara Iyer',
+    probeFingerprint:{ probeQuestion:PROBE_QUESTION, capturedAt:'2025-05-28T10:18:00Z', capturedBy:'registration_worker', selfCheck:1.00, cosineSim:0.97 },
+    integrityStatus:'failed', failureDetectedAt:'2025-06-10T09:22:00Z', foundHash:'d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6', evalRunBlocked:true },
+];
+// §44 — Audit trail (Admin-visible). Integrity failures land here automatically.
+let auditEntries = [
+  { id:'aud_legal_1', tenantId:'tenant_legalai', projectId:'p4', event:'checkpoint_integrity_failure', checkpointId:'ckpt_legal_v2.0',
+    storedHash:'c4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9', foundHash:'d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6', detectedBy:'eval_worker',
+    detectedAt:'2025-06-10T09:22:00Z', evalRunId:'e4', notified:['admin@legalai.com'] },
 ];
 
 let notifications = [
@@ -851,6 +896,10 @@ const appState = {
   coverageOpen:false, // coverage indicator (§30)
   agentFilter:'all', agentProjFilter:'all', // agents log filters (§33)
   dsView:'list', // datasets sub-view: list | import (§34)
+  dataTab:'structured', // unified Data module tab: structured | documents | import (§43)
+  dataTabByProject:{}, // remember last active Data tab per project (§43 note 155)
+  wizardSel:null, // setup-wizard current radio selection (§43)
+  integrityBlock:null, auditFilter:'all', probeOverride:null, // §44 checkpoint integrity + audit log state
 };
 // Document-ingestion collections (populated in initMockData — after Section E)
 let documents = [];
@@ -878,7 +927,28 @@ let liveTimers = [];
 function registerTimer(id){ liveTimers.push(id); return id; }
 function clearScreenTimers(){ liveTimers.forEach(id=>clearInterval(id)); liveTimers=[]; }
 
-function setView(v){ clearScreenTimers(); currentView=v; appState.panel=null; renderShell(); log.event('nav',{view:v}); }
+function setView(v){
+  clearScreenTimers();
+  // §43 — legacy 'datasets'/'documents' views fold into the unified Data module.
+  if(v==='datasets'){ v='data'; appState.dataTab='structured'; }
+  else if(v==='documents'){ v='data'; appState.dataTab='documents'; }
+  else if(v==='data'){ appState.dataTab = appState.dataTabByProject[appState.projectId] || appState.dataTab || 'structured'; }
+  currentView=v; appState.panel=null; renderShell(); log.event('nav',{view:v});
+}
+// §43 — navigate to a specific Data tab (used by import connector + breadcrumb CTAs, note 161).
+function gotoData(tab, opts){
+  clearScreenTimers();
+  appState.dataTab = tab || 'structured';
+  appState.dataTabByProject[appState.projectId] = appState.dataTab;
+  if(opts && opts.ds){ activeDatasetId=opts.ds; appState.dsView='list'; }
+  currentView='data'; appState.panel=null; renderShell(); log.event('nav',{view:'data', tab:appState.dataTab});
+}
+// §43 — resolve which Data tab to show, honouring per-project memory (note 155).
+function resolveDataTab(){
+  const t = appState.dataTab || appState.dataTabByProject[appState.projectId] || 'structured';
+  appState.dataTabByProject[appState.projectId] = t;
+  return t;
+}
 
 /* ============================================================
    SECTION D — DATA ACCESSORS  (tenant isolation boundary, CLAUDE.md §5)
@@ -897,6 +967,27 @@ function getExperiments(){ return scoped(experiments); }
 function getUsers(){ if(currentUser && currentUser.role==='SuperAdmin' && !impersonating) return users.slice(); return currentTenant?users.filter(u=>u.tenantId===currentTenant.id):[]; }
 function getNotifications(){ return scoped(notifications); }
 function getActivity(){ return scoped(activity); }
+function getCheckpoints(){ return scoped(checkpoints); }        // §44 tenant-scoped checkpoint registry
+function getAuditEntries(){ return scoped(auditEntries); }      // §44 tenant-scoped audit trail
+// §44 — resolve the candidate checkpoint for a release: prefer a checkpoint pinned to the release,
+// else the checkpoint named by the release's experiment. Returns null if unregistered.
+function checkpointFor(rel){
+  if(!rel) return null;
+  const direct = getCheckpoints().find(c=>c.releaseId===rel.id);
+  if(direct) return direct;
+  const exp = getExperiments().find(x=>x.releaseId===rel.id && x.checkpointId);
+  return exp ? byId(getCheckpoints(), exp.checkpointId) : null;
+}
+// §44 — integrity verdict for a checkpoint (mock/deterministic, notes 162-163).
+// Hash mismatch always blocks; otherwise the probe-fingerprint cosine band decides.
+function checkIntegrity(ckpt){
+  if(!ckpt) return { level:'pass', kind:null };
+  if(ckpt.integrityStatus==='failed') return { level:'block', kind:'hash' };
+  const sim = ckpt.probeFingerprint ? ckpt.probeFingerprint.cosineSim : 1.00;
+  if(sim < 0.85) return { level:'block', kind:'probe', sim };
+  if(sim < 0.95) return { level:'warn', kind:'probe', sim };
+  return { level:'pass', kind:'probe', sim };
+}
 function getDocuments(){ return scoped(documents); }
 function getOcrRegions(){ return scoped(ocrRegions); }
 function getChunks(){ return scoped(chunks); }
@@ -1131,6 +1222,7 @@ const ICON = {
   info:S+'<circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/></svg>',
   warn:S+'<path d="M12 3l9 16H3z"/><path d="M12 10v4M12 17h.01"/></svg>',
   lock:S+'<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>',
+  shield:S+'<path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/></svg>',
   flag:S+'<path d="M4 21V4M4 4h11l-1.5 3L15 10H4"/></svg>',
   eval:S+'<path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h9"/></svg>',
   release:S+'<path d="M12 2v6M12 8l3-3M12 8L9 5"/><rect x="4" y="8" width="16" height="12" rx="2"/></svg>',
@@ -1169,18 +1261,17 @@ const ICON = {
 // Dock grouped by workflow stage; each item is role-filtered (UX redesign phase 1).
 const DOCK_GROUPS = [
   { label:'',           items:[['dashboard','home','Dashboard']] },
-  { label:'Data',       items:[['datasets','database','Datasets'],['documents','doc','Documents']] },
+  { label:'Data',       items:[['data','database','Data']] }, // §43 — unified module (Structured/Documents/Import tabs)
   { label:'Annotate',   items:[['review','pencil','Review Queue']] },
   { label:'Model',      items:[['experiments','beaker','Experiments'],['eval','bolt','Eval Harness']] },
   { label:'Production',  items:[['monitor','radar','Monitor'],['agents','robot','Agents']] },
   { label:'Ship',       items:[['releases','rocket','Releases']] },
-  { label:'Manage',     items:[['projects','folder','Projects'],['settings','gear','Settings']] },
+  { label:'Manage',     items:[['projects','folder','Projects'],['audit','shield','Audit Log'],['settings','gear','Settings']] },
 ];
 // Which roles see each destination in their rail (Admin sees all; hidden items still reachable via ⌘K).
 const DOCK_VIS = {
   dashboard:null, // everyone
-  datasets:['Admin','ProjectManager','Architect','MLEngineer','Reviewer'],
-  documents:['Admin','ProjectManager','Architect','MLEngineer'],
+  data:['Admin','ProjectManager','Architect','MLEngineer','Reviewer'], // §43 union of former datasets+documents visibility
   review:['Admin','ProjectManager','Reviewer','Annotator'],
   experiments:['Admin','ProjectManager','Architect','MLEngineer'],
   eval:['Admin','ProjectManager','Architect','MLEngineer'],
@@ -1188,6 +1279,7 @@ const DOCK_VIS = {
   agents:['Admin','ProjectManager','Architect','MLEngineer'],
   releases:['Admin','ProjectManager','Architect','MLEngineer'],
   projects:['Admin','ProjectManager','Architect','MLEngineer'],
+  audit:['Admin'], // §44 audit log — Admin-only
   settings:['Admin'],
 };
 function canSeeDockItem(view){ const v=DOCK_VIS[view]; if(!v) return true; return v.includes(currentUser.role); }
@@ -1224,6 +1316,7 @@ function renderDock(){
       html+='<div class="dock-group">'+(g.label?'<div class="dock-glabel">'+g.label+'</div>':'');
       items.forEach(it=>{ let badge='';
         if(it[0]==='review' && pend>0) badge='<span class="dock-badge">'+pend+'</span>';
+        if(it[0]==='data'){ const fl=datasetPendingCount(); if(fl>0) badge='<span class="dock-badge">'+fl+'</span>'; } // §43 note 154 — flagged rows
         if(it[0]==='eval' && running) badge='<span class="dock-badge pulse">•</span>';
         html+=dockItem(it[0], it[1], it[2], badge);
       });
@@ -1314,16 +1407,17 @@ function renderView(){
   clearScreenTimers(); // stop any animation from the previous screen (§10)
   const c=el('canvas'); if(!c) return;
   const map = {
-    dashboard:screenDashboard, projects:screenProjects, datasets:screenDatasets, documents:screenDocuments, review:screenReview,
+    dashboard:screenDashboard, projects:screenProjects, data:screenData, datasets:screenData, documents:screenData, review:screenReview,
     eval:screenEval, monitor:screenMonitor, agents:screenAgents, experiments:screenExperiments, releases:screenReleases, settings:screenSettings, guide:screenGuide,
     tenants:screenTenants, platform:screenPlatform, billing:screenBilling, alerts:screenAlerts, config:screenConfig,
+    audit:screenAudit,
   };
   const fn = map[currentView] || screenDashboard;
   c.innerHTML = '<div class="view-anim">'+guard(fn, currentView)()+'</div>';
   c.scrollTop=0;
   if(typeof afterRender==='function') afterRender();
   // Kick live animation only when the bulk dashboard is actually on screen.
-  if(currentView==='documents' && appState.docTab==='bulk' && appState.bulkView==='dashboard'){ startBulkAnimation(); }
+  if(currentView==='data' && appState.dataTab==='documents' && appState.docTab==='bulk' && appState.bulkView==='dashboard'){ startBulkAnimation(); }
   if(currentView==='monitor'){ startMonitorAnimation(); }
   if(currentView==='agents'){ startAgentAnimation(); }
 }
@@ -1553,7 +1647,7 @@ function myWorkCard(){
       ? [readyDoc.name.replace(/\.[^.]+$/,'')+' ready for chunking', 'OCR complete — configure chunk strategy', 'Configure Chunking','configure-chunking','id',readyDoc.id]
       : ['Dataset score dropped on v1.2','Medical QA now at 61 — investigate','Investigate','nav','view','datasets'],
     ProjectManager: docs.length
-      ? [docs.length+' documents processed', ocrPend>0?(docs.filter(d=>d.regionsFlagged>0).length+' awaiting OCR review'):'all clear for chunking', 'View Documents','nav','view','documents']
+      ? [docs.length+' documents processed', ocrPend>0?(docs.filter(d=>d.regionsFlagged>0).length+' awaiting OCR review'):'all clear for chunking', 'View Data','nav','view','documents']
       : ['v1.1 release blocked','8 rows unreviewed before sign-off','Check Status','nav','view','releases'],
     Admin:['Users pending role assignment','2 users need roles configured','Manage Users','nav','view','settings'],
   };
@@ -1701,22 +1795,109 @@ function screenProjects(){
 /* ---- Datasets ---- */
 let activeDatasetId=null;
 function currentDataset(){ const list=getDatasets(); return byId(list,activeDatasetId) || (activeRelease()&&datasetForRelease(activeRelease().id)) || list[0] || null; }
-function screenDatasets(){
-  if(appState.dsView==='import') return screenImportConnector();
+/* ---- §43 Unified Data module (Structured / Documents / Import tabs) ---- */
+// True if a project has ingested anything via any of the three paths (drives the setup wizard).
+function projectHasAnyData(p){
+  if(!p) return false;
+  return getDatasets().some(d=>d.projectId===p.id) || getDocuments().some(d=>d.projectId===p.id);
+}
+// A Documents-tab action currently owning the whole canvas (chunk/synth/bulk) — bypass the tab chrome.
+function isDocSubScreen(){
+  return (appState.docTab==='mine' && (appState.docView==='chunk'||appState.docView==='synth'))
+      || (appState.docTab==='bulk' && appState.bulkView!=='list');
+}
+// Row counts split by ingestion origin, across all datasets in view. Total stays exact (§43 note 158).
+function dataSourceBreakdown(list){
+  let total=0, imp=0, docs=0;
+  list.forEach(d=>{
+    const t = d.importMeta ? d.importMeta.rows : (d.totalRows||0);
+    total += t;
+    if(d.importMeta) imp += d.importMeta.rows||0;
+    else if(d.sources) docs += d.sources.filter(s=>s.fmt==='pdf').reduce((a,s)=>a+(s.rows||0),0);
+  });
+  return { total, upload:Math.max(0,total-imp-docs), documents:docs, import:imp };
+}
+function dataHeader(tab){
+  let action='';
+  if(tab==='structured' && can('Datasets')) action='<div class="selectbox" id="adddata-select"><button class="btn btn-primary" data-action="toggle-adddata">'+ICON.upload+'Add Data<span class="chev">'+ICON.chevD+'</span></button></div>';
+  else if(tab==='documents' && appState.docTab==='mine' && can('Datasets')) action='<button class="btn btn-primary" data-action="upload-document">'+ICON.upload+'Upload</button>';
+  const subs={ structured:'Curated rows & quality', documents:'Ingestion pipeline · OCR · chunking · synthesis', import:'Bring in externally labelled data' };
+  return '<div class="row-between"><div><h1 class="page-h">Data</h1><p class="page-sub">'+escapeHtml(subs[tab]||'')+' · '+escapeHtml(currentTenant.name)+'</p></div>'+action+'</div>';
+}
+function dataTabBar(tab){
+  const dsN=getDatasets().length, docN=getDocuments().length;
+  const T=[['structured','Structured',ICON.database,dsN?'<span class="dt-count">'+dsN+'</span>':''],
+           ['documents','Documents',ICON.doc,docN?'<span class="dt-count">'+docN+'</span>':''],
+           ['import','Import',ICON.download,'']];
+  return '<div class="data-tabs" role="tablist">'+T.map(t=>'<button class="data-tab '+(tab===t[0]?'is-active':'')+'" role="tab" aria-selected="'+(tab===t[0])+'" data-action="data-tab" data-tab="'+t[0]+'">'+t[2]+escapeHtml(t[1])+t[3]+'</button>').join('')+'</div>';
+}
+// Structured tab body: combined count + per-source pills + the dataset list/detail grid.
+function structuredBody(){
   const list=getDatasets();
-  // [Add Data ▾] dropdown: Upload File / Import from Annotation Tool (spec §34)
-  const addBtn = can('Datasets') ? '<div class="selectbox" id="adddata-select"><button class="btn btn-primary" data-action="toggle-adddata">'+ICON.upload+'Add Data<span class="chev">'+ICON.chevD+'</span></button></div>' : '';
-  const head='<div class="row-between"><div><h1 class="page-h">Datasets</h1><p class="page-sub">Curation & quality for '+escapeHtml(currentTenant.name)+'</p></div>'+addBtn+'</div>';
-  if(!list.length) return head+'<div class="mt24">'+emptyState('database','No datasets yet','Upload a dataset or import from an annotation tool to begin curation.',(can('Datasets')?'<button class="btn btn-primary" data-action="upload-dataset">'+ICON.upload+'Upload Dataset</button>':''))+'</div>';
+  if(!list.length) return '<div class="mt24">'+emptyState('database','No structured data yet','Upload JSONL/CSV/Parquet directly, or generate rows from the Documents and Import tabs — they all converge here.',(can('Datasets')?'<button class="btn btn-primary" data-action="upload-dataset">'+ICON.upload+'Upload Dataset</button>':''))+'</div>';
+  const bd=dataSourceBreakdown(list);
+  const pills='<div class="flex wrap gap6 mt8">'
+    +'<span class="pill pill-muted" style="font-size:11px">'+fmtNum(bd.upload)+' from upload</span>'
+    +'<span class="pill pill-muted" style="font-size:11px">'+fmtNum(bd.documents)+' from documents</span>'
+    +'<span class="pill pill-muted" style="font-size:11px">'+fmtNum(bd.import)+' from import</span></div>';
+  const summary='<div class="mt16 flex" style="align-items:baseline;gap:8px"><span class="bignum" style="font-size:22px">'+fmtNum(bd.total)+'</span><span class="secondary">rows across all ingestion sources</span></div>'+pills;
   const d=currentDataset();
   let listHtml='';
   list.forEach(x=>{ listHtml+='<button class="dropdown-item '+(x===d?'is-active':'')+'" data-action="select-dataset" data-id="'+x.id+'" style="flex-direction:column;align-items:flex-start;gap:2px">'
     +'<span class="flex gap8" style="width:100%;justify-content:space-between"><span class="mono" style="font-size:12px">'+escapeHtml(truncate(x.name,20))+'</span><span class="badge-fmt">'+x.format+'</span></span>'
     +'<span class="muted" style="font-size:11px">'+fmtNum(x.importMeta?x.importMeta.rows:x.totalRows)+' rows · score '+x.overallScore+'</span>'
     +(x.importMeta?'<span class="muted" style="font-size:10px">'+ICON.arrowR+' '+escapeHtml(x.importMeta.sourceLabel)+'</span>':'')+'</button>'; });
-  return head+'<div class="mt24" style="display:grid;grid-template-columns:230px 1fr;gap:20px;align-items:start">'
+  return summary+'<div class="mt16" style="display:grid;grid-template-columns:230px 1fr;gap:20px;align-items:start">'
     + '<div class="card" style="padding:8px"><div class="dropdown-head">Datasets</div>'+listHtml+'</div>'
     + '<div id="ds-detail">'+datasetDetail(d)+'</div></div>';
+}
+function screenData(){
+  const p=activeProject();
+  // First-visit setup wizard for empty projects (§43 notes 156-157).
+  if(p && !p.wizardDismissed && !projectHasAnyData(p)) return screenDataWizard(p);
+  const tab=resolveDataTab();
+  if(tab==='documents'){
+    if(appState.docTab!=='mine' && appState.docTab!=='bulk') appState.docTab='mine'; // guard stale sub-tab (§36)
+    // Documents sub-screens (chunk/synth/bulk wizard/dashboard) own the full canvas — render without tab chrome.
+    if(isDocSubScreen()) return screenDocuments();
+  }
+  const body = tab==='documents' ? (docTabBar() + (appState.docTab==='bulk' ? screenBulk() : screenDocList()+comingSoonMedia()))
+             : tab==='import'    ? importConnectorBody()
+             :                      structuredBody();
+  return dataHeader(tab)+dataTabBar(tab)+'<div class="mt8">'+body+'</div>';
+}
+// Setup wizard shown once per empty project (§43).
+const WIZARD_OPTS=[
+  ['structured','Structured files','CSV, JSONL, Parquet — already formatted as Q&A pairs','Start in the Structured tab'],
+  ['documents','Documents','PDFs, circulars, reports — need conversion to pairs','Start in the Documents tab'],
+  ['import','Annotation tool export','Label Studio, Argilla, Prodigy','Start in the Import tab'],
+  ['all','All of the above','Mix of sources — see the recommended sequence','Follow the sequence below'],
+];
+const WIZARD_SEQUENCE=[
+  ['Documents tab','Ingest PDFs, generate pairs'],
+  ['Import tab','Bring in annotation-tool exports'],
+  ['Structured tab','Upload any existing JSONL/CSV'],
+  ['Review Queue','Curate & annotate rows from all sources'],
+];
+function screenDataWizard(p){
+  const sel=appState.wizardSel||'structured';
+  const opts=WIZARD_OPTS.map(o=>{
+    const on=sel===o[0];
+    return '<button class="card hover'+(on?' is-sel':'')+'" data-action="wizard-pick" data-val="'+o[0]+'" style="text-align:left;width:100%;display:flex;gap:12px;align-items:flex-start;'+(on?'border-color:var(--coral)':'')+'">'
+      +'<span class="wiz-radio'+(on?' is-on':'')+'" aria-hidden="true"></span>'
+      +'<span><span class="card-title" style="font-size:14px">'+escapeHtml(o[1])+'</span>'
+      +'<span class="secondary" style="display:block;font-size:12.5px;margin-top:2px">'+escapeHtml(o[2])+'</span>'
+      +'<span class="muted" style="display:block;font-size:11px;margin-top:4px">'+ICON.arrowR+' '+escapeHtml(o[3])+'</span></span></button>';
+  }).join('');
+  let seq='';
+  if(sel==='all'){
+    seq='<div class="card mt16" style="background:var(--bg-elevated)"><div class="section-h">Recommended sequence for your project</div>'
+      +WIZARD_SEQUENCE.map((s,i)=>'<div class="flex gap12" style="align-items:center;padding:6px 0"><span class="wiz-step">'+(i+1)+'</span><div><strong style="font-size:13px">'+escapeHtml(s[0])+'</strong><span class="secondary" style="display:block;font-size:12px">'+escapeHtml(s[1])+'</span></div></div>').join('')+'</div>';
+  }
+  return '<div class="row-between"><div><h1 class="page-h">Data</h1><p class="page-sub">Set up ingestion for '+escapeHtml(p.name)+'</p></div></div>'
+    +'<div class="card mt24" style="max-width:640px"><div class="card-title" style="font-size:16px">Where does your training data come from?</div>'
+    +'<div class="stack gap8 mt16">'+opts+'</div>'+seq
+    +'<div class="flex mt20" style="justify-content:flex-end"><button class="btn btn-primary" data-action="wizard-continue">Continue'+ICON.arrowR+'</button></div></div>';
 }
 /* ---- Annotation Import Connector (spec §34) ---- */
 const IMPORT_TOOLS=[
@@ -1728,9 +1909,9 @@ const IMPORT_TOOLS=[
   {key:'custom', name:'Custom JSON', connected:false, custom:true},
 ];
 const CONVERSION_TEMPLATES=['NER → Instruction Pair','Classification → Instruction Pair','Preference Ranking → RLHF Pair','Span QA → Instruction Pair','Custom template'];
-function screenImportConnector(){
-  const back=crumb([['Datasets','import-back'],['Import from annotation tool']])
-    +'<div class="row-between"><div><h1 class="page-h">Import from Annotation Tool</h1><p class="page-sub">Bring externally labelled data into Cueval\'s curation pipeline</p></div></div>';
+// §43 — import connector rendered as the Import tab body (header/tabs supplied by screenData).
+function importConnectorBody(){
+  const back='';
   const note='<div class="boundary-box mt16"><strong>Cueval does not replace your annotation tool.</strong><div class="secondary mt4" style="font-size:13px;line-height:1.7">Use Label Studio, Argilla, or any tool your team prefers for raw data labelling. Cueval starts where they finish — converting labelled data to training-ready instruction pairs, running quality checks, and closing the loop back from production to your next annotation sprint.</div></div>';
   let cards='<div class="section-h mt24">Select source</div><div class="grid-3" style="gap:12px">';
   IMPORT_TOOLS.forEach(t=>{ const on=t.connected;
@@ -2135,19 +2316,26 @@ function screenEval(){
   let dims=''; RUBRIC_DEFAULT.forEach((d,i)=>{ dims+='<div class="row-between mt8"><span class="secondary" style="width:150px">'+d+'</span>'
     +'<input type="range" min="0" max="40" value="20" data-rubric="'+i+'" style="flex:1;accent-color:var(--coral)"><span class="mono" style="width:42px;text-align:right" id="rw'+i+'">20%</span></div>'; });
   const ec=getEvalConfig(); const run=evalRunnable(ec);
+  // §44 — resolve the candidate checkpoint for this release; a failed integrity check disables the run and replaces results.
+  const cand=checkpointFor(rel); const integ=checkIntegrity(cand); const blocked=integ.level==='block';
+  const candLabel = cand ? escapeHtml(cand.id) : 'ckpt-candidate';
   const runLabel = ec&&ec.judgeMode==='human' ? ICON.pencil+'Start Human Eval' : ICON.bolt+'Run Eval';
-  const runBtn='<button class="btn btn-primary" data-action="run-eval" data-rel="'+(rel?rel.id:'')+'"'+(run.ok?'':' disabled title="'+escapeAttr(run.why)+'"')+'>'+runLabel+'</button>';
+  const runDisabled = !run.ok || blocked;
+  const runTitle = blocked ? 'Checkpoint integrity check failed — register a new checkpoint' : (run.ok?'':run.why);
+  const runBtn='<button class="btn btn-primary" data-action="run-eval" data-rel="'+(rel?rel.id:'')+'"'+(runDisabled?' disabled title="'+escapeAttr(runTitle)+'"':'')+'>'+runLabel+'</button>';
   const cfg=judgePanel(ec)
     +'<div class="card mt16"><div class="section-h">Run configuration</div>'
     +'<div class="grid-2"><div><label class="field-label">Release</label><div class="input" style="background:var(--bg-elevated)">'+escapeHtml(rel?rel.name:'—')+'</div></div>'
     +'<div class="flex gap8" style="align-items:flex-end"><div style="flex:1"><label class="field-label">Checkpoint A</label><div class="input" style="background:var(--bg-elevated)">ckpt-base</div></div>'
-    +'<div style="flex:1"><label class="field-label">Checkpoint B</label><div class="input" style="background:var(--bg-elevated)">ckpt-candidate</div></div></div></div>'
+    +'<div style="flex:1"><label class="field-label">Checkpoint B</label><div class="input flex gap6" style="background:var(--bg-elevated);align-items:center;justify-content:space-between"><span class="mono">'+candLabel+'</span>'+(cand?integrityBadge(cand.id):'')+'</div></div></div></div>'
     +'<div class="section-h mt16">Rubric weights'+infoTip('rubric')+' <span class="muted" id="rubric-total">(total 100%)</span></div>'+dims
     +'<div class="flex gap8 mt16"><button class="btn btn-ghost btn-sm" data-action="add-dimension">'+ICON.plus+'Add Custom Dimension</button>'
     +'<div style="flex:1"></div>'+runBtn+'</div></div>'
     +rubricTipBox()
     +accuracyMonitorPanel(ec);
-  const resultHtml = result ? evalResultView(result) : '<div class="mt16">'+emptyState('bolt','No eval run yet','Run your first eval to compare checkpoints.',run.ok?runBtn:'')+'</div>';
+  const resultHtml = blocked ? integrityFailureView(cand)
+    : result ? evalResultView(result)
+    : '<div class="mt16">'+emptyState('bolt','No eval run yet','Run your first eval to compare checkpoints.',run.ok?runBtn:'')+'</div>';
   // history
   let hist=''; runs.forEach(e=>{ hist+='<button class="dropdown-item" data-action="load-eval" data-id="'+e.id+'" style="justify-content:space-between"><span>'+escapeHtml(e.runAt)+' · '+escapeHtml(e.checkpointB)+'</span>'+(e.results?'<span class="pill pill-'+pillColorForScore(e.results.B.Overall)+'">'+e.results.B.Overall+'</span>':statusPill(e.status))+'</button>'; });
   return head+'<div class="mt24" id="eval-body">'+cfg+resultHtml+'</div>'
@@ -2215,15 +2403,24 @@ function rubricTipBox(){
 function escapeAttr(s){ return String(s).replace(/'/g,'&#39;').replace(/"/g,'&quot;'); }
 
 /* ---- Experiments ---- */
+// §44 — shield pill for a checkpoint's integrity status (never colour alone — always icon+text, §9).
+// A registered checkpoint that failed shows red; everything else reads as verified (note 164: every card shows a status).
+function integrityBadge(ckptId){
+  const c=byId(getCheckpoints(), ckptId);
+  return (c && c.integrityStatus==='failed')
+    ? '<span class="pill pill-red" title="Weights modified since registration">'+ICON.shield+'Integrity failure</span>'
+    : '<span class="pill pill-green" title="Weights hash + endpoint fingerprint verified">'+ICON.shield+'Verified</span>';
+}
 function screenExperiments(){
   const xs=getExperiments();
-  const head='<div class="row-between"><div><h1 class="page-h">Experiment Tracker</h1><p class="page-sub">Reproducible training runs & their eval outcomes</p></div>'
-    +(can('Experiments')?'<button class="btn btn-primary" data-action="new-experiment">'+ICON.plus+'New Experiment</button>':'')+'</div>';
-  if(!xs.length) return head+'<div class="mt24">'+emptyState('beaker','No experiments yet','Log a training run to start tracking.',(can('Experiments')?'<button class="btn btn-primary" data-action="new-experiment">'+ICON.plus+'New Experiment</button>':''))+'</div>';
+  const regBtn = can('Experiments')?'<button class="btn btn-ghost" data-action="register-checkpoint">'+ICON.shield+'Register Checkpoint</button>':'';
+  const newBtn = can('Experiments')?'<button class="btn btn-primary" data-action="new-experiment">'+ICON.plus+'New Experiment</button>':'';
+  const head='<div class="row-between"><div><h1 class="page-h">Experiment Tracker</h1><p class="page-sub">Reproducible training runs & their eval outcomes</p></div><div class="flex gap8">'+regBtn+newBtn+'</div></div>';
+  if(!xs.length) return head+'<div class="mt24">'+emptyState('beaker','No experiments yet','Log a training run to start tracking.',newBtn)+'</div>';
   let tl='';
   xs.forEach(x=>{ const ds=byId(datasets,x.datasetId); const ev=byId(evalRuns,x.evalRunId);
     tl+='<div class="tl-node"><div class="card hover" data-action="open-experiment" data-id="'+x.id+'">'
-      +'<div class="row-between"><span class="card-title">'+escapeHtml(x.name)+'</span>'+statusPill(x.status)+'</div>'
+      +'<div class="row-between"><span class="card-title">'+escapeHtml(x.name)+'</span><span class="flex gap6">'+integrityBadge(x.checkpointId)+statusPill(x.status)+'</span></div>'
       +'<div class="flex wrap gap8 mt12 mono" style="font-size:12px;color:var(--text-secondary)">'
       +'<span class="pill pill-blue">'+escapeHtml(x.datasetVersion)+' · score '+(ds?ds.overallScore:'—')+'</span>'+ICON.arrowR
       +'<span class="pill pill-muted">'+escapeHtml(x.trainingConfig.baseModel)+'</span>'+ICON.arrowR
@@ -2231,6 +2428,106 @@ function screenExperiments(){
       +'<span class="pill pill-'+(ev&&ev.results?pillColorForScore(ev.results.B.Overall):'muted')+'">eval '+(ev&&ev.results?ev.results.B.Overall:'—')+'</span></div>'
       +'<div class="row-between mt12" style="font-size:12px"><span class="muted">Cost '+fmtMoney(x.costEstimate)+' · by '+escapeHtml(x.createdBy)+'</span><span class="muted">'+escapeHtml(x.createdAt)+'</span></div></div></div>'; });
   return head+'<div class="timeline mt24">'+tl+'</div>';
+}
+// §44 — full-screen integrity-failure view; replaces eval results, non-dismissable (note 165).
+function integrityFailureView(c){
+  const exp=byId(getExperiments(), c.experimentId);
+  const reg = exp?('08 Apr 2025'):(c.registeredAt||'').slice(0,10);
+  return '<div class="card mt16" style="border-color:var(--red)">'
+    +'<div class="flex gap8" style="align-items:center"><span class="score-bad" style="font-size:22px">⛔</span><span class="card-title" style="font-size:18px;color:var(--red)">Checkpoint Integrity Check Failed</span></div>'
+    +'<div class="grid-2 mt16" style="gap:8px;font-size:13px">'
+    +'<div><span class="muted">Checkpoint</span><div class="mono">'+escapeHtml(c.id)+'</div></div>'
+    +'<div><span class="muted">Registered</span><div>'+escapeHtml((c.registeredAt||'').replace('T',' ').replace('Z',''))+' by '+escapeHtml(c.registeredBy||'—')+'</div></div>'
+    +'<div><span class="muted">Checked</span><div>'+escapeHtml((c.failureDetectedAt||'').replace('T',' ').replace('Z',''))+'</div></div>'
+    +'<div><span class="muted">Endpoint</span><div class="mono">'+escapeHtml(c.inferenceEndpoint)+'</div></div></div>'
+    +'<div class="card mt16" style="background:var(--bg-base);padding:12px"><div class="row-between" style="font-size:12px"><span class="muted">Stored hash</span><span class="mono score-good">'+escapeHtml(c.weightsHash)+'</span></div>'
+    +'<div class="row-between mt8" style="font-size:12px"><span class="muted">Current hash</span><span class="mono score-bad">'+escapeHtml(c.foundHash||'—')+'</span></div></div>'
+    +'<p class="secondary mt16" style="font-size:13px;line-height:1.7">The weights file at <span class="mono">'+escapeHtml(c.location)+'</span> has been modified since checkpoint registration. <strong>Eval blocked.</strong></p>'
+    +'<div class="warn-banner warn-red mt12" style="margin:0;font-size:12px">'+ICON.warn+'<span>This event has been logged to the audit trail. Admin has been notified. If the model was intentionally updated, register a new checkpoint before running eval.</span></div>'
+    +'<div class="flex gap8 mt16"><button class="btn btn-primary" data-action="register-checkpoint" data-endpoint="'+escapeAttr(c.inferenceEndpoint)+'">'+ICON.shield+'Register New Checkpoint</button>'
+    +'<button class="btn btn-ghost" data-action="view-audit-log">'+ICON.arrowR+'View Audit Log</button></div></div>';
+}
+// §44 — amber interstitial when the endpoint fingerprint has drifted (0.85–0.95, note 166).
+function probeWarnModal(c){
+  const sim=c.probeFingerprint?c.probeFingerprint.cosineSim.toFixed(2):'—';
+  openModal('<div class="modal-head"><strong class="flex gap6">'+ICON.warn+'Endpoint fingerprint shifted</strong></div>'
+    +'<div class="modal-body"><p class="secondary" style="font-size:13px;line-height:1.7">The endpoint fingerprint has shifted since checkpoint registration. The model at <span class="mono">'+escapeHtml(c.inferenceEndpoint)+'</span> may have been updated.</p>'
+    +'<div class="warn-banner warn-yellow mt12" style="margin:0;font-size:12px">'+ICON.info+'<span>Similarity: '+sim+' (threshold: 0.95). Proceed only if you are certain this endpoint still serves '+escapeHtml(c.id)+'. Otherwise register a new checkpoint.</span></div></div>'
+    +'<div class="modal-foot"><button class="btn btn-ghost" data-action="register-checkpoint" data-endpoint="'+escapeAttr(c.inferenceEndpoint)+'">Cancel — Register New Checkpoint</button><button class="btn btn-primary" data-action="probe-proceed" data-rel="'+escapeAttr(c.releaseId||'')+'" data-ckpt="'+escapeAttr(c.id)+'">Proceed anyway — log this</button></div>');
+}
+// §44 — Admin audit log; integrity failures render red. Filterable by event type (note 168).
+const AUDIT_LABEL={ checkpoint_integrity_failure:'Integrity failure', probe_fingerprint_override:'Probe override', checkpoint_registered:'Checkpoint registered' };
+function screenAudit(){
+  const all=getAuditEntries();
+  const head='<div class="row-between"><div><h1 class="page-h">Audit Log</h1><p class="page-sub">Security & integrity events for '+escapeHtml(currentTenant?currentTenant.name:'—')+'</p></div></div>';
+  if(!all.length) return head+'<div class="mt24">'+emptyState('shield','No audit events','Integrity checks, checkpoint registrations, and overrides will appear here.','')+'</div>';
+  const f=appState.auditFilter||'all';
+  const types=['all'].concat(Array.from(new Set(all.map(e=>e.event))));
+  const chips='<div class="flex wrap gap6 mt16">'+types.map(t=>'<button class="chip '+(f===t?'is-on':'')+'" data-action="audit-filter" data-val="'+escapeAttr(t)+'">'+escapeHtml(t==='all'?'All events':(AUDIT_LABEL[t]||t))+'</button>').join('')+'</div>';
+  const rows=all.filter(e=>f==='all'||e.event===f).map(e=>{
+    const fail=e.event==='checkpoint_integrity_failure';
+    return '<div class="card mt8" style="'+(fail?'border-color:var(--red);background:var(--coral-glow)':'')+'">'
+      +'<div class="row-between"><span class="flex gap8" style="align-items:center">'+(fail?ICON.warn:ICON.shield)+'<strong style="font-size:13px'+(fail?';color:var(--red)':'')+'">'+escapeHtml(AUDIT_LABEL[e.event]||e.event)+'</strong>'
+      +(e.checkpointId?'<span class="pill pill-pink mono" style="font-size:10px">'+escapeHtml(e.checkpointId)+'</span>':'')+'</span>'
+      +'<span class="muted mono" style="font-size:11px">'+escapeHtml((e.detectedAt||'').replace('T',' ').replace('Z',''))+'</span></div>'
+      +(fail?'<div class="mono mt8" style="font-size:11px;color:var(--text-secondary)">stored '+escapeHtml((e.storedHash||'').slice(0,16))+'… → found '+escapeHtml((e.foundHash||'').slice(0,16))+'… · detected by '+escapeHtml(e.detectedBy||'—')+'</div>':'')
+      +(e.notified&&e.notified.length?'<div class="muted mt4" style="font-size:11px">Notified: '+escapeHtml(e.notified.join(', '))+'</div>':'')+'</div>';
+  }).join('');
+  return head+chips+'<div class="mt8">'+(rows||'<div class="muted mt16">No events of this type.</div>')+'</div>';
+}
+// §44 — checkpoint registration: computes weights hash + captures probe fingerprint (both mocked, notes 162-163).
+function mockHash(){ let h='',x=Date.now(); const hex='0123456789abcdef'; for(let i=0;i<32;i++){ x=(x*31+7)>>>0; h+=hex[(x>>(i%8*3))&15]; } return h; }
+function registerCheckpointModal(prefill){
+  if(!can('Experiments')){ showToast('You lack experiment permission','error'); return; }
+  const ep=(prefill&&prefill.endpoint)||'';
+  const models=['mistralai/Mistral-7B-Instruct-v0.2','mistralai/Mistral-7B-Instruct-v0.3','meta-llama/Llama-3.1-8B','sarvamai/Sarvam-2B'].map(m=>'<option>'+escapeHtml(m)+'</option>').join('');
+  // Real radios (self-contained modal state — radioLine's mock radios are wired to the monitor screen).
+  const rad=(name,id,lbl,on)=>'<label class="flex gap6" style="cursor:pointer;align-items:center;font-size:13px"><input type="radio" name="'+name+'" value="'+id+'"'+(on?' checked':'')+' style="accent-color:var(--coral)">'+escapeHtml(lbl)+'</label>';
+  const loc=(id,lbl,on)=>rad('ck-loc',id,lbl,on);
+  const adp=(id,lbl,on)=>rad('ck-adp',id,lbl,on);
+  openModal('<div class="modal-head"><strong class="flex gap6">'+ICON.shield+'Register Checkpoint</strong><button class="icon-btn" data-action="close-modal">'+ICON.x+'</button></div>'
+    +'<div class="modal-body"><label class="field-label">Checkpoint name</label><input class="input" id="ck-name" placeholder="ckpt_project_v1.0">'
+    +'<div class="mt12"></div><label class="field-label">Location type</label><div class="flex gap12">'+loc('local','Local path',true)+loc('s3','S3 / MinIO',false)+loc('hf','HuggingFace',false)+'</div>'
+    +'<div class="mt12"></div><label class="field-label">Path</label><input class="input mono" id="ck-path" placeholder="/data/models/…/v1.0/">'
+    +'<div class="mt12"></div><label class="field-label">Inference endpoint</label><input class="input mono" id="ck-ep" value="'+escapeAttr(ep)+'" placeholder="http://…:8080/generate">'
+    +'<div class="mt12"></div><label class="field-label">Base model</label><select class="input" id="ck-model">'+models+'</select>'
+    +'<div class="grid-2 mt12"><div><label class="field-label">Adapter type</label><div class="flex gap12">'+adp('lora','LoRA',true)+adp('full','Full',false)+adp('other','Other',false)+'</div></div>'
+    +'<div><label class="field-label">LoRA rank</label><input class="input" id="ck-rank" type="number" value="8"></div></div>'
+    +'<div class="mt16"><button class="btn btn-ghost" id="ck-compute">'+ICON.bolt+'Compute hash + capture probe fingerprint</button></div>'
+    +'<div id="ck-results" class="mt12"></div>'
+    +'<div class="boundary-box mt16" style="font-size:12px">📋 If the model weights are updated for any reason — hotfix, rate change, version bump — register a NEW checkpoint. Do not reuse an existing checkpoint record. Cueval will detect the hash mismatch and block eval anyway.</div>'
+    +'<div id="ck-err" class="field-err hidden"></div></div>'
+    +'<div class="modal-foot"><button class="btn btn-ghost" data-action="close-modal">Cancel</button><button class="btn btn-primary" id="ck-save" disabled>'+ICON.check+'Register Checkpoint</button></div>');
+  let captured=null;
+  // stopPropagation: this button has no data-action, so a bubbling click would reach the scrim's
+  // close-modal and shut the modal before the async reveal (unlike save buttons that close themselves).
+  el('ck-compute').onclick=(e)=>{
+    e.stopPropagation();
+    const box=el('ck-results'); box.innerHTML='<div class="flex gap8" style="align-items:center"><div class="spinner"></div><span class="secondary" style="font-size:13px">Computing SHA256 + sending probe…</span></div>';
+    setTimeout(()=>{ if(!el('ck-results')) return; const hash=mockHash();
+      captured={ hash, cosineSim:1.00 };
+      box.innerHTML='<div class="card" style="padding:12px;background:var(--bg-base)"><div class="row-between" style="font-size:12px"><span class="secondary">Hash</span><span class="mono score-good">'+ICON.check+' '+escapeHtml(hash.slice(0,16))+'…</span></div>'
+        +'<div class="row-between mt8" style="font-size:12px"><span class="secondary">Fingerprint</span><span class="score-good">'+ICON.check+' Captured — cosine self-check 1.00</span></div></div>';
+      el('ck-save').disabled=false;
+    }, 2000);
+  };
+  el('ck-save').onclick=()=>{
+    if(!captured){ el('ck-err').classList.remove('hidden'); el('ck-err').innerHTML=ICON.warn+'Compute the hash + fingerprint first.'; return; }
+    const name=el('ck-name').value.trim()||('ckpt_'+Date.now().toString(36));
+    const proj=activeProject();
+    const c={ id:name, experimentId:null, releaseId:null, projectId:proj?proj.id:appState.projectId, tenantId:currentTenant.id,
+      locationType:(document.querySelector('input[name=ck-loc]:checked')||{}).value||'local', location:el('ck-path').value.trim()||'—',
+      inferenceEndpoint:el('ck-ep').value.trim()||'—', weightsHash:captured.hash,
+      baseModel:{ id:el('ck-model').value, version:el('ck-model').value.split('-').pop(), source:'huggingface' },
+      adapterType:(document.querySelector('input[name=ck-adp]:checked')||{}).value||'lora', loraRank:+el('ck-rank').value||8,
+      registeredAt:'2026-07-11T00:00:00Z', registeredBy:currentUser.name,
+      probeFingerprint:{ probeQuestion:PROBE_QUESTION, capturedAt:'2026-07-11T00:00:00Z', capturedBy:'registration_worker', selfCheck:1.00, cosineSim:1.00 },
+      integrityStatus:'verified' };
+    checkpoints.unshift(c);
+    pushAudit({ event:'checkpoint_registered', checkpointId:c.id, projectId:c.projectId, detectedBy:currentUser.name });
+    closeModal(); log.event('checkpoint:register',{id:c.id}); pushActivity('registered checkpoint '+c.id);
+    showToast('Checkpoint '+c.id+' registered — hash + fingerprint captured','ok');
+  };
 }
 function panelExperiment(id){
   const x=byId(getExperiments(),id); if(!x||!assertTenant(x)) return;
@@ -3143,13 +3440,13 @@ function startBulkAnimation(){
   const job=activeBulkJob(); if(!job || job.status!=='in_progress') return;
   // counters every 2s — advance the job while keeping the funnel math consistent
   registerTimer(setInterval(()=>{
-    if(currentView!=='documents' || appState.docTab!=='bulk' || appState.bulkView!=='dashboard'){ clearScreenTimers(); return; }
+    if(currentView!=='data' || appState.dataTab!=='documents' || appState.docTab!=='bulk' || appState.bulkView!=='dashboard'){ clearScreenTimers(); return; }
     advanceBulkJob(job);
     const n=el('bulk-live'); if(n) n.innerHTML=bulkLiveHtml(job);
   }, 2000));
   // worker doc rotation every 3s
   registerTimer(setInterval(()=>{ bulkTick++;
-    if(currentView!=='documents' || appState.docTab!=='bulk' || appState.bulkView!=='dashboard'){ clearScreenTimers(); return; }
+    if(currentView!=='data' || appState.dataTab!=='documents' || appState.docTab!=='bulk' || appState.bulkView!=='dashboard'){ clearScreenTimers(); return; }
     const n=el('bulk-live'); if(n) n.innerHTML=bulkLiveHtml(job);
   }, 3000));
   log.event('bulk:animate',{job:job.id});
@@ -3248,11 +3545,11 @@ const CORPUS_SEED_TYPES=['Contract clause query','Section lookup','Summarisation
 // Coverage indicator (spec §30)
 const COVERAGE_DATA={
   tenant_pravartak:{ overallCoverage:84, inferenceTypes:{rag:91,finetuneOnly:7,openGeneration:2}, corpusSize:5203, feedbackRate:6.8, logprobsAvailable:false, monthlyGrowth:410,
-    improvements:[['Enable logprob access on the model endpoint','Confidence calibration: 0% → full coverage','View endpoint configuration →','configure-monitor',''],['Corpus growing well — continue annotation','Semantic drift coverage strengthens as the corpus grows','Go to Datasets →','nav','datasets']] },
+    improvements:[['Enable logprob access on the model endpoint','Confidence calibration: 0% → full coverage','View endpoint configuration →','configure-monitor',''],['Corpus growing well — continue annotation','Semantic drift coverage strengthens as the corpus grows','Go to Data →','nav','datasets']] },
   tenant_legalai:{ overallCoverage:68, inferenceTypes:{rag:74,finetuneOnly:18,openGeneration:8}, corpusSize:4203, feedbackRate:3.2, logprobsAvailable:false, monthlyGrowth:312,
-    improvements:[['Provide context documents at inference time','Factuality + Hallucination coverage: 71% → 89% for the 18% fine-tune traffic','View integration guide →','view-integration-guide',''],['Add 2,000 more approved responses to corpus','Semantic drift coverage: 61% → 78%','Go to Datasets →','nav','datasets'],['Increase feedback widget visibility — 3.2% rate is low','Add the feedback widget to your application','Copy feedback widget snippet →','ig-copy-feedback','']] },
+    improvements:[['Provide context documents at inference time','Factuality + Hallucination coverage: 71% → 89% for the 18% fine-tune traffic','View integration guide →','view-integration-guide',''],['Add 2,000 more approved responses to corpus','Semantic drift coverage: 61% → 78%','Go to Data →','nav','datasets'],['Increase feedback widget visibility — 3.2% rate is low','Add the feedback widget to your application','Copy feedback widget snippet →','ig-copy-feedback','']] },
   tenant_healthbot:{ overallCoverage:41, inferenceTypes:{rag:45,finetuneOnly:40,openGeneration:15}, corpusSize:890, feedbackRate:1.8, logprobsAvailable:false, monthlyGrowth:120, upgrade:true,
-    improvements:[['Corpus too small — minimum 5,000 responses recommended','Semantic drift coverage is limited below 1,000 entries','Go to Datasets →','nav','datasets'],['Most inferences are fine-tune only — context not provided','Provide context at inference for RAG scoring','View integration guide →','view-integration-guide',''],['Upgrade plan to access full corpus size limits','Starter plan caps your corpus and monitoring','Upgrade Plan →','nav','settings','upgrade']] },
+    improvements:[['Corpus too small — minimum 5,000 responses recommended','Semantic drift coverage is limited below 1,000 entries','Go to Data →','nav','datasets'],['Most inferences are fine-tune only — context not provided','Provide context at inference for RAG scoring','View integration guide →','view-integration-guide',''],['Upgrade plan to access full corpus size limits','Starter plan caps your corpus and monitoring','Upgrade Plan →','nav','settings','upgrade']] },
 };
 function getCoverage(){ return currentTenant ? COVERAGE_DATA[currentTenant.id] : null; }
 function driftCoverage(corpusSize){ if(corpusSize<1000) return 30; if(corpusSize<5000) return 61; if(corpusSize<10000) return 78; return 91; }
@@ -4011,7 +4308,7 @@ function paletteItems(q){ q=(q||'').toLowerCase(); const items=[];
     add('Documents','sparkles','Generate pairs from '+truncate(dd.name,28),'configure-synthesis',{id:dd.id}); });
   let rc=0; if(q) getDatasets().forEach(d=>d.rows.forEach(r=>{ if(rc<40 && (r.instruction||'').toLowerCase().includes(q)){ add('Rows','pencil',truncate(r.instruction,50),'open-row',{id:r.id}); rc++; } }));
   getBulkJobs().forEach(j=>add('Bulk Jobs','grid',j.name,'bulk-open',{id:j.id}));
-  [['Upload dataset','upload-dataset',null],['Upload document','upload-document',null],['Correct OCR regions','goto-ocr',null],['Start bulk ingestion job','bulk-start',null],['View bulk job status','bulk-status',null],['View deduplication report','bulk-status',null],['View annotation project','goto-annotation',null],['Run eval','nav','eval'],['New project','new-project',null],['New experiment','new-experiment',null],['About platform / Guide','nav','guide'],['Open FAQ','nav','guide'],['Open inference monitor','nav','monitor'],['View agents','nav','agents'],['Configure monitor','configure-monitor',null],['View integration guide','view-integration-guide',null],['Rank preferences (RLHF)','goto-pref',null],['Import from annotation tool','import-connector',null]].forEach(a=>add('Actions','plus',a[0],a[1],a[2]?{view:a[2]}:{}));
+  [['Upload dataset','upload-dataset',null],['Upload document','upload-document',null],['Correct OCR regions','goto-ocr',null],['Start bulk ingestion job','bulk-start',null],['View bulk job status','bulk-status',null],['View deduplication report','bulk-status',null],['View annotation project','goto-annotation',null],['Run eval','nav','eval'],['New project','new-project',null],['New experiment','new-experiment',null],['About platform / Guide','nav','guide'],['Open FAQ','nav','guide'],['Open inference monitor','nav','monitor'],['View agents','nav','agents'],['Configure monitor','configure-monitor',null],['View integration guide','view-integration-guide',null],['Rank preferences (RLHF)','goto-pref',null],['Import from annotation tool','import-connector',null],['Register checkpoint','register-checkpoint',null],['View audit log','nav','audit']].forEach(a=>add('Actions','plus',a[0],a[1],a[2]?{view:a[2]}:{}));
   const filtered = q ? items.filter(i=>i.label.toLowerCase().includes(q)||i.group.toLowerCase().includes(q)) : items.slice(0,12);
   return filtered.slice(0,40);
 }
@@ -4059,8 +4356,8 @@ function dispatch(action, d){
     case 'upload-dataset': closeAllDropdowns(); uploadModal(); break;
     // --- Annotation import connector (spec §34) ---
     case 'toggle-adddata': addDataDropdown(); break;
-    case 'import-connector': closeAllDropdowns(); setView('datasets'); appState.dsView='import'; renderView(); break;
-    case 'import-back': appState.dsView='list'; renderView(); break;
+    case 'import-connector': closeAllDropdowns(); gotoData('import'); break; // §43 — Import is now a Data tab
+    case 'import-back': gotoData('structured'); break;
     case 'import-source': { const t=IMPORT_TOOLS.find(x=>x.key===d.key); if(!t) break; if(t.custom){ uploadModal(); } else if(!t.connected){ showToast('Coming soon — email prasanna@lynkstr.com to request early access.','info'); } break; }
     case 'import-preview': importPreviewModal(); break;
     case 'import-now': importNowFlow(); break;
@@ -4102,6 +4399,17 @@ function dispatch(action, d){
     case 'ocr-flag': ocrFlag(d.id); break;
     // --- Bulk ingestion module (spec §20) ---
     case 'doc-tab': appState.docTab=d.tab; appState.bulkView='list'; appState.docView='list'; renderView(); break;
+    // §43 — unified Data module tab switch + setup wizard
+    case 'data-tab': gotoData(d.tab); break;
+    case 'wizard-pick': appState.wizardSel=d.val; renderView(); break;
+    case 'wizard-continue': {
+      const p=activeProject(); if(!p) break;
+      const choice=appState.wizardSel||'structured';
+      p.wizardChoice=choice; p.wizardDismissed=true;
+      const tab = (choice==='all'||choice==='documents') ? 'documents' : choice==='import' ? 'import' : 'structured';
+      appState.wizardSel=null;
+      log.event('data:wizard',{project:p.id, choice});
+      gotoData(tab); break; }
     case 'bulk-start': setView('documents'); appState.docTab='bulk'; appState.bulkView='wizard'; appState.bulkStep=1; appState.bulkConfig=defaultBulkConfig(); renderView(); break;
     case 'bulk-status': { const j=getBulkJobs()[0]; if(j){ setView('documents'); appState.docTab='bulk'; appState.bulkJobId=j.id; appState.bulkView='dashboard'; renderView(); } else showToast('No bulk jobs yet','info'); break; }
     case 'goto-annotation': { const j=getBulkJobs()[0]; if(j){ setView('review'); appState.reviewTab='ocr'; appState.annotationJobId=j.id; renderView(); } else showToast('No annotation project yet','info'); break; }
@@ -4202,12 +4510,21 @@ function dispatch(action, d){
       closeModal(); appState.dlpChecked=false; showToast('Cloud judge enabled — DLP clearance confirmed','ok'); renderView(); break; }
     case 'load-eval': { const e=byId(getEvalRuns(),d.id); if(e){ if(!e.results&&e.status==='completed') computeEval(e); appState.evalResult=e; setView('eval'); } break; }
     case 'new-experiment': newExperimentModal(); break;
+    // --- §44 checkpoint integrity / audit ---
+    case 'register-checkpoint': closeModal(); registerCheckpointModal(d.endpoint?{endpoint:d.endpoint}:null); break;
+    case 'view-audit-log': appState.integrityBlock=null; setView('audit'); break;
+    case 'audit-filter': appState.auditFilter=d.val; renderView(); break;
+    case 'probe-proceed': { const rel=byId(getReleases(),d.rel); const c=byId(getCheckpoints(),d.ckpt);
+      pushAudit({ event:'probe_fingerprint_override', checkpointId:d.ckpt, projectId:rel?rel.projectId:null, detectedBy:currentUser.name, notified:[] });
+      log.event('probe:override',{checkpoint:d.ckpt}); closeModal(); appState.probeOverride=d.ckpt; runEvalFlow(d.rel); break; }
     // --- Bulk diversity alert (spec §41 Patch 10) ---
     case 'bulk-diversity-breakdown': { const j=byId(getBulkJobs(),d.id); if(j&&j.diversity) showToast('Top cluster "'+j.diversity.top+'" = '+j.diversity.topPct+'%'+(j.diversity.under?'; under-represented: '+j.diversity.under:''),'info'); break; }
     case 'bulk-diversity-sprint': { const j=byId(getBulkJobs(),d.id); if(j&&j.diversity){ log.event('bulk:diversity_sprint',{job:d.id}); showToast('Annotation sprint created — "Diversity enrichment — '+(j.diversity.under||j.diversity.top)+'" (mocked).','ok'); } break; }
     // --- Model-relative quality warning (spec §41 Change 10) ---
     case 'proceed-experiment': if(appState.pendingExp) commitExperiment(appState.pendingExp); break;
-    case 'calibrate-experiment': { const v=appState.pendingExp; appState.pendingExp=null; closeModal(); showToast('Calibration experiment queued — 300 rows on '+(v?v.baseModel:'the new model')+' before full training (mocked).','info'); break; }
+    case 'calibrate-experiment': { const v=appState.pendingExp; appState.pendingExp=null; closeModal();
+      const clone = v ? { name:'Calibration — 200 rows', trainingConfig:{ baseModel:v.baseModel, epochs:1, learningRate:v.learningRate, batchSize:v.batchSize, loraRank:v.loraRank, optimizer:v.optimizer } } : null;
+      newExperimentModal(clone); showToast('Calibration run — 200-row subset on '+(v?v.baseModel:'the new model')+'. Review and save.','info'); break; }
     case 'open-experiment': panelExperiment(d.id); break;
     case 'clone-experiment': { const x=byId(getExperiments(),d.id); closePanel(); newExperimentModal(x); break; }
     case 'open-release': openReleaseDetail(d.id); break;
@@ -4230,6 +4547,8 @@ function dispatch(action, d){
 
 function pushNotif(text, icon){ notifications.unshift({id:'n'+Date.now(), tenantId:currentTenant?currentTenant.id:null, text, time:'just now', read:false, icon:icon||'info'}); }
 function pushActivity(text){ activity.unshift({id:'a'+Date.now(), tenantId:currentTenant?currentTenant.id:null, who:currentUser.name, text, time:'just now'}); }
+// §44 — append an audit-trail entry (Admin-visible). Always carries tenantId for isolation (§5).
+function pushAudit(entry){ auditEntries.unshift(Object.assign({ id:'aud'+Date.now(), tenantId:currentTenant?currentTenant.id:null, detectedAt:'2026-07-11T00:00:00Z' }, entry)); }
 
 /* ---- Review actions ---- */
 function reviewRow(rowId, action, fromQueue){
@@ -4272,6 +4591,18 @@ function runEvalFlow(relId){
   if(!can('Eval')){ showToast('You lack eval permission','error'); return; }
   const ec=getEvalConfig(); const run=evalRunnable(ec); if(!run.ok){ showToast(run.why,'error'); return; } // §38 calibration / DLP gate
   const rel = byId(getReleases(), relId) || activeRelease(); if(!rel){ showToast('No release selected','error'); return; }
+  // §44 — checkpoint integrity gate before any eval work: block on hash mismatch, warn on probe drift.
+  const cand=checkpointFor(rel); const verdict=checkIntegrity(cand);
+  if(verdict.level==='block'){
+    appState.integrityBlock={ relId:rel.id, ckptId:cand?cand.id:null };
+    if(cand && !getAuditEntries().some(a=>a.event==='checkpoint_integrity_failure'&&a.checkpointId===cand.id&&a.evalRunId===rel.evalRunId)){
+      pushAudit({ event:'checkpoint_integrity_failure', checkpointId:cand.id, projectId:rel.projectId, storedHash:cand.weightsHash, foundHash:cand.foundHash||'—', detectedBy:'eval_worker', evalRunId:rel.evalRunId, notified:[currentUser.email] });
+    }
+    log.event('eval:blocked',{checkpoint:cand?cand.id:null, reason:verdict.kind});
+    setView('eval'); showToast('Eval blocked — checkpoint integrity check failed','error'); return;
+  }
+  if(verdict.level==='warn' && cand && appState.probeOverride!==cand.id){ probeWarnModal(cand); return; }
+  appState.probeOverride=null; // consumed
   const mode = ec ? ec.judgeMode : 'local';
   if(mode==='human'){ humanEvalFlow(rel); return; } // manual human scoring, not auto-score
   const where = mode==='cloud' ? ' via external API' : ' on-prem (Mistral 7B INT8)';
@@ -4428,9 +4759,10 @@ function modelChangeModal(prev, next){
   openModal('<div class="modal-head"><strong class="flex gap6">'+ICON.warn+'Base model changed</strong></div>'
     +'<div class="modal-body"><div class="grid-2" style="gap:8px"><div><label class="field-label">Previous</label><div class="input mono" style="background:var(--bg-elevated)">'+escapeHtml(prev)+'</div></div>'
     +'<div><label class="field-label">New</label><div class="input mono" style="background:var(--bg-elevated)">'+escapeHtml(next)+'</div></div></div>'
-    +'<p class="secondary mt16" style="font-size:13px;line-height:1.7">Quality scores in your dataset were calibrated for <b>'+escapeHtml(prev)+'</b>. Research shows data quality is model-relative — rows that helped '+escapeHtml(prev.split('-')[0])+' may behave differently with '+escapeHtml(next.split('-')[0])+' (Ye et al., 2025).</p>'
-    +'<div class="warn-banner warn-yellow mt12" style="margin:0;font-size:12px">'+ICON.info+'<span>Recommendation: run a calibration experiment on 200–500 rows before committing to full training.</span></div></div>'
-    +'<div class="modal-foot"><button class="btn btn-ghost" data-action="proceed-experiment">Proceed anyway</button><button class="btn btn-primary" data-action="calibrate-experiment">Create calibration experiment</button></div>');
+    +'<p class="secondary mt16" style="font-size:13px;line-height:1.7">Dataset quality scores were calibrated for <b>'+escapeHtml(prev)+'</b>. Quality is model-relative — rows that helped '+escapeHtml(prev.split('-')[0])+' may behave differently with '+escapeHtml(next.split('-')[0])+' (Ye et al., 2025, arxiv:2510.13212).</p>'
+    +'<p class="secondary mt8" style="font-size:13px;line-height:1.7">Also: eval scores from a prior checkpoint on '+escapeHtml(prev)+' are <b>not directly comparable</b> to new checkpoints on '+escapeHtml(next)+'. Run a fresh baseline eval after switching.</p>'
+    +'<div class="warn-banner warn-yellow mt12" style="margin:0;font-size:12px">'+ICON.info+'<span>Recommendation: run a calibration experiment on a 200-row subset before committing to full training.</span></div></div>'
+    +'<div class="modal-foot"><button class="btn btn-ghost" data-action="proceed-experiment">Proceed anyway</button><button class="btn btn-primary" data-action="calibrate-experiment">Run calibration experiment first</button></div>');
 }
 function uploadModal(){
   if(!can('Datasets')){ showToast('You lack dataset permission','error'); return; }
