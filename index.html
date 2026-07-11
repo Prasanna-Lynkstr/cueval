@@ -272,6 +272,7 @@ textarea.input{resize:vertical;min-height:90px;font-family:var(--font-mono);font
   border-radius:20px;padding:34px 30px;box-shadow:0 40px 100px rgba(0,0,0,.6)}
 .login-logo{width:54px;height:54px;border-radius:16px;background:var(--gradient-brand);display:grid;place-items:center;
   font-family:var(--font-display);font-weight:700;color:#fff;font-size:26px;margin:0 auto 16px;box-shadow:0 8px 30px var(--coral-glow)}
+.login-logo svg{width:26px;height:26px}
 .demo-list{border:1px solid var(--border);border-radius:11px;overflow:hidden;margin-top:14px}
 .demo-toggle{width:100%;display:flex;align-items:center;justify-content:space-between;padding:11px 14px;background:var(--bg-elevated)}
 .demo-body{max-height:0;overflow:hidden;transition:max-height var(--t-panel) ease}
@@ -480,6 +481,9 @@ const users = [
   { id:'u0', email:'superadmin@cueval.ai', name:'Lynkstr Ops', tenantId:null, role:'SuperAdmin', lastActive:'now', projects:0 },
 ];
 const PASSWORD = 'demo123';
+// Demo access gate — shared-link "captcha". NOT real security (client-side, visible in source);
+// it just keeps casual visitors/crawlers out of the hosted demo. Real gating belongs at the host layer.
+const ACCESS_KEY = 'cueval-demo!';
 
 // Annotator session-health for fatigue detection (spec §41 Change 9). PM/Admin-visible only; framed as wellbeing.
 let annotatorSessions = [
@@ -816,6 +820,7 @@ let activity = [
 /* ============================================================
    SECTION C — STATE
    ============================================================ */
+let accessGranted = false;   // demo access-key gate cleared this session (§ shared-link captcha)
 let currentUser = null;      // resolved at login
 let currentTenant = null;    // resolved at login, immutable except via impersonation
 let impersonating = false;   // SuperAdmin viewing a tenant (read-only)
@@ -1125,6 +1130,7 @@ const ICON = {
   x:S+'<path d="M18 6L6 18M6 6l12 12"/></svg>',
   info:S+'<circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/></svg>',
   warn:S+'<path d="M12 3l9 16H3z"/><path d="M12 10v4M12 17h.01"/></svg>',
+  lock:S+'<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>',
   flag:S+'<path d="M4 21V4M4 4h11l-1.5 3L15 10H4"/></svg>',
   eval:S+'<path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h9"/></svg>',
   release:S+'<path d="M12 2v6M12 8l3-3M12 8L9 5"/><rect x="4" y="8" width="16" height="12" rx="2"/></svg>',
@@ -1450,6 +1456,37 @@ const DEMO_GROUPS = [
   { org:'HealthBot India — Starter', accts:[['admin@healthbot.in','Admin']] },
   { org:'Finserv NBFC (Case Study) — Pro', accts:[['ml@finserv.com','ML Engineer (Arjun)'],['annotator@finserv.com','Annotator (Priya)'],['pm@finserv.com','Project Manager (Rohan)']] },
 ];
+// Shared-link access gate — a lightweight "captcha" shown before login on the hosted demo.
+// Deliberately client-side (see ACCESS_KEY note); gates casual access, not a security boundary.
+function renderGate(){
+  document.body.classList.remove('impersonating');
+  el('app').innerHTML = '<div class="login"><div class="login-mesh"></div>'
+    + '<div class="login-card"><div class="login-logo">'+ICON.lock+'</div>'
+    + '<h1 style="text-align:center;font-family:var(--font-display);font-weight:700;font-size:24px">Private demo</h1>'
+    + '<p style="text-align:center;color:var(--text-secondary);margin-top:4px;font-weight:500">Enter your access key to continue</p>'
+    + '<form id="gate-form" style="margin-top:22px">'
+    + '<label class="field-label" for="gate-key">Access key</label>'
+    + '<input class="input" id="gate-key" type="password" autocomplete="off" placeholder="••••••••" autofocus />'
+    + '<div id="gate-err" class="field-err hidden"></div>'
+    + '<button class="btn btn-primary" type="submit" style="width:100%;justify-content:center;margin-top:16px">Continue'+ICON.arrowR+'</button>'
+    + '</form>'
+    + '<p style="text-align:center;color:var(--text-muted);margin-top:16px;font-size:12px">Shared with you by the Cueval team.</p>'
+    + '</div></div>';
+  const f=el('gate-form');
+  f.addEventListener('submit', e=>{ e.preventDefault(); doGate(el('gate-key').value); });
+}
+// Verify the demo access key, then hand off to the real login screen.
+function doGate(key){
+  const err=el('gate-err');
+  if(key!==ACCESS_KEY){
+    if(err){ err.classList.remove('hidden'); err.innerHTML=ICON.warn+'Incorrect access key.'; }
+    log.warn('[gate] rejected access key attempt');
+    return;
+  }
+  accessGranted=true;
+  log.event('gate-unlock',{});
+  renderLogin();
+}
 function renderLogin(){
   document.body.classList.remove('impersonating');
   let demo='';
@@ -4747,7 +4784,7 @@ function initMockData(){
   initAgents();    // agentic layer (spec §33)
   initPrefPairs(); // RLHF preference pairs (spec §24)
 }
-function boot(){ log.info('[boot] Cueval prototype starting'); initMockData(); renderLogin(); }
+function boot(){ log.info('[boot] Cueval prototype starting'); initMockData(); accessGranted ? renderLogin() : renderGate(); }
 boot();
 </script>
 </body>
