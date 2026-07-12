@@ -464,20 +464,20 @@ const CAL_RATING_MAP = { wrong:1, partial:3, right:5 };
    SECTION B — MOCK DATA
    ============================================================ */
 const tenants = [
-  { id:'tenant_pravartak', name:'IITM Pravartak AI Lab', slug:'pravartak', plan:'Enterprise',
+  { id:'tenant_pravartak', name:'IITM Pravartak AI Lab', slug:'pravartak', plan:'Enterprise', deploymentProfile:'research', // §48
     planLimits:{ rowsPerMonth:Infinity, evalRunsPerMonth:Infinity, maxUsers:Infinity, maxProjects:Infinity, sovereignDeployment:true },
     usage:{ rowsThisMonth:14832, evalRunsThisMonth:7, activeUsers:6, activeProjects:3 }, fee:200000,
     createdAt:'2025-01-15', status:'active' },
-  { id:'tenant_legalai', name:'Legal AI Corp', slug:'legalai', plan:'Pro',
+  { id:'tenant_legalai', name:'Legal AI Corp', slug:'legalai', plan:'Pro', deploymentProfile:'full', // §48
     planLimits:{ rowsPerMonth:500000, evalRunsPerMonth:50, maxUsers:20, maxProjects:10, sovereignDeployment:false },
     usage:{ rowsThisMonth:312400, evalRunsThisMonth:31, activeUsers:8, activeProjects:3 }, fee:35000,
     createdAt:'2025-03-02', status:'active' },
-  { id:'tenant_healthbot', name:'HealthBot India', slug:'healthbot', plan:'Starter',
+  { id:'tenant_healthbot', name:'HealthBot India', slug:'healthbot', plan:'Starter', deploymentProfile:'research', // §48 — Starter, no production
     planLimits:{ rowsPerMonth:50000, evalRunsPerMonth:10, maxUsers:5, maxProjects:3, sovereignDeployment:false },
     usage:{ rowsThisMonth:41200, evalRunsThisMonth:8, activeUsers:3, activeProjects:1 }, fee:5000,
     createdAt:'2025-05-10', status:'active' },
   // Pre-seeded illustrative NBFC case study (spec §39) — walks the full 8-stage pipeline. isCaseStudy shows a banner.
-  { id:'tenant_nbfc', name:'Finserv NBFC (Case Study)', slug:'finserv', plan:'Pro',
+  { id:'tenant_nbfc', name:'Finserv NBFC (Case Study)', slug:'finserv', plan:'Pro', deploymentProfile:'regulated_production', // §48
     planLimits:{ rowsPerMonth:500000, evalRunsPerMonth:50, maxUsers:20, maxProjects:10, sovereignDeployment:false },
     usage:{ rowsThisMonth:2800, evalRunsThisMonth:2, activeUsers:3, activeProjects:1 }, fee:35000,
     createdAt:'2025-04-01', status:'active', isCaseStudy:true },
@@ -785,7 +785,7 @@ const releases = [
   { id:'rel_v1_1', projectId:'proj_nbfc_chatbot', tenantId:'tenant_nbfc', name:'v1.1 — Factuality Fix', status:'deployed', datasetId:'ds_nbfc_v1_1', evalRunId:'eval_v1_1', createdBy:'un1', createdAt:'2025-04-23', deployedAt:'2025-04-27',
     approvals:[['Dataset quality > 70','System','24 Apr 14:02'],['Annotation complete','System','24 Apr 14:02'],['Eval score ≥ 80 (81.6)','System','24 Apr 14:04'],['ML Engineer approval','Arjun Mehta','24 Apr 14:30'],['PM sign-off','Rohan Desai','24 Apr 15:45']] },
   { id:'rel_v1_2', projectId:'proj_nbfc_chatbot', tenantId:'tenant_nbfc', name:'v1.2 — Interest Rate Update', status:'in-review', datasetId:'ds_nbfc_v1_2', evalRunId:null, createdBy:'un1', createdAt:'2025-06-10' },
-  { id:'rel_cag', projectId:'proj_cag_audit', tenantId:'tenant_pravartak', name:'v0.9 — Audit Corpus', status:'in-review', datasetId:'ds_cag_v1', evalRunId:null, createdBy:'u3', createdAt:'2025-05-20' },
+  { id:'rel_cag', projectId:'proj_cag_audit', tenantId:'tenant_pravartak', name:'v0.9 — Audit Corpus', status:'in-review', datasetId:'ds_cag_v1', evalRunId:'eval_cag_09', createdBy:'u3', createdAt:'2025-05-20' },
 ];
 
 const datasets = [
@@ -853,6 +853,13 @@ const evalRuns = [
     results:{ A:{Factuality:71,'Task Completion':78,Tone:88,'Refusal Behaviour':82,Overall:74.2}, B:{Factuality:79,'Task Completion':83,Tone:89,'Refusal Behaviour':84,Overall:81.6} },
     variance:{ A:{Factuality:8,'Task Completion':4,Tone:3,'Refusal Behaviour':4,Overall:5.1}, B:{Factuality:5,'Task Completion':3,Tone:3,'Refusal Behaviour':4,Overall:3.8} },
     tokens:0, cost:0, costLabel:'₹0 (local judge)', heldOutRows:200, humanReviewQueue:new Array(8).fill('nbfc_v1_r041') },
+  // §47/§49 — CAG audit run scored by the client's own custom judge (indic-eval-13b), reproducible bundle centrepiece.
+  { id:'eval_cag_09', projectId:'proj_cag_audit', releaseId:'rel_cag', tenantId:'tenant_pravartak', checkpointA:'ckpt-base', checkpointB:'ckpt-cag', status:'completed', runAt:'12 Jul 2026', runBy:'Dr. Anand Krishnan',
+    judgeMode:'custom', judgeModel:'indic-eval-13b', referenceGrounded:true, calibration:{status:'calibrated',kappa:0.76}, swapAugmented:true,
+    rubric:[{dimension:'Factuality',weight:40},{dimension:'Task Completion',weight:30},{dimension:'Tone',weight:15},{dimension:'Faithfulness',weight:15}],
+    results:{ A:{Factuality:78,'Task Completion':81,Tone:62,Faithfulness:84,Overall:77.4}, B:{Factuality:78,'Task Completion':81,Tone:62,Faithfulness:84,Overall:77.4} },
+    variance:{ A:{Factuality:6,'Task Completion':4,Tone:9,Faithfulness:3,Overall:5.2}, B:{Factuality:6,'Task Completion':4,Tone:9,Faithfulness:3,Overall:5.2} },
+    tokens:0, cost:0, costLabel:'₹0 · Custom judge — indic-eval-13b (client-hosted, nothing left your network)', heldOutRows:80, humanReviewQueue:[], _seed:76 },
 ];
 const experiments = [
   { id:'x1', projectId:'p1', releaseId:'rel1', tenantId:'tenant_pravartak', name:'Legal base SFT', datasetId:'d1', datasetVersion:'v2.0', checkpointId:'ckpt-v1.0', evalRunId:'e1', costEstimate:1980, status:'completed', createdBy:'Arjun ML', createdAt:'2025-03-01', notes:'Baseline supervised fine-tune on curated legal corpus.', trainingConfig:{ baseModel:'Llama-3.1-8B', epochs:3, learningRate:0.0002, batchSize:16, loraRank:16, optimizer:'adamw' } },
@@ -969,11 +976,22 @@ const appState = {
   wizardSel:null, // setup-wizard current radio selection (§43)
   integrityBlock:null, auditFilter:'all', probeOverride:null, // §44 checkpoint integrity + audit log state
   deSeedKind:null, deSeedText:'', deSuggestions:null, calIndex:0, // §45 Domain Expert seeding + calibration state
+  customJudgeTest:null,   // §47 last "Test connection" result for the custom judge
+  productioniseOpen:false, deferModule:null, // §48 deployment-profile dock + deferred explainer
+  // §46 — Reviewer & Annotator cockpit
+  cockpitFilters:{ language:null, band:null, regionType:null, status:null, documentId:null, assignedTo:null },
+  cockpitSel:null,        // selected region id
+  cockpitDocView:false,   // Reviewer left-pane toggle: false=Regions, true=Documents
+  cockpitPace:[],         // action timestamps this session → pace estimate
+  cockpitKbHelp:false,    // '?' shortcuts overlay
+  cockpitGD:false,        // 'G then D' chord latch
 };
 // Document-ingestion collections (populated in initMockData — after Section E)
 let documents = [];
 let ocrRegions = [];
 let chunks = [];
+let worklistViews = [];   // §46 saved filter presets per user
+let reviewBatches = [];   // §46 reviewer batch-approve / bulk-assign / mark-complete audit
 let bulkJobs = [];
 // Inference monitor / RLHF preference (spec §23-24)
 let inferences = [];
@@ -1060,6 +1078,8 @@ function checkIntegrity(ckpt){
 function getDocuments(){ return scoped(documents); }
 function getOcrRegions(){ return scoped(ocrRegions); }
 function getChunks(){ return scoped(chunks); }
+function getWorklistViews(){ return worklistViews.filter(v=>v.userId===currentUser.id); } // §46 saved views are per-user
+function getReviewBatches(){ return scoped(reviewBatches); }
 function getBulkJobs(){ return scoped(bulkJobs); }
 function activeBulkJob(){ return byId(getBulkJobs(), appState.bulkJobId) || getBulkJobs()[0] || null; }
 function getInferences(){ return scoped(inferences); }
@@ -1357,6 +1377,35 @@ const DOCK_VIS = {
   settings:['Admin'],
 };
 function canSeeDockItem(view){ const v=DOCK_VIS[view]; if(!v) return true; return v.includes(currentUser.role); }
+// §48 — Deployment profiles gate module VISIBILITY and defaults only (never RBAC).
+const DEFERRED_MODULES=['releases','monitor','agents']; // productionisation surface, deferred for research
+function tenantProfile(){ return (currentTenant && currentTenant.deploymentProfile) || 'full'; }
+function moduleVisibility(view, profile){
+  profile = profile || tenantProfile();
+  if(profile==='research' && DEFERRED_MODULES.includes(view)) return 'deferred';
+  return 'visible';
+}
+function profileFlags(profile){
+  profile = profile || tenantProfile();
+  return { forceReferenceGroundedEval: profile==='regulated_production', dlpStrict: profile==='regulated_production' };
+}
+const DEFERRED_INFO={
+  releases:{ icon:'rocket', label:'Release', blurb:'Gate a model version behind approvals before it ships. Available when you ship a model.' },
+  monitor:{ icon:'radar', label:'Monitor', blurb:'Watch live inference quality, drift, and flag rate in production. Available when you have live inference.' },
+  agents:{ icon:'robot', label:'Agents', blurb:'Automate routing, curation, and eval triggers with agents. Available with Release + Monitor.' },
+};
+const PROFILE_LABEL={ research:'Research / dataset building', regulated_production:'Regulated production', full:'Full platform' };
+// §48 — profile switch (Admin only): changes visibility + defaults, never RBAC or data.
+function setDeploymentProfile(p){
+  if(!can('Org')){ showToast('Only Admins can change the deployment profile','error'); return; }
+  if(!currentTenant || !PROFILE_LABEL[p]) return;
+  currentTenant.deploymentProfile=p;
+  // If the current view just became deferred, fall back to the dashboard so we don't strand the user.
+  if(DEFERRED_MODULES.includes(currentView) && moduleVisibility(currentView)==='deferred') currentView='dashboard';
+  log.event('deployment_profile:set',{tenant:currentTenant.id, profile:p});
+  renderShell();
+  showToast('Deployment profile updated to '+PROFILE_LABEL[p],'ok');
+}
 const SUPER_DOCK = [
   {view:'tenants', icon:'building', label:'Tenants'},
   {view:'platform', icon:'chart', label:'Platform Usage'},
@@ -1400,8 +1449,10 @@ function renderDock(){
     SUPER_DOCK.forEach(it=>{ const badge = it.view==='alerts' ? '<span class="dock-badge">'+alertsList().length+'</span>' : ''; html+=dockItem(it.view, it.icon, it.label, badge); });
     html+='</div>';
   } else {
+    const profile=tenantProfile();
     DOCK_GROUPS.forEach(g=>{
-      const items=g.items.filter(it=>canSeeDockItem(it[0]));
+      // §48 — role gate AND profile visibility (deferred modules drop out of their normal group).
+      const items=g.items.filter(it=>canSeeDockItem(it[0]) && moduleVisibility(it[0],profile)==='visible');
       if(!items.length) return;
       html+='<div class="dock-group">'+(g.label?'<div class="dock-glabel">'+g.label+'</div>':'');
       items.forEach(it=>{ let badge='';
@@ -1412,6 +1463,16 @@ function renderDock(){
       });
       html+='</div>';
     });
+    // §48 — collapsed "Productionise" group of deferred (greyed) modules the role could otherwise see.
+    const deferred=DEFERRED_MODULES.filter(v=>canSeeDockItem(v) && moduleVisibility(v,profile)==='deferred');
+    if(deferred.length){
+      const open=appState.productioniseOpen;
+      html+='<div class="dock-group"><button class="dock-glabel" data-action="toggle-productionise" style="background:none;border:none;cursor:pointer;color:inherit;display:flex;align-items:center;gap:4px;width:100%">'+(open?'⌄':'›')+' Productionise ('+deferred.length+')</button>';
+      if(open) deferred.forEach(v=>{ const info=DEFERRED_INFO[v];
+        html+='<button class="dock-item" data-action="defer-open" data-module="'+v+'" aria-label="'+escapeAttr(info.label)+' — available when you productionise" style="opacity:.5">'
+          +'<span class="dock-ic">'+ICON[info.icon]+'</span><span class="dock-label">'+escapeHtml(info.label)+' <span class="pill pill-muted" style="font-size:9px">soon</span></span></button>'; });
+      html+='</div>';
+    }
   }
   html+='<div class="dock-spacer"></div><div class="dock-group">';
   html+=dockItem('guide','help','Guide & FAQ','');
@@ -1502,7 +1563,13 @@ function renderView(){
     tenants:screenTenants, platform:screenPlatform, billing:screenBilling, alerts:screenAlerts, config:screenConfig,
     audit:screenAudit,
     seeding:screenExpertSeeding, calibration:screenCalibration, // §45 — Domain Expert screens
+    agreement:screenAgreementReport, // §47 — Judge Agreement Report
   };
+  // §48 — a deferred module (research profile) never opens the real screen; show the explainer instead.
+  if(currentUser && currentUser.role!=='SuperAdmin' && DEFERRED_MODULES.includes(currentView) && moduleVisibility(currentView)==='deferred'){
+    appState.deferModule=currentView;
+    c.innerHTML='<div class="view-anim">'+guard(screenDeferred, currentView)()+'</div>'; c.scrollTop=0; if(typeof afterRender==='function') afterRender(); return;
+  }
   const fn = map[currentView] || screenDashboard;
   c.innerHTML = '<div class="view-anim">'+guard(fn, currentView)()+'</div>';
   c.scrollTop=0;
@@ -1770,10 +1837,15 @@ function screenDashboard(){
   const warn = usagePct(t)>=70 ? usageBanner(t) : '';
   const header='<div class="row-between"><div><h1 class="page-h">'+escapeHtml(title)+'</h1>'
     +'<p class="page-sub">'+escapeHtml(currentUser.name)+' · '+ROLE_LABEL[role]+' · '+escapeHtml(t.name)+'</p></div></div>';
-  const board=roleBoard(role);
-  const side=roleSide(role);
+  const board=stripDeferredCTAs(roleBoard(role));
+  const side=stripDeferredCTAs(roleSide(role));
   return header+'<div class="mt24"></div>'+warn
     +'<div class="grid-3" style="grid-template-columns:1.5fr 1fr;align-items:start">'+board+side+'</div>';
+}
+// §48 note 201 — under a research profile, drop dashboard CTAs that target a deferred module.
+function stripDeferredCTAs(html){
+  if(tenantProfile()!=='research') return html;
+  return html.replace(/<button[^>]*data-view="(monitor|agents|releases)"[^>]*>[\s\S]*?<\/button>/g,'');
 }
 function heroCard(icon,title,sub,primary,extra){
   return '<div class="card" style="border-color:var(--border-active)"><div class="flex gap12" style="align-items:flex-start">'
@@ -2138,7 +2210,16 @@ function screenDataWizard(p){
     seq='<div class="card mt16" style="background:var(--bg-elevated)"><div class="section-h">Recommended sequence for your project</div>'
       +WIZARD_SEQUENCE.map((s,i)=>'<div class="flex gap12" style="align-items:center;padding:6px 0"><span class="wiz-step">'+(i+1)+'</span><div><strong style="font-size:13px">'+escapeHtml(s[0])+'</strong><span class="secondary" style="display:block;font-size:12px">'+escapeHtml(s[1])+'</span></div></div>').join('')+'</div>';
   }
-  return '<div class="row-between"><div><h1 class="page-h">Data</h1><p class="page-sub">Set up ingestion for '+escapeHtml(p.name)+'</p></div></div>'
+  // §48 — profile step (Admin only): how will you use Cueval? Defaults to the tenant's current profile.
+  const profStep = can('Org') ? '<div class="card mt24" style="max-width:640px"><div class="card-title" style="font-size:16px">How will you use Cueval?</div>'
+    +'<div class="stack gap8 mt16">'
+    +[['research','Research / dataset building','Curate, annotate, evaluate. No production release or live monitoring yet.'],
+      ['regulated_production','Regulated production','Full lifecycle with release gates, monitoring, and strict data governance.'],
+      ['full','Full platform','Everything visible, no opinionated defaults.']].map(o=>{ const on=tenantProfile()===o[0];
+      return '<button class="card hover'+(on?' is-sel':'')+'" data-action="set-profile" data-val="'+o[0]+'" style="text-align:left;width:100%;display:flex;gap:12px;align-items:flex-start;'+(on?'border-color:var(--coral)':'')+'">'
+        +'<span class="wiz-radio'+(on?' is-on':'')+'" aria-hidden="true"></span><span><span class="card-title" style="font-size:14px">'+escapeHtml(o[1])+'</span><span class="secondary" style="display:block;font-size:12.5px;margin-top:2px">'+escapeHtml(o[2])+'</span></span></button>'; }).join('')
+    +'</div><div class="muted mt12" style="font-size:11px">You can change this later in Settings.</div></div>' : '';
+  return '<div class="row-between"><div><h1 class="page-h">Data</h1><p class="page-sub">Set up ingestion for '+escapeHtml(p.name)+'</p></div></div>'+profStep
     +'<div class="card mt24" style="max-width:640px"><div class="card-title" style="font-size:16px">Where does your training data come from?</div>'
     +'<div class="stack gap8 mt16">'+opts+'</div>'+seq
     +'<div class="flex mt20" style="justify-content:flex-end"><button class="btn btn-primary" data-action="wizard-continue">Continue'+ICON.arrowR+'</button></div></div>';
@@ -2463,7 +2544,7 @@ function screenReview(){
     if(appState.annotationJobId){ const j=byId(getBulkJobs(),appState.annotationJobId); if(j) return annotationProject(j); }
     const job=getBulkJobs()[0];
     const projBtn = job ? '<button class="btn btn-ghost btn-sm" data-action="view-annotation-project" data-id="'+job.id+'">'+ICON.users+'View as Project</button>' : '';
-    return title+'<div class="row-between mt16"><span class="secondary">'+ocrPendingCount()+' regions pending correction</span>'+projBtn+'</div>'+rb+'<div class="mt16">'+reviewOcrPane()+'</div>';
+    return title+'<div class="row-between mt16"><span class="secondary">Reviewer &amp; Annotator cockpit · '+(isReviewerRole()?'sign-off queue':'correction queue')+'</span>'+projBtn+'</div>'+renderCockpit();
   }
   if(tab==='pref') return title+rb+'<div class="mt24">'+reviewPrefPane()+'</div>';
   if(tab==='seeds') return title+'<div class="mt24">'+reviewSeedsPane()+'</div>';
@@ -2501,11 +2582,20 @@ function judgePanel(ec){
       +'<span style="width:16px;height:16px;border-radius:50%;border:2px solid '+(on?'var(--coral)':'var(--border-active)')+';flex-shrink:0;margin-top:2px;'+(on?'background:var(--coral);box-shadow:inset 0 0 0 3px var(--bg-surface)':'')+'"></span>'
       +'<span style="flex:1"><span style="font-weight:500">'+escapeHtml(title)+'</span> <span class="pill '+tagCls+'" style="font-size:10px;margin-left:6px">'+tag+'</span></span></label>'; };
   const modes=jmode('local','Local (Mistral 7B INT8)','🔒 Sovereign — recommended','pill-green')
+    +jmode('custom','Custom Endpoint (bring your own judge)','🔒 Client-hosted','pill-blue')  // §47
     +jmode('cloud','Cloud API (Claude / GPT-4)','Data leaves network','pill-yellow')
     +jmode('human','Human eval','Manual — for calibration','pill-muted');
+  // §47 — Custom Endpoint config panel (revealed when the custom judge is selected).
+  const customPanel = ec.judgeMode==='custom' ? customJudgePanel(ec) : '';
   // reference-grounded toggle (hidden for Human eval)
   let refground='';
   if(ec.judgeMode!=='hidden' && ec.judgeMode!=='human'){
+    // §48 — regulated_production forces reference-grounded eval ON and non-editable (note 202).
+    if(profileFlags().forceReferenceGroundedEval){
+      ec.referenceGrounded=true;
+      return '<div class="card"><div class="section-h flex gap6">'+ICON.shield+'Eval judge</div>'+modes+customPanel+calibrationPanel(ec)
+        +'<div class="warn-banner warn-yellow mt16" style="margin:0;font-size:12px">'+ICON.lock+'<span>Reference-grounded eval is <strong>required</strong> for this deployment — factuality is always scored against the ingested corpus.</span></div></div>';
+    }
     const hasDocs=getDocuments().length>0;
     const opt=(on,label,sub)=>'<label class="flex gap8" style="padding:6px 0;cursor:pointer;align-items:flex-start" data-action="eval-refground" data-val="'+(on?'corpus':'knowledge')+'">'
       +'<span style="width:15px;height:15px;border-radius:50%;border:2px solid '+((ec.referenceGrounded===on)?'var(--coral)':'var(--border-active)')+';flex-shrink:0;margin-top:2px;'+((ec.referenceGrounded===on)?'background:var(--coral);box-shadow:inset 0 0 0 3px var(--bg-surface)':'')+'"></span>'
@@ -2514,7 +2604,38 @@ function judgePanel(ec){
       +opt(false,'Judge general knowledge', hasDocs?'':'Default — this project has no ingested documents')
       +opt(true,'Ingested corpus'+(hasDocs?' (recommended for regulated industries)':' — no documents ingested yet'), hasDocs?'Uses the same document chunks ingested during ingestion':'');
   }
-  return '<div class="card"><div class="section-h flex gap6">'+ICON.shield+'Eval judge</div>'+modes+calibrationPanel(ec)+refground+'</div>';
+  return '<div class="card"><div class="section-h flex gap6">'+ICON.shield+'Eval judge</div>'+modes+customPanel+calibrationPanel(ec)+refground+'</div>';
+}
+// §47 — Custom Endpoint configuration + mock connection test. Secrets are stored by reference, never echoed.
+function customJudgePanel(ec){
+  const ce=ec.customEndpoint||{ url:'', modelName:'', authRef:null, requestFormat:'openai', egress:'in_network' };
+  const test=appState.customJudgeTest; // {ok,latency,msg} set by "Test connection"
+  const fld=(key,label,val,ph)=>'<div class="mt8"><div class="muted" style="font-size:11px;letter-spacing:.5px">'+label+'</div>'
+    +'<input class="input mt4" data-action="eval-custom-field" data-key="'+key+'" value="'+escapeHtml(val||'')+'" placeholder="'+escapeHtml(ph||'')+'" style="font-family:var(--font-mono);font-size:12px"></div>';
+  const authRow='<div class="mt8"><div class="muted" style="font-size:11px;letter-spacing:.5px">AUTH</div>'
+    +'<div class="flex gap6 mt4"><span class="pill pill-muted">Bearer token</span>'
+    +'<input class="input" type="password" data-action="eval-custom-secret" value="'+(ce.authRef?'••••••••':'')+'" placeholder="paste token — stored by reference, never shown again" style="flex:1;font-size:12px">'
+    +(ce.authRef?'<span class="pill pill-green" style="font-size:10px">🔒 stored ('+escapeHtml(ce.authRef)+')</span>':'')+'</div></div>';
+  const fmt=(v,label)=>'<label class="flex gap6" style="cursor:pointer;font-size:12px;align-items:center" data-action="eval-custom-format" data-val="'+v+'"><span style="width:13px;height:13px;border-radius:50%;border:2px solid '+(ce.requestFormat===v?'var(--coral)':'var(--border-active)')+';'+(ce.requestFormat===v?'background:var(--coral);box-shadow:inset 0 0 0 3px var(--bg-surface)':'')+'"></span>'+escapeHtml(label)+'</label>';
+  const egr=(v,label)=>'<label class="flex gap6" style="cursor:pointer;font-size:12px;align-items:center" data-action="eval-custom-egress" data-val="'+v+'"><span style="width:13px;height:13px;border-radius:50%;border:2px solid '+(ce.egress===v?'var(--coral)':'var(--border-active)')+';'+(ce.egress===v?'background:var(--coral);box-shadow:inset 0 0 0 3px var(--bg-surface)':'')+'"></span>'+escapeHtml(label)+'</label>';
+  const testLine = test ? '<div class="mt8" style="font-size:12px">'+(test.ok
+      ? '<span class="score-good">✓ Reachable · '+test.latency+'ms · returns valid JSON schema</span>'
+      : '<span class="score-bad">✗ '+escapeHtml(test.msg)+'</span>')+'</div>' : '';
+  return '<div class="card mt12" style="background:var(--bg-hover);padding:12px"><div class="row-between"><span class="section-h" style="margin:0">Custom judge endpoint</span><span class="pill pill-blue" style="font-size:10px">🔒 Client-hosted</span></div>'
+    +fld('url','ENDPOINT URL',ce.url,'http://your-judge.internal:8080/v1')
+    +fld('modelName','MODEL NAME',ce.modelName,'indic-eval-13b')+authRow
+    +'<div class="mt12"><div class="muted" style="font-size:11px;letter-spacing:.5px">REQUEST FORMAT</div><div class="flex gap16 mt4">'+fmt('openai','OpenAI-compatible')+fmt('custom','Custom template')+'</div></div>'
+    +'<div class="mt12"><div class="muted" style="font-size:11px;letter-spacing:.5px">DATA EGRESS</div><div class="flex gap16 mt4">'+egr('in_network','Stays in our network')+egr('external','External')+'</div>'
+    +(ce.egress==='external'?'<div class="muted mt4" style="font-size:11px">'+ICON.warn+' External egress requires DLP acknowledgement before running.</div>':'')+'</div>'
+    +'<div class="muted mt12" style="font-size:11px">Uses Cueval\'s reference-grounded prompt template (§37). Judge must return the same JSON scoring schema.</div>'
+    +'<button class="btn btn-ghost btn-sm mt12" data-action="eval-test-conn">'+ICON.bolt+'Test connection</button>'+testLine+'</div>';
+}
+// §47 — mock connection test (note 193): both fields present → ✓ + pseudo-latency; else ✗.
+function testCustomJudge(ec){
+  const ce=ec.customEndpoint;
+  if(!ce||!ce.url||!ce.url.trim()){ appState.customJudgeTest={ok:false,msg:'Endpoint URL is required'}; return; }
+  if(!ce.modelName||!ce.modelName.trim()){ appState.customJudgeTest={ok:false,msg:'Model name is required'}; return; }
+  appState.customJudgeTest={ ok:true, latency:180+((ce.url.length*7+ce.modelName.length*13)%140) };
 }
 function calibrationPanel(ec){
   const c=ec.calibration;
@@ -2533,7 +2654,9 @@ function calibrationPanel(ec){
       +dims.map(d=>'<tr><td>'+escapeHtml(d[0])+'</td><td class="mono '+scoreClass(d[1]*100)+'">'+d[1].toFixed(2)+'</td><td class="secondary" style="font-size:12px">'+alphaBand(d[1])+'</td></tr>').join('')+'</tbody></table></div>';
   }
   const toggle = c.dimensionKappa ? '<button class="btn btn-ghost btn-sm mt8" data-action="eval-kappa-toggle">'+(ec.kappaOpen?ICON.chevD:ICON.chevR)+'View per-dimension agreement (α)</button>' : '';
-  return band+toggle+kappaTable;
+  // §47 — promote calibration into a first-class, exportable agreement report.
+  const reportLink = (activeProject()&&projectAgreementReport(activeProject().id)) ? '<button class="btn btn-ghost btn-sm mt8" data-action="nav" data-view="agreement" style="margin-left:6px">'+ICON.shield+'View full agreement report '+ICON.arrowR+'</button>' : '';
+  return band+toggle+reportLink+kappaTable;
 }
 // DLP acknowledgement modal (spec §38) — locked: only the two buttons dismiss it.
 function dlpModal(){
@@ -2555,6 +2678,51 @@ function refGroundNote(){
   return ec.referenceGrounded
     ? '<div class="muted mt12" style="font-size:12px">'+ICON.info+' Factuality scored against the ingested corpus — not judge general knowledge.</div>'
     : '<div class="warn-banner warn-yellow mt12" style="margin:0;font-size:12px">'+ICON.warn+'<span>Factuality scored against judge training knowledge — not recommended for domain-specific applications.</span></div>';
+}
+// §47 — Judge Agreement Report: evidence a skeptical evaluator can inspect and hand to their reviewers.
+function agrColor(a){ if(a==null) return 'muted'; return a>0.75?'green':a>=0.6?'yellow':'red'; }
+function screenAgreementReport(){
+  const proj=activeProject();
+  const rep=proj?projectAgreementReport(proj.id):null;
+  const back='<button class="btn btn-ghost btn-sm" data-action="nav" data-view="eval">'+ICON.chevR+'<span style="transform:rotate(180deg);display:inline-block">'+ICON.chevR+'</span> Back to Eval</button>';
+  const title='<div class="row-between"><div><h1 class="page-h">Judge Agreement Report</h1><p class="page-sub">How you know the judge is right — measured against human ground truth.</p></div>'+back+'</div>';
+  if(!rep){
+    const ec=getEvalConfig(); const uncal=!ec||ec.calibration.status!=='calibrated';
+    return title+'<div class="mt24">'+emptyState('shield','No agreement report yet',
+      uncal?'This judge is uncalibrated. Complete a calibration run to generate an agreement report.':'Generate an agreement report against your calibration set.',
+      '<button class="btn btn-primary" '+(uncal?'disabled title="Complete a calibration run first"':'data-action="eval-calibrate"')+'>'+ICON.bolt+'Generate Agreement Report</button>')+'</div>';
+  }
+  const ec=getEvalConfig();
+  const judgeName = ec&&ec.judgeMode==='custom'&&ec.customEndpoint ? 'Custom ('+escapeHtml(ec.customEndpoint.modelName)+')' : ec&&ec.judgeMode==='cloud' ? 'Cloud API' : 'Local (Mistral 7B INT8)';
+  const meta='<div class="card"><div class="flex wrap gap16"><div><div class="muted" style="font-size:11px">JUDGE</div><div style="font-weight:600">'+judgeName+'</div></div>'
+    +'<div><div class="muted" style="font-size:11px">REFERENCE SET</div><div>'+rep.disagreeTotal+' disagreements · vs human-scored rows</div></div>'
+    +'<div><div class="muted" style="font-size:11px">SCORED BY</div><div>'+escapeHtml(rep.scoredBy)+' · '+escapeHtml(rep.generatedAt)+'</div></div>'
+    +'<div style="flex:1"></div><div class="flex gap6"><button class="btn btn-ghost btn-sm" data-action="agr-export" data-id="'+rep.id+'" data-fmt="pdf">'+ICON.download+'Export PDF</button><button class="btn btn-ghost btn-sm" data-action="agr-export" data-id="'+rep.id+'" data-fmt="json">'+ICON.download+'Export JSON</button></div></div></div>';
+  const rows=rep.perDimension.map(d=>{ const col=agrColor(d.alpha); const bandTxt=d.alpha>0.75?'good':d.alpha>=0.6?'fair':'poor';
+    const biasTxt=d.bias===0?'0.0':(d.bias>0?'+'+d.bias.toFixed(1)+' (lenient)':d.bias.toFixed(1)+' (strict)');
+    return '<tr><td>'+escapeHtml(d.dimension)+'</td><td class="mono '+scoreClass(d.alpha*100)+'">'+d.alpha.toFixed(2)+' <span class="pill pill-'+col+'" style="font-size:10px">'+bandTxt+'</span></td><td class="mono">'+biasTxt+'</td><td class="mono">'+d.nDisagree+'</td></tr>'; }).join('');
+  const table='<div class="card mt16" style="padding:0;overflow:hidden"><table class="tbl"><thead><tr><th>Dimension</th><th>Agreement (α)</th><th>Bias</th><th>n disagree</th></tr></thead><tbody>'+rows
+    +'<tr style="border-top:2px solid var(--border)"><td><strong>Overall Krippendorff α</strong></td><td class="mono '+scoreClass(rep.overallAlpha*100)+'"><strong>'+rep.overallAlpha.toFixed(2)+'</strong></td><td></td><td></td></tr></tbody></table></div>';
+  const dis=rep.disagreements.map(x=>'<div style="padding:8px 0;border-bottom:1px solid var(--border);font-size:13px"><span class="mono">'+escapeHtml(x.rowId)+'</span> · judge '+x.judgeScore+', humans '+x.humanScore+' · <span class="secondary">'+escapeHtml(x.dimension)+'</span> — “'+escapeHtml(x.note)+'”</div>').join('');
+  const disCard='<div class="card mt16"><div class="section-h">Where judge and humans disagree (sample)</div>'+dis
+    +'<button class="btn btn-ghost btn-sm mt12" data-action="agr-see-all" data-id="'+rep.id+'">See all '+rep.disagreeTotal+' disagreements '+ICON.arrowR+'</button></div>';
+  const pitch='<div class="muted mt16" style="font-size:12px;max-width:640px">This is the artifact you hand a lab that evaluates judges for a living. It invites scrutiny instead of asking for trust — export it for your procurement pack or re-run the analysis yourself from the JSON.</div>';
+  return title+'<div class="mt24">'+meta+table+disCard+pitch+'</div>';
+}
+// §48 — deferred-module explainer (research profile): what it does + the upgrade path, no functionality.
+function screenDeferred(){
+  const mod=appState.deferModule||currentView; const info=DEFERRED_INFO[mod]||{icon:'rocket',label:mod,blurb:''};
+  const isAdmin=can('Org');
+  const cta=isAdmin
+    ? '<button class="btn btn-primary" data-action="switch-profile-full">'+ICON.rocket+'Switch to full platform</button>'
+    : '<span class="secondary">Ask your admin to enable the full platform for this workspace.</span>';
+  const others=DEFERRED_MODULES.map(v=>{ const i=DEFERRED_INFO[v]; return '<div class="flex gap8" style="align-items:center;padding:6px 0;'+(v===mod?'':'opacity:.6')+'">'+ICON[i.icon]+'<span style="font-weight:'+(v===mod?600:400)+'">'+escapeHtml(i.label)+'</span></div>'; }).join('');
+  return '<div class="row-between"><div><h1 class="page-h">'+escapeHtml(info.label)+'</h1><p class="page-sub">Part of the productionisation stage — deferred for research deployments.</p></div></div>'
+    +'<div class="mt24" style="max-width:640px"><div class="card"><div class="flex gap8" style="align-items:center">'+ICON[info.icon]+'<span class="section-h" style="margin:0">'+escapeHtml(info.label)+'</span><span class="pill pill-muted">Available when you productionise</span></div>'
+    +'<p class="secondary mt12" style="font-size:14px;line-height:1.7">'+escapeHtml(info.blurb)+'</p>'
+    +'<div class="section-h mt16">Productionisation modules</div>'+others
+    +'<div class="mt16">'+cta+'</div></div>'
+    +'<div class="muted mt12" style="font-size:12px">Your workspace runs the <strong>research</strong> profile — Data, Review, Eval, Experiments, and Lineage, without production release or live monitoring. Switching to full platform reveals these modules; it never changes anyone\'s role permissions.</div></div>';
 }
 function screenEval(){
   const runs=getEvalRuns(); const rel=activeRelease();
@@ -2609,7 +2777,7 @@ function evalResultView(e){
     +'<div class="flex gap16 mt8" style="justify-content:center;font-size:12px"><span class="flex gap6"><span style="width:11px;height:11px;background:var(--coral);border-radius:3px"></span>'+colLabels[0]+'</span><span class="flex gap6"><span style="width:11px;height:11px;background:var(--pink);border-radius:3px"></span>'+colLabels[1]+'</span></div>';
   // judge-mode badge
   const jm = e.judgeMode||'local';
-  const jmBadge = '<span class="pill '+(jm==='cloud'?'pill-yellow':jm==='human'?'pill-blue':'pill-green')+'">'+(jm==='cloud'?'☁ Cloud API judge':jm==='human'?ICON.pencil+'Human eval':'🔒 Local judge')+'</span>';
+  const jmBadge = '<span class="pill '+(jm==='cloud'?'pill-yellow':jm==='human'?'pill-blue':jm==='custom'?'pill-blue':'pill-green')+'">'+(jm==='cloud'?'☁ Cloud API judge':jm==='human'?ICON.pencil+'Human eval':jm==='custom'?'🔒 Custom judge'+(e.judgeModel?' — '+escapeHtml(e.judgeModel):''):'🔒 Local judge')+'</span>';
   const costLabel = e.costLabel || ('~'+fmtNum(e.tokens)+' tokens · '+fmtMoney(e.cost));
   const cost='<div class="card"><div class="section-h">Cost tracker</div><div class="secondary" style="font-size:12px">'+escapeHtml(costLabel)+'</div>'+(e.cost?'<div class="bignum" style="font-size:22px;color:var(--pink)">'+fmtMoney(e.cost)+'</div>':'<div class="bignum" style="font-size:22px;color:var(--green)">'+(jm==='human'?'—':'₹0')+'</div>')+'</div>';
   let human;
@@ -2619,7 +2787,8 @@ function evalResultView(e){
     human='<div class="card"><div class="section-h">Human review queue</div><div class="secondary">'+hq+' rows had judge confidence &lt; 70% and need human review.</div>'+(hq?'<button class="btn btn-ghost btn-sm mt12" data-action="nav" data-view="review">'+ICON.pencil+'Review flagged rows</button>':'')+'</div>'; }
   const ciBadge = vr ? '<span class="pill pill-blue" title="Each dimension reported as mean ± standard deviation across two judge passes with different seeds. Amber = high variance.">✓ Confidence intervals</span>' : '';
   const swapBadge = e.swapAugmented ? '<span class="pill pill-blue" title="Each response evaluated twice with positions swapped and averaged — reduces position bias from ~30% to ~8% (Wang et al., 2024).">✓ Swap-augmented</span>' : '';
-  return '<div class="flex wrap gap8 mt16" style="align-items:center">'+jmBadge+swapBadge+ciBadge+'<span class="muted" style="font-size:12px">Run '+escapeHtml(e.runAt||'')+(e.runBy?' · by '+escapeHtml(e.runBy):'')+'</span></div>'
+  return '<div class="flex wrap gap8 mt16" style="align-items:center">'+jmBadge+swapBadge+ciBadge+'<span class="muted" style="font-size:12px">Run '+escapeHtml(e.runAt||'')+(e.runBy?' · by '+escapeHtml(e.runBy):'')+'</span>'
+    +'<div style="flex:1"></div><button class="btn btn-ghost btn-sm" data-action="export-open" data-id="'+e.projectId+'" data-scope="eval_run" data-run="'+e.id+'">'+ICON.download+'Export this result</button></div>' // §49
     +'<div class="grid-2 mt12" style="grid-template-columns:1fr 1fr;align-items:start"><div class="card radar-wrap">'+radar+'</div><div class="card" style="padding:0;overflow:hidden">'+table+'</div></div>'
     +refGroundNote()
     +evalInterpretationNote()
@@ -2883,13 +3052,14 @@ function openReleaseDetail(id){
 function screenSettings(){
   if(!can('Org')) return emptyState('gear','Restricted','Settings are available to Admins only.','');
   const tab=appState.settingsTab||'org';
-  const tabs=['org','users','roles','integrations'];
-  const labels={org:'Organisation',users:'Users',roles:'Roles & Permissions',integrations:'Integrations'};
+  const tabs=['org','users','roles','portability','integrations'];
+  const labels={org:'Organisation',users:'Users',roles:'Roles & Permissions',portability:'Data Portability',integrations:'Integrations'};
   let tabBar='<div class="flex gap8 mt16">'+tabs.map(t=>'<button class="chip '+(tab===t?'is-on':'')+'" data-action="settings-tab" data-tab="'+t+'">'+labels[t]+'</button>').join('')+'</div>';
   let body='';
   if(tab==='org') body=settingsOrg();
   else if(tab==='users') body=settingsUsers();
   else if(tab==='roles') body=settingsRoles();
+  else if(tab==='portability') body=settingsPortability(); // §49
   else body='<div class="card mt16">'+emptyState('sliders','Integrations','Connect Axolotl, LLaMA-Factory, W&B and storage buckets here.','<button class="btn btn-ghost" data-action="toast" data-msg="Integrations are mocked in this prototype">'+ICON.plus+'Add Integration</button>')+'</div>';
   return '<h1 class="page-h">Settings</h1><p class="page-sub">'+escapeHtml(currentTenant.name)+' · '+currentTenant.plan+' plan</p>'+tabBar+'<div id="settings-body">'+body+'</div>';
 }
@@ -2906,7 +3076,22 @@ function settingsOrg(){
     +meterRow('Eval runs', t.usage.evalRunsThisMonth, lim.evalRunsPerMonth)
     +meterRow('Active users', t.usage.activeUsers, lim.maxUsers)
     +meterRow('Projects', t.usage.activeProjects, lim.maxProjects)
-    +'<div class="row-between mt16" style="padding-top:12px;border-top:1px solid var(--border)"><span class="secondary">Sovereign deployment</span>'+sov+'</div></div>';
+    +'<div class="row-between mt16" style="padding-top:12px;border-top:1px solid var(--border)"><span class="secondary">Sovereign deployment</span>'+sov+'</div>'
+    +deploymentProfileCard()+'</div>';
+}
+// §48 — Admin-only deployment-profile switcher; changing it re-renders the dock live.
+function deploymentProfileCard(){
+  const cur=tenantProfile(); const fl=profileFlags(cur);
+  const opt=(v,label,sub)=>{ const on=cur===v;
+    return '<label class="flex gap8" style="padding:8px 0;cursor:pointer;align-items:flex-start" data-action="set-profile" data-val="'+v+'">'
+      +'<span style="width:15px;height:15px;border-radius:50%;border:2px solid '+(on?'var(--coral)':'var(--border-active)')+';flex-shrink:0;margin-top:2px;'+(on?'background:var(--coral);box-shadow:inset 0 0 0 3px var(--bg-surface)':'')+'"></span>'
+      +'<span><span style="font-weight:500;font-size:13px">'+escapeHtml(label)+'</span><span class="muted" style="display:block;font-size:11.5px">'+escapeHtml(sub)+'</span></span></label>'; };
+  const strict = fl.dlpStrict ? '<div class="mt8"><span class="pill pill-red">'+ICON.lock+'DLP: strict</span> <span class="pill pill-blue">'+ICON.shield+'Reference-grounded eval required</span></div>' : '';
+  return '<div class="mt16" style="padding-top:12px;border-top:1px solid var(--border)"><div class="section-h" style="margin:0">Deployment profile</div>'
+    +'<div class="muted" style="font-size:11.5px;margin-bottom:4px">Controls which modules are visible and their defaults — never role permissions.</div>'
+    +opt('research','Research / dataset building','Curate, annotate, evaluate. Release, Monitor, Agents deferred.')
+    +opt('regulated_production','Regulated production','Full lifecycle, reference-grounded eval forced on, strict DLP.')
+    +opt('full','Full platform','Everything visible, no opinionated defaults.')+strict+'</div>';
 }
 function settingsUsers(){
   const us=getUsers();
@@ -3130,9 +3315,37 @@ const DOC_SEEDS = [
 ];
 let REGION_UID=0, CHUNK_UID=0;
 function initDocuments(){
-  documents=[]; ocrRegions=[]; chunks=[];
+  documents=[]; ocrRegions=[]; chunks=[]; worklistViews=[]; reviewBatches=[];
   DOC_SEEDS.forEach(s=>{ buildDocument(s); });
+  seedCockpitMock();
   log.info('[boot] documents ready — '+documents.length+' docs, '+ocrRegions.length+' OCR regions');
+}
+// §46 — seed the cockpit with assignments, corrected regions, redline deltas, rework, and saved views.
+// Scaled to the mock corpus (smaller than the 300-doc scenario in the spec).
+function seedCockpitMock(){
+  const u6='u6', annotatorName='Neha Shah';
+  // Pravartak corpus → assign to the annotator, seed a reviewer sign-off queue.
+  const prav=ocrRegions.filter(r=>r.tenantId==='tenant_pravartak');
+  prav.slice(0,88).forEach(r=>{ r.assignedTo=u6; });
+  // Tamil tables <50% on doc3 (drives the "Tamil tables" saved view + hard-region facet).
+  const doc3=ocrRegions.filter(r=>r.documentId==='doc3' && r.reviewStatus==='pending');
+  doc3.slice(0,4).forEach(r=>{ r.script='ta'; r.regionType='table'; r.confidence=42+ (r.regionIndex%6); });
+  // Move 41 already-approved Pravartak regions back to 'corrected' → a real reviewer sign-off queue.
+  const approved=prav.filter(r=>r.reviewStatus==='approved');
+  approved.slice(0,41).forEach(r=>{ r.reviewStatus='corrected'; r.autoAccepted=false; r.correctedBy=annotatorName;
+    r.correctedAt='2026-07-12'; r.correctionStatus='corrected'; r.rawText=noisyOcr(r.cleanText, 58); r.correctedText=r.cleanText; r.changeCharCount=0; });
+  // 3 corrected regions with a visible raw→corrected char delta so the redline renders non-trivially.
+  approved.slice(0,3).forEach((r,i)=>{ const bad=['தணிகை','commissoner','guidlines'][i]||'error';
+    const good=['தணிக்கை','commissioner','guidelines'][i]||'errors';
+    r.rawText=(r.cleanText+' '+bad); r.correctedText=(r.cleanText+' '+good); r.changeCharCount=Math.abs(good.length-bad.length)+2; });
+  // One region sent back for rework.
+  const pend=prav.find(r=>r.reviewStatus==='pending');
+  if(pend){ pend.reviewStatus='needs_rework'; pend.reworkNote='Wrong rule number — check against source page.'; pend.reviewedBy='Ravi Kumar'; }
+  // Saved worklist views for the annotator.
+  worklistViews.push(
+    { id:'wv1', userId:u6, name:'Tamil tables <50%', filters:{ language:'ta', band:[0,50], regionType:'table', status:null, documentId:null, assignedTo:null } },
+    { id:'wv2', userId:u6, name:'My unfinished', filters:{ language:null, band:null, regionType:null, status:null, documentId:null, assignedTo:'me' } }
+  );
 }
 function buildDocument(s){
   const rand=mkRand(s.seed);
@@ -3157,10 +3370,15 @@ function buildDocument(s){
       else if(script!=='en'){ conf = 62 + Math.floor(rand()*24); }   // 62-85 Indic
       else { conf = 72 + Math.floor(rand()*20); }                    // 72-91 English
       const clean=ocrSample(rand, script);
+      // §46 lifecycle: <60 → pending (human queue); ≥60 → auto-approved (project auto-accept default).
+      const auto = conf>=60;
       const region={ id:'reg'+(++REGION_UID), documentId:doc.id, tenantId:doc.tenantId,
         pageNumber:1+Math.floor(i/2), regionIndex:i, regionType:rtype, script,
-        rawText: conf<85 ? noisyOcr(clean, conf) : clean, cleanText:clean, correctedText:null,
-        confidence:conf, correctionStatus: conf<60?'pending':'accepted', correctedBy:null, correctedAt:null };
+        rawText: conf<85 ? noisyOcr(clean, conf) : clean, cleanText:clean, correctedText: auto?clean:null,
+        confidence:conf, correctionStatus: conf<60?'pending':'accepted', correctedBy:null, correctedAt:null,
+        // §46 review fields
+        reviewStatus: auto?'approved':'pending', assignedTo:null, reviewedBy:null, reviewedAt:null,
+        reworkNote:null, changeCharCount:0, autoAccepted:auto };
       ocrRegions.push(region);
     }
     const regs=ocrRegions.filter(r=>r.documentId===doc.id);
@@ -3221,11 +3439,14 @@ function screenDocList(){
 }
 function panelDoc(id){
   const d=byId(getDocuments(),id); if(!d||!assertTenant(d)) return;
-  const regs=regionsForDoc(id); const pend=regs.filter(r=>r.correctionStatus==='pending').length;
+  const regs=regionsForDoc(id); const pend=regs.filter(r=>r.reviewStatus==='pending').length;
+  const awaiting=docAwaitingReview(id); // §46 — chunking blocked until every region is approved
   const dch=chunksForDoc(id);
   const actions='<div class="stack gap8 mt16">'
     +(pend>0?'<button class="btn btn-primary" data-action="goto-ocr" data-id="'+id+'">'+ICON.pencil+'Correct OCR ('+pend+' pending)</button>':'')
-    +(can('Datasets')?'<button class="btn '+(pend>0?'btn-ghost':'btn-primary')+'" data-action="configure-chunking" data-id="'+id+'">'+ICON.scissors+'Configure Chunking</button>':'')
+    +(can('Datasets')?(awaiting>0
+      ? '<button class="btn btn-ghost" disabled title="'+awaiting+' region'+(awaiting!==1?'s':'')+' awaiting review">'+ICON.scissors+'Configure Chunking ('+awaiting+' awaiting review)</button>'
+      : '<button class="btn btn-primary" data-action="configure-chunking" data-id="'+id+'">'+ICON.scissors+'Configure Chunking</button>'):'')
     +(dch.length?'<button class="btn btn-ghost" data-action="configure-synthesis" data-id="'+id+'">'+ICON.sparkles+'Generate Instruction Pairs</button>':'')+'</div>';
   const html='<div class="flex gap8">'+docStatusPill(d.status)+'<span class="badge-fmt">'+DOC_FORMAT_LABEL[d.format]+'</span></div>'
     +'<div class="grid-2 mt16"><div class="card" style="padding:12px"><div class="muted" style="font-size:11px">PAGES</div><div class="bignum" style="font-size:22px">'+d.pages+'</div></div>'
@@ -3415,25 +3636,208 @@ function synthesisePairs(d){
 
 /* ---- OCR correction (rendered inside Review Queue 'ocr' tab) ---- */
 function ocrCorrectionQueue(){ return getOcrRegions().filter(r=>r.correctionStatus==='pending').sort((a,b)=>a.confidence-b.confidence); }
-function reviewOcrPane(){
-  const q=ocrCorrectionQueue();
-  if(!q.length) return emptyState('check','No OCR corrections pending','All low-confidence regions have been corrected. ✅','');
-  if(appState.reviewIndex>=q.length) appState.reviewIndex=0;
-  const reg=q[appState.reviewIndex]; const doc=byId(documents,reg.documentId);
-  // faux scanned-image of the region (we have no real images — render a "scan" panel)
-  const scanBox='<div style="background:#efe9dd;color:#2a2a2a;border-radius:10px;padding:16px;font-family:var(--font-mono);font-size:13px;line-height:1.9;filter:contrast(1.05);box-shadow:inset 0 0 30px rgba(0,0,0,.12)">'
-    +'<div style="opacity:.5;font-size:10px;letter-spacing:1px;margin-bottom:8px">SCANNED REGION · p.'+reg.pageNumber+' · '+reg.regionType.toUpperCase()+'</div>'
-    +'<div style="transform:skew(-0.6deg)">'+escapeHtml(reg.cleanText)+'</div></div>';
-  const left='<div class="card"><div class="flex gap8">'+langPill(reg.script)+'<span class="pill pill-'+(reg.confidence<60?'red':reg.confidence<85?'yellow':'green')+'">'+reg.confidence+'% conf</span><span class="badge-fmt">'+escapeHtml(truncate(doc?doc.name:'',20))+'</span></div>'
-    +'<div class="section-h mt16">Original scan</div>'+scanBox+'</div>';
-  const right='<div class="card"><div class="section-h">OCR output — correct errors</div>'
-    +'<textarea class="input" id="ocr-text" style="min-height:150px">'+escapeHtml(reg.rawText)+'</textarea>'
-    +'<div class="flex gap8 mt16 wrap"><button class="btn btn-green" data-action="ocr-accept" data-id="'+reg.id+'">'+ICON.check+'Accept</button>'
-    +'<button class="btn btn-primary" data-action="ocr-edit-accept" data-id="'+reg.id+'">'+ICON.pencil+'Edit &amp; Accept</button>'
-    +'<button class="btn btn-ghost" data-action="ocr-flag" data-id="'+reg.id+'">'+ICON.flag+'Flag for Expert</button></div></div>';
-  let qlist=''; q.forEach((r,i)=>{ qlist+='<button class="dropdown-item '+(i===appState.reviewIndex?'is-active':'')+'" data-action="goto-ocr-idx" data-idx="'+i+'" style="justify-content:space-between"><span class="truncate" style="max-width:150px">'+langPill(r.script)+' p.'+r.pageNumber+'</span><span class="pill pill-'+(r.confidence<60?'red':'yellow')+'">'+r.confidence+'%</span></button>'; });
-  const queue='<div class="card" style="padding:8px"><div class="row-between" style="padding:8px 10px"><span class="section-h" style="margin:0">OCR queue</span><span class="muted" style="font-size:12px">'+(appState.reviewIndex+1)+' of '+q.length+'</span></div><div style="max-height:52vh;overflow:auto">'+qlist+'</div></div>';
-  return '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start">'+left+right+'</div><div class="mt16" style="display:grid;grid-template-columns:1fr 1fr;gap:16px"><div></div>'+queue+'</div>';
+/* ============================================================
+   §46 — REVIEWER & ANNOTATOR COCKPIT (corpus-scale review)
+   Three-pane workspace: worklist · document preview · correction panel.
+   ============================================================ */
+// Reviewer capability = sign-off. Annotator produces corrections only.
+function isReviewerRole(){ return ['Reviewer','Admin','ProjectManager'].includes(currentUser.role); }
+// Default worklist scope depends on persona: annotators fix, reviewers sign off.
+function cockpitDefaultStatuses(){ return isReviewerRole() ? ['corrected'] : ['pending','needs_rework']; }
+const RS_LABEL={ pending:'Pending', corrected:'Corrected', approved:'Approved', flagged:'Flagged', needs_rework:'Rework' };
+const RS_COLOR={ pending:'yellow', corrected:'blue', approved:'green', flagged:'coral', needs_rework:'red' };
+function rsDot(s){ return '<span title="'+RS_LABEL[s]+'" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--'+(RS_COLOR[s]||'muted')+')"></span>'; }
+const COCKPIT_LANGS=['en','ta','hi','te','kn','ml']; // 1–6 keyboard chips
+// Region-level worklist across the tenant corpus, filtered + ranked lowest-confidence first (note 179).
+function cockpitWorklist(){
+  const f=appState.cockpitFilters;
+  const statuses = f.status ? [f.status] : cockpitDefaultStatuses();
+  let regs=getOcrRegions().filter(r=>statuses.includes(r.reviewStatus));
+  if(f.language) regs=regs.filter(r=>r.script===f.language);
+  if(f.regionType) regs=regs.filter(r=>r.regionType===f.regionType);
+  if(f.documentId) regs=regs.filter(r=>r.documentId===f.documentId);
+  if(f.assignedTo==='me') regs=regs.filter(r=>r.assignedTo===currentUser.id);
+  else if(f.assignedTo==='unassigned') regs=regs.filter(r=>!r.assignedTo);
+  if(f.band) regs=regs.filter(r=>r.confidence>=f.band[0] && r.confidence<f.band[1]);
+  return regs.slice().sort((a,b)=>a.confidence-b.confidence);
+}
+function cockpitCur(){ const q=cockpitWorklist(); let r=q.find(x=>x.id===appState.cockpitSel); if(!r){ r=q[0]||null; appState.cockpitSel=r?r.id:null; } return r; }
+function cockpitAdvance(dir){ const q=cockpitWorklist(); if(!q.length){ appState.cockpitSel=null; return; } let i=q.findIndex(x=>x.id===appState.cockpitSel); if(i<0)i=0; i=Math.max(0,Math.min(q.length-1,i+dir)); appState.cockpitSel=q[i].id; }
+function cockpitMark(){ appState.cockpitPace.push(Date.now()); if(appState.cockpitPace.length>20) appState.cockpitPace.shift(); }
+function cockpitPaceEstimate(){ const t=appState.cockpitPace; if(t.length<3) return null; const d=[]; for(let i=1;i<t.length;i++)d.push((t[i]-t[i-1])/1000); d.sort((a,b)=>a-b); return d[Math.floor(d.length/2)]; }
+function cockpitCounts(){
+  const all=getOcrRegions(); const c={ total:all.length, approved:0, corrected:0, pending:0, rework:0, flagged:0 };
+  all.forEach(r=>{ const k={approved:'approved',corrected:'corrected',pending:'pending',needs_rework:'rework',flagged:'flagged'}[r.reviewStatus]; if(k)c[k]++; });
+  const mine=all.filter(r=>r.assignedTo===currentUser.id);
+  c.youAssigned=mine.length;
+  c.youDone=mine.filter(r=>r.reviewStatus==='approved'||r.reviewStatus==='corrected').length;
+  c.youPending=mine.filter(r=>r.reviewStatus==='pending'||r.reviewStatus==='needs_rework').length;
+  return c;
+}
+// Word-level LCS diff for the reviewer redline (mock — no external lib, note 183).
+function wordDiff(a,b){
+  const A=String(a||'').split(/(\s+)/), B=String(b||'').split(/(\s+)/);
+  const n=A.length,m=B.length; const dp=Array.from({length:n+1},()=>new Array(m+1).fill(0));
+  for(let i=n-1;i>=0;i--)for(let j=m-1;j>=0;j--) dp[i][j]=A[i]===B[j]?dp[i+1][j+1]+1:Math.max(dp[i+1][j],dp[i][j+1]);
+  const out=[]; let i=0,j=0;
+  while(i<n&&j<m){ if(A[i]===B[j]){out.push({t:'same',v:A[i]});i++;j++;} else if(dp[i+1][j]>=dp[i][j+1]){out.push({t:'del',v:A[i]});i++;} else {out.push({t:'ins',v:B[j]});j++;} }
+  while(i<n)out.push({t:'del',v:A[i++]}); while(j<m)out.push({t:'ins',v:B[j++]});
+  return out;
+}
+function renderRedline(reg){
+  return wordDiff(reg.rawText, reg.correctedText||reg.rawText).map(p=> p.t==='same'?escapeHtml(p.v)
+    : p.t==='del'?'<span style="color:var(--red);text-decoration:line-through">'+escapeHtml(p.v)+'</span>'
+    : '<span style="color:var(--green)">'+escapeHtml(p.v)+'</span>').join('');
+}
+function pageHasFlag(docId,page){ return getOcrRegions().some(r=>r.documentId===docId && r.pageNumber===page && ['pending','corrected','needs_rework'].includes(r.reviewStatus)); }
+
+function renderCockpit(){
+  try{
+    if(appState.cockpitDocView && isReviewerRole()) return '<div class="mt16">'+cockpitDocuments()+cockpitHelpOverlay()+'</div>';
+    const q=cockpitWorklist(); const cur=cockpitCur();
+    const grid='<div style="display:grid;grid-template-columns:288px 1fr 372px;gap:14px;align-items:start;margin-top:16px">'
+      +cockpitLeft(q,cur)+cockpitCenter(cur)+cockpitRight(cur)+'</div>';
+    return grid+cockpitHelpOverlay();
+  }catch(err){ log.error('[cockpit] render failed', err); showToast('Something went wrong rendering the cockpit — check console','error'); return emptyState('warn','Cockpit unavailable','An error occurred rendering the review cockpit.',''); }
+}
+
+// ---- Left: worklist + filters + progress footer ----
+function cockpitLeft(q,cur){
+  const f=appState.cockpitFilters;
+  const chip=(key,val,label,on)=>'<button class="chip '+(on?'is-on':'')+'" data-action="cockpit-filter" data-key="'+key+'" data-val="'+escapeHtml(String(val))+'">'+escapeHtml(label)+'</button>';
+  const langChips=COCKPIT_LANGS.map(l=>chip('language',l,LANG_LABEL[l],f.language===l)).join('');
+  const bandChips=[['0-50','<50%'],['50-60','50–60%'],['60-70','60–70%']].map(b=>chip('band',b[0],b[1],f.band&&f.band[0]+'-'+f.band[1]===b[0])).join('');
+  const typeChips=['text','table','heading','figure'].map(t=>chip('regionType',t,t,f.regionType===t)).join('');
+  const statusChips=['pending','corrected','approved','flagged','needs_rework'].map(s=>chip('status',s,RS_LABEL[s],f.status===s)).join('');
+  const assignChips=isReviewerRole()?['me','unassigned'].map(a=>chip('assignedTo',a,a==='me'?'Assigned to me':'Unassigned',f.assignedTo===a)).join(''):'';
+  const docs=getDocuments().filter(d=>regionsForDoc(d.id).length);
+  const docSel='<select class="input" data-action="cockpit-doc-filter" style="padding:4px 8px;font-size:12px"><option value="">All documents</option>'
+    +docs.map(d=>'<option value="'+d.id+'"'+(f.documentId===d.id?' selected':'')+'>'+escapeHtml(truncate(d.name,26))+'</option>').join('')+'</select>';
+  const views=getWorklistViews();
+  const savedViews=views.length?'<div class="section-h mt12" style="margin-bottom:6px">Saved views</div><div class="flex wrap gap6">'
+    +views.map(v=>'<button class="chip" data-action="cockpit-load-view" data-id="'+v.id+'">'+ICON.search+escapeHtml(v.name)+'</button>').join('')+'</div>':'';
+  const anyFilter=f.language||f.band||f.regionType||f.status||f.documentId||f.assignedTo;
+  const filters='<details'+(anyFilter?' open':'')+'><summary style="cursor:pointer;font-size:12px;color:var(--text-secondary);padding:4px 0">Filters ▾</summary>'
+    +'<div class="mt8"><div class="muted" style="font-size:10px;letter-spacing:.5px">LANGUAGE</div><div class="flex wrap gap6 mt4">'+langChips+'</div>'
+    +'<div class="muted mt12" style="font-size:10px;letter-spacing:.5px">CONFIDENCE</div><div class="flex wrap gap6 mt4">'+bandChips+'</div>'
+    +'<div class="muted mt12" style="font-size:10px;letter-spacing:.5px">TYPE</div><div class="flex wrap gap6 mt4">'+typeChips+'</div>'
+    +'<div class="muted mt12" style="font-size:10px;letter-spacing:.5px">STATUS</div><div class="flex wrap gap6 mt4">'+statusChips+'</div>'
+    +(assignChips?'<div class="muted mt12" style="font-size:10px;letter-spacing:.5px">ASSIGNMENT</div><div class="flex wrap gap6 mt4">'+assignChips+'</div>':'')
+    +'<div class="mt12">'+docSel+'</div>'+savedViews
+    +(anyFilter?'<button class="btn btn-ghost btn-sm mt12" data-action="cockpit-clear-filters">'+ICON.x+'Clear filters</button>':'')
+    +'<button class="btn btn-ghost btn-sm mt8" data-action="cockpit-save-view">'+ICON.plus+'Save this view</button></div></details>';
+  // Worklist rows (cap render for large corpora; note 179).
+  const CAP=400; const shown=q.slice(0,CAP);
+  let rows=shown.map(r=>{ const d=byId(documents,r.documentId); const on=cur&&r.id===cur.id;
+    return '<button class="cockpit-row'+(on?' is-active':'')+'" data-action="cockpit-select" data-id="'+r.id+'" '
+      +'style="display:block;width:100%;text-align:left;border:none;border-left:3px solid '+(on?'var(--coral)':'transparent')+';background:'+(on?'var(--bg-hover)':'transparent')+';padding:8px 10px;cursor:pointer;border-radius:6px">'
+      +'<div class="row-between"><span class="truncate" style="max-width:150px;font-size:12px;color:var(--text)">'+escapeHtml(truncate(d?d.name:'',22))+'</span><span class="pill pill-'+(r.confidence<50?'red':r.confidence<60?'yellow':'blue')+'" style="padding:0 6px">'+r.confidence+'%</span></div>'
+      +'<div class="flex gap6 mt4" style="align-items:center">'+rsDot(r.reviewStatus)+'<span class="muted" style="font-size:11px">p.'+r.pageNumber+' · '+escapeHtml(LANG_LABEL[r.script]||r.script)+' · '+r.regionType+'</span>'
+      +(r.reviewStatus==='needs_rework'?'<span class="pill pill-red" style="padding:0 5px">rework</span>':'')+'</div></button>'; }).join('');
+  if(!rows) rows='<div class="empty" style="padding:24px 12px"><div class="empty-title" style="font-size:13px">Queue clear</div><div class="empty-sub">No regions match this view. ✅</div></div>';
+  const more = q.length>CAP ? '<div class="muted" style="font-size:11px;padding:6px 10px">Showing first '+CAP+' of '+q.length+' — narrow with filters.</div>' : '';
+  const toggle=isReviewerRole()?'<button class="chip'+(appState.cockpitDocView?' is-on':'')+'" data-action="cockpit-docview">'+ICON.doc+'Documents</button>':'';
+  const c=cockpitCounts(); const pace=cockpitPaceEstimate();
+  const remaining = pace==null ? '—' : (()=>{ const secs=c.youPending*pace; const h=Math.floor(secs/3600), m=Math.round((secs%3600)/60); return (h?h+'h ':'')+m+'m'; })();
+  const footer='<div style="border-top:1px solid var(--border);margin-top:8px;padding:10px;font-size:11px;line-height:1.7">'
+    +'<div class="muted">CORPUS</div><div style="font-family:var(--font-mono)">'+fmtNum(c.total)+' regions · '+fmtNum(c.approved)+' approved · '+fmtNum(c.corrected)+' corrected · '+fmtNum(c.pending)+' pending</div>'
+    +'<div class="muted mt8">YOU</div><div style="font-family:var(--font-mono)">'+c.youAssigned+' assigned · '+c.youDone+' done · ~'+remaining+' remaining'+(pace==null?' (need 3+ actions)':' (at your pace)')+'</div></div>';
+  return '<div class="card" style="padding:10px;position:sticky;top:12px">'
+    +'<div class="row-between"><span class="section-h" style="margin:0">Worklist</span>'+toggle+'</div>'
+    +'<div class="muted mt4" style="font-size:11px">'+q.length+' item'+(q.length!==1?'s':'')+' · lowest confidence first</div>'
+    +'<div class="mt8">'+filters+'</div>'
+    +'<div class="mt8" style="max-height:44vh;overflow:auto">'+rows+more+'</div>'+footer+'</div>';
+}
+
+// ---- Centre: document preview with the flagged region boxed, + page thumbnail rail ----
+function cockpitCenter(cur){
+  if(!cur) return '<div class="card"><div class="empty" style="padding:40px 16px">'+ICON.check+'<div class="empty-title">Nothing selected</div><div class="empty-sub">Pick a region from the worklist.</div></div></div>';
+  const doc=byId(documents,cur.documentId); const digital=doc && /digital/.test(doc.format||'');
+  const q=cockpitWorklist(); const idx=q.findIndex(r=>r.id===cur.id);
+  // Sibling regions on the same page (de-emphasised); current region boxed in coral.
+  const siblings=getOcrRegions().filter(r=>r.documentId===cur.documentId && r.pageNumber===cur.pageNumber);
+  let pageBody=siblings.map(r=>{ const active=r.id===cur.id;
+    if(active) return '<div style="border:2px solid var(--coral);border-radius:8px;padding:10px 12px;margin:8px 0;background:rgba(232,93,38,.06)">'
+      +'<div style="font-size:9px;letter-spacing:1px;color:var(--coral);margin-bottom:4px">FLAGGED REGION · '+r.regionType.toUpperCase()+'</div>'
+      +'<div style="font-family:var(--font-mono);font-size:13px;line-height:1.9'+(digital?'':';transform:skew(-.4deg)')+'">'+escapeHtml(r.cleanText)+'</div></div>';
+    return '<div style="opacity:.32;padding:6px 12px;margin:6px 0;font-family:var(--font-mono);font-size:12px;line-height:1.7;border-left:2px solid var(--border)">'+escapeHtml(truncate(r.cleanText,90))+'</div>'; }).join('');
+  const page='<div style="background:'+(digital?'var(--surface)':'#efe9dd')+';color:'+(digital?'var(--text)':'#2a2a2a')+';border-radius:10px;padding:18px;min-height:300px;'+(digital?'':'filter:contrast(1.04);box-shadow:inset 0 0 30px rgba(0,0,0,.10)')+'">'
+    +'<div style="opacity:.5;font-size:10px;letter-spacing:1px;margin-bottom:6px">'+(digital?'DIGITAL PDF — EXTRACTED TEXT':'SCANNED PAGE')+' · '+escapeHtml(doc?doc.name:'')+' · p.'+cur.pageNumber+'</div>'+pageBody+'</div>';
+  // Thumbnail rail — one per page, red dot on pages with queued regions.
+  const pages=doc?doc.pages:1; let rail='';
+  for(let p=1;p<=pages;p++){ const act=p===cur.pageNumber; const flag=pageHasFlag(cur.documentId,p);
+    rail+='<button data-action="cockpit-thumb" data-doc="'+cur.documentId+'" data-page="'+p+'" title="Page '+p+'" '
+      +'style="position:relative;flex:0 0 auto;width:34px;height:44px;border:1.5px solid '+(act?'var(--coral)':'var(--border)')+';border-radius:4px;background:var(--surface);cursor:pointer;font-size:9px;color:var(--muted)">'+p
+      +(flag?'<span style="position:absolute;top:2px;right:2px;width:6px;height:6px;border-radius:50%;background:var(--red)"></span>':'')+'</button>'; }
+  const railWrap='<div style="display:flex;gap:5px;overflow-x:auto;padding:8px 2px;margin-top:10px">'+rail+'</div>';
+  return '<div class="card">'
+    +'<div class="row-between"><div class="flex gap8" style="align-items:center">'+langPill(cur.script)+'<span class="pill pill-'+(cur.confidence<50?'red':cur.confidence<60?'yellow':'blue')+'">'+cur.confidence+'% conf</span></div>'
+    +'<span class="muted" style="font-size:12px">Region '+(idx+1)+' of '+q.length+' · pg '+cur.pageNumber+'</span></div>'
+    +'<div class="mt12">'+page+'</div>'+railWrap
+    +'<div class="muted mt8" style="font-size:11px">Next flagged → <span class="kbd">J</span> · previous <span class="kbd">K</span> · <button class="btn btn-ghost btn-sm" data-action="cockpit-help-open" style="padding:0 6px">shortcuts <span class="kbd">?</span></button></div></div>';
+}
+
+// ---- Right: correction (annotator) or sign-off redline (reviewer) ----
+function cockpitRight(cur){
+  if(!cur) return '<div class="card" style="position:sticky;top:12px"><div class="section-h">Correction panel</div><div class="secondary">Select a region to begin.</div></div>';
+  const reviewer=isReviewerRole();
+  const head='<div class="section-h" style="margin:0">'+(reviewer&&cur.reviewStatus==='corrected'?'Reviewer sign-off':'Correct region')+'</div>';
+  // Reviewer redline sign-off for a corrected region (note 183/184).
+  if(reviewer && cur.reviewStatus==='corrected'){
+    const author=cur.correctedBy||'Annotator';
+    const meta='<div class="muted mt8" style="font-size:12px">Corrected by <strong style="color:var(--text)">'+escapeHtml(author)+'</strong>'+(cur.correctedAt?' · '+escapeHtml(cur.correctedAt):'')+'</div>';
+    const redline='<div style="font-family:var(--font-mono);font-size:14px;line-height:2;background:var(--bg-hover);border-radius:8px;padding:12px;margin-top:10px;word-break:break-word">'+renderRedline(cur)+'</div>';
+    const legend='<div class="muted mt6" style="font-size:11px"><span style="color:var(--red);text-decoration:line-through">deleted</span> · <span style="color:var(--green)">inserted</span> · confidence was '+cur.confidence+'% · '+(cur.changeCharCount||0)+' chars changed</div>';
+    const acts='<div class="flex gap8 mt16 wrap"><button class="btn btn-green" data-action="cockpit-approve" data-id="'+cur.id+'">'+ICON.check+'Approve <span class="kbd">A</span></button>'
+      +'<button class="btn btn-red" data-action="cockpit-sendback" data-id="'+cur.id+'">'+ICON.arrowR+'Send back <span class="kbd">B</span></button></div>'
+      +'<details class="mt12"><summary style="cursor:pointer;font-size:12px;color:var(--text-secondary)">Edit myself ▾</summary>'
+      +'<textarea class="input mt8" id="cockpit-edit" style="min-height:90px">'+escapeHtml(cur.correctedText||cur.rawText)+'</textarea>'
+      +'<button class="btn btn-primary btn-sm mt8" data-action="cockpit-save-approve" data-id="'+cur.id+'">'+ICON.check+'Save &amp; Approve</button></details>'
+      +'<textarea class="input mt12" id="cockpit-rework" placeholder="Optional note to annotator (sent with Send back)…" style="min-height:52px"></textarea>';
+    return '<div class="card" style="position:sticky;top:12px">'+head+meta+redline+legend+acts+'</div>';
+  }
+  // Annotator (or reviewer editing a pending region) — raw + editable corrected.
+  const rework=cur.reviewStatus==='needs_rework'&&cur.reworkNote
+    ? '<div class="warn-banner warn-yellow" style="margin:0 0 12px">'+ICON.warn+'<span>Sent back'+(cur.reviewedBy?' by '+escapeHtml(cur.reviewedBy):'')+': '+escapeHtml(cur.reworkNote)+'</span></div>' : '';
+  const raw='<div class="muted mt8" style="font-size:11px">RAW OCR</div><div style="font-family:var(--font-mono);font-size:13px;line-height:1.8;background:var(--bg-hover);border-radius:8px;padding:10px;margin-top:4px">'+escapeHtml(cur.rawText)+'</div>';
+  const edit='<div class="muted mt12" style="font-size:11px">CORRECTED</div><textarea class="input mt4" id="cockpit-edit" style="min-height:110px">'+escapeHtml(cur.correctedText||cur.rawText)+'</textarea>';
+  const acts='<div class="flex gap8 mt16 wrap"><button class="btn btn-green" data-action="ocr-accept" data-id="'+cur.id+'">'+ICON.check+'Accept <span class="kbd">↵</span></button>'
+    +'<button class="btn btn-primary" data-action="ocr-edit-accept" data-id="'+cur.id+'">'+ICON.pencil+'Edit &amp; Accept <span class="kbd">⌘↵</span></button>'
+    +'<button class="btn btn-ghost" data-action="ocr-flag" data-id="'+cur.id+'">'+ICON.flag+'Flag <span class="kbd">F</span></button></div>'
+    +'<div class="flex gap8 mt12"><button class="btn btn-ghost btn-sm" data-action="cockpit-nav" data-dir="-1">'+ICON.chevR+'<span style="transform:rotate(180deg);display:inline-block">'+ICON.chevR+'</span>Prev</button>'
+    +'<button class="btn btn-ghost btn-sm" data-action="cockpit-nav" data-dir="1">Next '+ICON.chevR+'</button></div>';
+  return '<div class="card" style="position:sticky;top:12px">'+head
+    +'<div class="flex gap8 mt8" style="align-items:center">'+rsDot(cur.reviewStatus)+'<span class="secondary" style="font-size:12px">'+RS_LABEL[cur.reviewStatus]+' · '+escapeHtml(LANG_LABEL[cur.script]||cur.script)+' · '+cur.confidence+'%</span></div>'
+    +rework+raw+edit+acts+'</div>';
+}
+
+// ---- Reviewer: document-level view (note 188) ----
+function cockpitDocuments(){
+  const docs=getDocuments().filter(d=>regionsForDoc(d.id).length);
+  const toggle='<button class="chip is-on" data-action="cockpit-docview">'+ICON.doc+'Regions</button>';
+  let rows=docs.map(d=>{ const regs=regionsForDoc(d.id); const total=regs.length;
+    const approved=regs.filter(r=>r.reviewStatus==='approved').length;
+    const flagged=regs.filter(r=>['pending','needs_rework','flagged'].includes(r.reviewStatus)).length;
+    const corrected=regs.filter(r=>r.reviewStatus==='corrected').length;
+    const pct=Math.round(approved/total*100); const done=approved===total;
+    const bar='<div style="width:90px;height:8px;border-radius:4px;background:var(--border);overflow:hidden"><div style="width:'+pct+'%;height:100%;background:var(--'+(done?'green':pct>60?'blue':'yellow')+')"></div></div>';
+    return '<tr><td class="truncate" style="max-width:240px">'+escapeHtml(d.name)+'</td><td class="mono">'+total+'</td><td class="mono">'+flagged+'</td><td class="mono">'+approved+'</td>'
+      +'<td><div class="flex gap8" style="align-items:center">'+bar+(done?'<span class="pill pill-green">'+ICON.check+'complete</span>':'<span class="muted" style="font-size:11px">'+pct+'%</span>')+'</div></td>'
+      +'<td><div class="flex gap6 wrap">'
+      +(corrected?'<button class="btn btn-green btn-sm" data-action="cockpit-batch-approve" data-id="'+d.id+'">'+ICON.check+'Approve '+corrected+'</button>':'')
+      +'<button class="btn btn-ghost btn-sm" data-action="cockpit-bulk-assign" data-id="'+d.id+'">'+ICON.users+'Assign</button>'
+      +(done?'':'<button class="btn btn-ghost btn-sm" data-action="cockpit-mark-complete" data-id="'+d.id+'">'+ICON.flag+'Mark complete</button>')+'</div></td></tr>'; }).join('');
+  if(!rows) rows='<tr><td colspan="6" class="secondary" style="padding:20px">No documents with regions.</td></tr>';
+  return '<div class="card" style="padding:12px"><div class="row-between"><span class="section-h" style="margin:0">Documents</span>'+toggle+'</div>'
+    +'<div class="mt12" style="overflow:auto"><table class="tbl"><thead><tr><th>Document</th><th>Regions</th><th>Flagged</th><th>Approved</th><th>Progress</th><th>Actions</th></tr></thead><tbody>'+rows+'</tbody></table></div></div>';
+}
+
+function cockpitHelpOverlay(){
+  if(!appState.cockpitKbHelp) return '';
+  const K=[['J / ↓','Next flagged region (crosses documents)'],['K / ↑','Previous region'],['Enter','Accept (OCR was right)'],['E','Edit corrected text'],['⌘/Ctrl+Enter','Edit & Accept'],['F','Flag for Expert'],['A','Approve (Reviewer)'],['B','Send back (Reviewer)'],['1–6','Filter language (EN/TA/HI/TE/KN/ML)'],['G then D','Documents view (Reviewer)'],['?','Toggle this help'],['Esc','Close']];
+  const rows=K.map(k=>'<div class="row-between" style="padding:5px 0;border-bottom:1px solid var(--border)"><span class="kbd">'+escapeHtml(k[0])+'</span><span class="secondary" style="font-size:13px">'+escapeHtml(k[1])+'</span></div>').join('');
+  return '<div style="position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:60;display:flex;align-items:center;justify-content:center" data-action="cockpit-help-close">'
+    +'<div class="card" style="max-width:420px;width:90%" onclick="event.stopPropagation()"><div class="row-between"><h3 style="margin:0">Keyboard shortcuts</h3><button class="btn btn-ghost btn-sm" data-action="cockpit-help-close" aria-label="Close shortcuts">'+ICON.x+'</button></div><div class="mt12">'+rows+'</div></div></div>';
 }
 
 /* ============================================================
@@ -3755,19 +4159,46 @@ function initEvalConfigs(){
   // Ongoing judge-accuracy monitoring defaults (spec §40): sample X% of rows every N runs, alert if κ dips below threshold.
   const am=(last,kappa)=>({ everyRuns:10, samplePct:5, kappaThreshold:0.65, lastSpotCheck:last, lastKappa:kappa, lastOutcome:kappa==null?null:(kappa>=0.65?'No action required':'Recalibration triggered') });
   evalConfigs={
-    tenant_pravartak:{ judgeMode:'local', judgeModel:'Mistral 7B INT8', sovereign:true, referenceGrounded:true, dlpConfirmed:false, kappaOpen:false, accuracyMonitor:am('14 Jun 2025',0.71),
+    // §47 — Pravartak/CAG brings its own model as judge (client-hosted AI4Bharat checkpoint).
+    tenant_pravartak:{ judgeMode:'custom', judgeModel:'indic-eval-13b', sovereign:true, referenceGrounded:true, dlpConfirmed:false, kappaOpen:false, accuracyMonitor:am('14 Jun 2025',0.71),
+      customEndpoint:{ url:'http://ai4bharat-judge.internal:8080/v1', modelName:'indic-eval-13b', authRef:'secret_ref_a1f9', requestFormat:'openai', egress:'in_network' }, promptTemplateOverride:null,
       calibration:{ status:'calibrated', calibratedBy:'Dr. Anand Krishnan (Domain Expert)', calibratedAt:'14 Jun 2025', rowsUsed:50, overallKappa:0.74,
         dimensionKappa:{ Factuality:0.61, 'Instruction Following':0.78, Tone:0.82, 'Task Completion':0.75, 'Refusal Behaviour':0.79 } } },
     tenant_legalai:{ judgeMode:'local', judgeModel:'Mistral 7B INT8', sovereign:false, referenceGrounded:true, dlpConfirmed:false, kappaOpen:false, accuracyMonitor:am('30 May 2025',0.76),
+      customEndpoint:null, promptTemplateOverride:null,
       calibration:{ status:'calibrated', calibratedBy:'Compliance Officer', calibratedAt:'22 May 2025', rowsUsed:75, overallKappa:0.79,
         dimensionKappa:{ Factuality:0.71, 'Instruction Following':0.82, Tone:0.85, 'Task Completion':0.78, 'Refusal Behaviour':0.81 } } },
     tenant_healthbot:{ judgeMode:'local', judgeModel:'Mistral 7B INT8', sovereign:false, referenceGrounded:false, dlpConfirmed:false, kappaOpen:false, accuracyMonitor:am(null,null),
+      customEndpoint:null, promptTemplateOverride:null,
       calibration:{ status:'uncalibrated', calibratedBy:null, calibratedAt:null, rowsUsed:0, overallKappa:null, dimensionKappa:null } },
     tenant_nbfc:{ judgeMode:'local', judgeModel:'Mistral 7B INT8', sovereign:false, referenceGrounded:true, dlpConfirmed:false, kappaOpen:false, accuracyMonitor:am('14 Jun 2025',0.71),
+      customEndpoint:null, promptTemplateOverride:null,
       calibration:{ status:'calibrated', calibratedBy:'Arjun Mehta (ML Engineer)', calibratedAt:'08 Apr 2025', rowsUsed:50, overallKappa:0.74,
         dimensionKappa:{ Factuality:0.61, 'Task Completion':0.75, Tone:0.88, 'Refusal Behaviour':0.82 } } },
   };
+  initAgreementReports();
   log.info('[boot] eval configs ready');
+}
+// §47 — Judge Agreement Reports: evidence a skeptical evaluator can inspect (α, bias, disagreements).
+let agreementReports=[];
+function getAgreementReports(){ return scoped(agreementReports); }
+function projectAgreementReport(projectId){ return getAgreementReports().find(r=>r.projectId===projectId) || null; }
+function initAgreementReports(){
+  agreementReports=[
+    { id:'agr_cag', tenantId:'tenant_pravartak', projectId:'proj_cag_audit', judgeConfigId:'tenant_pravartak', referenceSetId:'cal_cag_80', scoredBy:'Kavitha Nair (Domain Expert)', generatedAt:'12 Jul 2026', overallAlpha:0.76,
+      perDimension:[ {dimension:'Factuality',alpha:0.78,bias:-0.1,nDisagree:6}, {dimension:'Task completion',alpha:0.81,bias:0.0,nDisagree:4}, {dimension:'Tone',alpha:0.62,bias:0.3,nDisagree:11}, {dimension:'Faithfulness',alpha:0.84,bias:-0.1,nDisagree:3} ],
+      disagreements:[
+        {rowId:'row_214',judgeScore:4,humanScore:2,dimension:'Factuality',note:'cited GFR 232 not 230'},
+        {rowId:'row_087',judgeScore:5,humanScore:3,dimension:'Tone',note:'verbose answer over-scored'},
+        {rowId:'row_133',judgeScore:4,humanScore:2,dimension:'Tone',note:'formal register mistaken for correctness'} ],
+      disagreeTotal:24 },
+    { id:'agr_legalai', tenantId:'tenant_legalai', projectId:'p4', judgeConfigId:'tenant_legalai', referenceSetId:'cal_legal_75', scoredBy:'Compliance Officer', generatedAt:'22 May 2025', overallAlpha:0.71,
+      perDimension:[ {dimension:'Factuality',alpha:0.74,bias:-0.1,nDisagree:7}, {dimension:'Task completion',alpha:0.78,bias:0.0,nDisagree:5}, {dimension:'Tone',alpha:0.79,bias:0.1,nDisagree:4}, {dimension:'Faithfulness',alpha:0.63,bias:0.2,nDisagree:12} ],
+      disagreements:[
+        {rowId:'row_051',judgeScore:5,humanScore:3,dimension:'Faithfulness',note:'claim not grounded in cited clause'},
+        {rowId:'row_112',judgeScore:4,humanScore:2,dimension:'Faithfulness',note:'paraphrase drifted from source contract'} ],
+      disagreeTotal:28 },
+  ];
 }
 function getEvalConfig(){ return currentTenant ? evalConfigs[currentTenant.id] : null; }
 function kappaColor(k){ if(k==null) return 'red'; return k>0.7?'green':k>=0.6?'yellow':'red'; }
@@ -3778,6 +4209,12 @@ function evalRunnable(cfg){
   if(!cfg) return {ok:true, why:''};
   if(cfg.calibration.status!=='calibrated') return {ok:false, why:'Complete calibration run before running eval. Uncalibrated judge accuracy is 45–60% only.'};
   if(cfg.judgeMode==='cloud' && !cfg.dlpConfirmed) return {ok:false, why:'Confirm the data-privacy acknowledgement for the cloud judge first.'};
+  // §47 — custom judge that egresses externally needs the same DLP gate as cloud.
+  if(cfg.judgeMode==='custom'){
+    const ce=cfg.customEndpoint;
+    if(!ce||!ce.url||!ce.modelName) return {ok:false, why:'Configure the custom judge endpoint URL and model name first.'};
+    if(ce.egress==='external' && !cfg.dlpConfirmed) return {ok:false, why:'Custom judge egresses externally — confirm the data-privacy acknowledgement first.'};
+  }
   return {ok:true, why:''};
 }
 function initMonitorConfigs(){
@@ -4658,6 +5095,24 @@ function dispatch(action, d){
     case 'ocr-accept': ocrCorrect(d.id, false); break;
     case 'ocr-edit-accept': ocrCorrect(d.id, true); break;
     case 'ocr-flag': ocrFlag(d.id); break;
+    // --- §46 Reviewer & Annotator cockpit ---
+    case 'cockpit-select': appState.cockpitSel=d.id; renderView(); break;
+    case 'cockpit-nav': cockpitAdvance(+d.dir); renderView(); break;
+    case 'cockpit-thumb': { const first=getOcrRegions().find(r=>r.documentId===d.doc && r.pageNumber===+d.page && ['pending','corrected','needs_rework'].includes(r.reviewStatus)) || getOcrRegions().find(r=>r.documentId===d.doc && r.pageNumber===+d.page); if(first) appState.cockpitSel=first.id; renderView(); break; }
+    case 'cockpit-filter': { const k=d.key; let v=d.val; if(k==='band'){ const p=v.split('-'); v=[+p[0],+p[1]]; appState.cockpitFilters.band=(appState.cockpitFilters.band&&appState.cockpitFilters.band[0]===v[0])?null:v; } else { appState.cockpitFilters[k]=appState.cockpitFilters[k]===v?null:v; } appState.cockpitSel=null; renderView(); break; }
+    case 'cockpit-doc-filter': appState.cockpitFilters.documentId=d.val||null; appState.cockpitSel=null; renderView(); break;
+    case 'cockpit-clear-filters': appState.cockpitFilters={ language:null,band:null,regionType:null,status:null,documentId:null,assignedTo:null }; appState.cockpitSel=null; renderView(); break;
+    case 'cockpit-docview': appState.cockpitDocView=!appState.cockpitDocView; renderView(); break;
+    case 'cockpit-approve': ocrApprove(d.id); break;
+    case 'cockpit-sendback': ocrSendBack(d.id); break;
+    case 'cockpit-save-approve': ocrCorrect(d.id, true); ocrApprove(d.id); break;
+    case 'cockpit-batch-approve': cockpitBatchApprove(d.id); break;
+    case 'cockpit-bulk-assign': cockpitBulkAssign(d.id); break;
+    case 'cockpit-mark-complete': cockpitMarkComplete(d.id); break;
+    case 'cockpit-save-view': cockpitSaveView(); break;
+    case 'cockpit-load-view': cockpitLoadView(d.id); break;
+    case 'cockpit-help-open': appState.cockpitKbHelp=true; renderView(); break;
+    case 'cockpit-help-close': appState.cockpitKbHelp=false; renderView(); break;
     // --- Bulk ingestion module (spec §20) ---
     case 'doc-tab': appState.docTab=d.tab; appState.bulkView='list'; appState.docView='list'; renderView(); break;
     // §43 — unified Data module tab switch + setup wizard
@@ -4765,7 +5220,23 @@ function dispatch(action, d){
     // --- Eval judge config + DLP (spec §38) ---
     case 'eval-judge': { const ec=getEvalConfig(); if(!ec) break;
       if(d.mode==='cloud' && !ec.dlpConfirmed){ appState.dlpChecked=false; dlpModal(); }
-      else { ec.judgeMode=d.mode; renderView(); } break; }
+      else { ec.judgeMode=d.mode; appState.customJudgeTest=null; renderView(); } break; }
+    // --- §47 Custom Endpoint judge config (text fields handled in the input listener) ---
+    case 'eval-custom-format': { const ec=getEvalConfig(); if(ec&&ec.customEndpoint){ ec.customEndpoint.requestFormat=d.val; renderView(); } break; }
+    case 'eval-custom-egress': { const ec=getEvalConfig(); if(ec&&ec.customEndpoint){ ec.customEndpoint.egress=d.val; if(d.val==='in_network') ec.dlpConfirmed=false; renderView(); } break; }
+    case 'eval-test-conn': { const ec=getEvalConfig(); if(ec){ testCustomJudge(ec); log.event('custom_judge_test',{ok:appState.customJudgeTest&&appState.customJudgeTest.ok}); renderView(); } break; }
+    case 'agr-export': { const rep=byId(agreementReports,d.id); if(!rep) break; if(d.fmt==='json'){ download('agreement_report_'+rep.projectId+'.json', JSON.stringify(rep,null,2), 'application/json'); } log.event('agreement:export',{id:rep.id, fmt:d.fmt}); showToast('Agreement report exported'+(d.fmt==='pdf'?' (PDF mocked)':''),'ok'); break; }
+    case 'agr-see-all': { const rep=byId(agreementReports,d.id); if(rep) showToast('Full disagreement list ('+rep.disagreeTotal+' rows) — mocked in prototype','info'); break; }
+    // --- §48 Deployment profiles ---
+    case 'toggle-productionise': appState.productioniseOpen=!appState.productioniseOpen; renderShell(); break;
+    case 'defer-open': appState.deferModule=d.module; setView(d.module); break;
+    case 'switch-profile-full': setDeploymentProfile('full'); break;
+    case 'set-profile': setDeploymentProfile(d.val); break;
+    // --- §49 Full export & reproducibility ---
+    case 'export-open': openExportModal(d.id, d.scope, d.run); break;
+    case 'export-dest': if(appState.exportCfg){ appState.exportCfg.dest=d.val; openExportModal(appState.exportCfg.projectId, appState.exportCfg.scope, appState.exportCfg.runId); } break;
+    case 'export-run': performExport(); break;
+    case 'export-reproduce': exportReproduceOnly(); break;
     case 'eval-refground': { const ec=getEvalConfig(); if(ec){ ec.referenceGrounded=(d.val==='corpus'); renderView(); } break; }
     case 'eval-kappa-toggle': { const ec=getEvalConfig(); if(ec){ ec.kappaOpen=!ec.kappaOpen; renderView(); } break; }
     case 'eval-calibrate': showToast('Calibration run started — label 50 rows to establish human-judge agreement (mocked).','info'); break;
@@ -4940,8 +5411,10 @@ function runEvalFlow(relId){
   appState.probeOverride=null; // consumed
   const mode = ec ? ec.judgeMode : 'local';
   if(mode==='human'){ humanEvalFlow(rel); return; } // manual human scoring, not auto-score
-  const where = mode==='cloud' ? ' via external API' : ' on-prem (Mistral 7B INT8)';
-  openModal('<div class="modal-body" style="text-align:center;padding:36px"><div class="bignum" style="font-size:20px" id="eval-step">Preparing…</div><div class="meter mt16"><div class="meter-fill" id="eval-bar" style="width:0;background:var(--gradient-brand)"></div></div><div class="muted mt12" style="font-size:12px">'+(mode==='cloud'?'Cloud API judge':'Local sovereign judge')+' · swap-augmented</div></div>');
+  const custom = mode==='custom' ? ec.customEndpoint : null;
+  const where = mode==='cloud' ? ' via external API' : custom ? ' on your endpoint ('+escapeHtml(custom.modelName)+')' : ' on-prem (Mistral 7B INT8)';
+  const judgeLabel = mode==='cloud'?'Cloud API judge':custom?'Custom judge — '+escapeHtml(custom.modelName)+(custom.egress==='in_network'?' 🔒 client-hosted':''):'Local sovereign judge';
+  openModal('<div class="modal-body" style="text-align:center;padding:36px"><div class="bignum" style="font-size:20px" id="eval-step">Preparing…</div><div class="meter mt16"><div class="meter-fill" id="eval-bar" style="width:0;background:var(--gradient-brand)"></div></div><div class="muted mt12" style="font-size:12px">'+judgeLabel+' · swap-augmented</div></div>');
   // Two-pass swap-augmented evaluation reduces position bias (spec §41 Change 1).
   const steps=['Loading checkpoints…','Pass 1 of 2 — scoring responses'+where+'…','Pass 2 of 2 — positions swapped'+where+'…','Aggregating + confidence intervals…','Done'];
   let i=0; const bar=el('eval-bar'), lbl=el('eval-step');
@@ -4962,6 +5435,8 @@ function stampJudge(e, mode, ec){
   e.judgeMode=mode; e.referenceGrounded=ec?ec.referenceGrounded:true; e.swapAugmented=true; // LLM-judge pairwise runs are swap-augmented
   if(mode==='cloud'){ const rows=(e.results?200:200); e.tokens=rows*(320+ (e.tokens%80)); e.cost=+(e.tokens/1000*0.6).toFixed(2);
     e.costLabel='₹'+e.cost.toFixed(2)+' · Cloud API ('+fmtNum(e.tokens)+' tokens sent externally)'; }
+  else if(mode==='custom'){ const ce=ec?ec.customEndpoint:null; e.tokens=0; e.cost=0; e.judgeModel=ce?ce.modelName:'custom';
+    e.costLabel='₹0 · Custom judge — '+(ce?ce.modelName:'client model')+(ce&&ce.egress==='in_network'?' (client-hosted, nothing left your network)':' (external endpoint)'); } // §47
   else { e.tokens=0; e.cost=0; e.costLabel='₹0 · Local judge (on-prem, nothing left your network)'; }
 }
 // Human eval: sample held-out rows, let a reviewer score each, aggregate + compute human↔judge agreement (κ). Spec §40.
@@ -5043,6 +5518,7 @@ function openProjectDetail(id){
     rels+='<div class="tl-node"><div class="card" style="padding:12px"><div class="row-between"><span class="card-title" style="font-size:13px">'+escapeHtml(r.name)+'</span>'+statusPill(r.status)+'</div><div class="secondary mt4" style="font-size:12px">'+(ds?ds.name+' · score '+ds.overallScore:'No dataset')+'</div></div></div>'; });
   let mem=''; p.members.forEach(m=>{ const u=byId(users,m.userId); if(u) mem+='<div class="flex gap8" style="padding:6px 0"><span class="dock-avatar" style="width:26px;height:26px;font-size:10px">'+initials(u.name)+'</span>'+escapeHtml(u.name)+' <span class="muted">· '+ROLE_LABEL[m.role]+'</span></div>'; });
   openPanel('<p class="secondary">'+escapeHtml(p.description)+'</p><div class="flex wrap gap6 mt8">'+p.tags.map(t=>'<span class="badge-fmt">'+escapeHtml(t)+'</span>').join('')+'</div>'
+    +(can('Data')?'<button class="btn btn-ghost btn-sm mt12" data-action="export-open" data-id="'+p.id+'" data-scope="project">'+ICON.download+'Export project (open formats)</button>':'') // §49
     +'<div class="section-h mt16">Releases</div><div class="timeline">'+(rels||'<span class="muted">No releases</span>')+'</div>'
     +'<div class="section-h mt16">Members</div>'+mem, p.name);
 }
@@ -5273,11 +5749,14 @@ function openPairPanel(docId, pid){
 function ocrCorrect(regId, edited){
   const reg=findRegion(regId); if(!reg||!assertTenant(reg)) return;
   if(!can('Annotation')){ showToast('You lack annotation permission','error'); return; }
-  const ta=el('ocr-text');
-  reg.correctedText = ta ? ta.value : reg.rawText;
-  reg.correctionStatus = 'corrected';
-  reg.correctedBy=currentUser.name; reg.correctedAt='2026-07-10';
+  const ta=el('cockpit-edit')||el('ocr-text');
+  const prev=reg.correctedText||reg.rawText;
+  reg.correctedText = (edited && ta) ? ta.value : reg.rawText;   // Accept keeps raw; Edit&Accept saves the field
+  reg.changeCharCount=Math.abs((reg.correctedText||'').length-(reg.rawText||'').length);
+  reg.reviewStatus='corrected'; reg.correctionStatus='corrected';
+  reg.correctedBy=currentUser.name; reg.correctedAt='2026-07-12';
   recomputeDocOcr(reg.documentId);
+  cockpitMark(); cockpitAdvance(1); // §46 auto-advance across the corpus (note 182)
   log.event('ocr:'+(edited?'edit-accept':'accept'),{region:regId});
   pushActivity((edited?'edited & accepted':'accepted')+' OCR region on p.'+reg.pageNumber);
   showToast('Region corrected','ok');
@@ -5285,18 +5764,80 @@ function ocrCorrect(regId, edited){
 }
 function ocrFlag(regId){
   const reg=findRegion(regId); if(!reg||!assertTenant(reg)) return;
-  reg.correctionStatus='flagged'; reg.correctedBy=currentUser.name;
+  reg.reviewStatus='flagged'; reg.correctionStatus='flagged'; reg.correctedBy=currentUser.name;
   recomputeDocOcr(reg.documentId);
+  cockpitMark(); cockpitAdvance(1);
   log.event('ocr:flag',{region:regId}); showToast('Flagged for expert review','info');
   renderView();
+}
+// §46 — Reviewer sign-off actions.
+function ocrApprove(regId){
+  const reg=findRegion(regId); if(!reg||!assertTenant(reg)) return;
+  if(!isReviewerRole()){ showToast('Approval is a Reviewer action','error'); return; }
+  if(reg.reviewStatus!=='corrected'){ showToast('Only corrected regions can be approved','info'); return; }
+  reg.reviewStatus='approved'; reg.correctionStatus='accepted'; reg.reviewedBy=currentUser.name; reg.reviewedAt='2026-07-12';
+  recomputeDocOcr(reg.documentId);
+  cockpitMark(); cockpitAdvance(1);
+  log.event('ocr:approve',{region:regId}); pushActivity('approved OCR correction on p.'+reg.pageNumber);
+  showToast('Correction approved','ok'); renderView();
+}
+function ocrSendBack(regId){
+  const reg=findRegion(regId); if(!reg||!assertTenant(reg)) return;
+  if(!isReviewerRole()){ showToast('Send back is a Reviewer action','error'); return; }
+  const note=(el('cockpit-rework')&&el('cockpit-rework').value.trim())||'';
+  reg.reviewStatus='needs_rework'; reg.correctionStatus='pending'; reg.reworkNote=note||'Please revisit this correction.'; reg.reviewedBy=currentUser.name;
+  recomputeDocOcr(reg.documentId);
+  cockpitMark(); cockpitAdvance(1);
+  log.event('ocr:sendback',{region:regId}); pushActivity('sent OCR region on p.'+reg.pageNumber+' back for rework');
+  showToast('Sent back to annotator','info'); renderView();
+}
+// §46 — batch approve every corrected region in one document (note 188).
+function cockpitBatchApprove(docId){
+  if(!isReviewerRole()){ showToast('Reviewer action only','error'); return; }
+  const regs=regionsForDoc(docId).filter(r=>r.reviewStatus==='corrected'); if(!regs.length){ showToast('No corrected regions to approve','info'); return; }
+  regs.forEach(r=>{ r.reviewStatus='approved'; r.correctionStatus='accepted'; r.reviewedBy=currentUser.name; r.reviewedAt='2026-07-12'; });
+  const doc=byId(documents,docId);
+  reviewBatches.push({ id:'rb'+Date.now(), tenantId:currentTenant.id, documentId:docId, reviewerId:currentUser.id, action:'batch_approve', regionCount:regs.length, createdAt:'2026-07-12' });
+  recomputeDocOcr(docId); log.event('review:batch_approve',{doc:docId, count:regs.length});
+  pushActivity('batch-approved '+regs.length+' corrections in '+(doc?doc.name:docId));
+  showToast('Approved '+regs.length+' correction'+(regs.length!==1?'s':'')+' in '+(doc?truncate(doc.name,24):''),'ok'); renderView();
+}
+function cockpitBulkAssign(docId){
+  if(!isReviewerRole()){ showToast('Reviewer action only','error'); return; }
+  const annotators=getUsers().filter(u=>u.role==='Annotator'); if(!annotators.length){ showToast('No annotators in this tenant','info'); return; }
+  const to=annotators[0]; const regs=regionsForDoc(docId).filter(r=>r.reviewStatus==='pending'||r.reviewStatus==='needs_rework');
+  regs.forEach(r=>{ r.assignedTo=to.id; });
+  const doc=byId(documents,docId);
+  reviewBatches.push({ id:'rb'+Date.now(), tenantId:currentTenant.id, documentId:docId, reviewerId:currentUser.id, action:'bulk_assign', regionCount:regs.length, createdAt:'2026-07-12' });
+  log.event('review:bulk_assign',{doc:docId, to:to.id, count:regs.length});
+  showToast('Assigned '+regs.length+' region'+(regs.length!==1?'s':'')+' to '+to.name,'ok'); renderView();
+}
+function cockpitMarkComplete(docId){
+  if(!isReviewerRole()){ showToast('Reviewer action only','error'); return; }
+  const awaiting=docAwaitingReview(docId);
+  if(awaiting>0){ showToast(awaiting+' region'+(awaiting!==1?'s':'')+' still awaiting review','info'); return; }
+  reviewBatches.push({ id:'rb'+Date.now(), tenantId:currentTenant.id, documentId:docId, reviewerId:currentUser.id, action:'mark_complete', regionCount:regionsForDoc(docId).length, createdAt:'2026-07-12' });
+  log.event('review:mark_complete',{doc:docId}); showToast('Document marked review-complete','ok'); renderView();
+}
+function cockpitSaveView(){
+  const name=(prompt&&prompt('Name this worklist view:'))||''; if(!name.trim()) return;
+  worklistViews.push({ id:'wv'+Date.now(), userId:currentUser.id, name:name.trim(), filters:Object.assign({},appState.cockpitFilters) });
+  log.event('cockpit:save_view',{name:name.trim()}); showToast('Worklist view saved','ok'); renderView();
+}
+function cockpitLoadView(id){
+  const v=getWorklistViews().find(x=>x.id===id); if(!v) return;
+  appState.cockpitFilters=Object.assign({ language:null,band:null,regionType:null,status:null,documentId:null,assignedTo:null }, v.filters);
+  appState.cockpitSel=null; renderView();
 }
 function recomputeDocOcr(docId){
   const doc=byId(documents,docId); if(!doc) return;
   const regs=ocrRegions.filter(r=>r.documentId===docId);
-  const pend=regs.filter(r=>r.correctionStatus==='pending').length;
-  doc.regionsFlagged=pend;
-  if(pend===0 && doc.status==='needs-review') doc.status='ready-chunk';
+  doc.regionsFlagged=regs.filter(r=>r.reviewStatus==='pending').length; // "flagged" = pending human correction
+  const awaiting=regs.filter(r=>r.reviewStatus!=='approved').length;     // §46 chunking gates on full sign-off
+  if(awaiting===0 && (doc.status==='needs-review'||doc.status==='processed')) doc.status='ready-chunk';
 }
+// §46 — regions in a document not yet reviewer-approved (blocks chunking, note 191).
+function docAwaitingReview(docId){ return regionsForDoc(docId).filter(r=>r.reviewStatus!=='approved').length; }
 
 /* ---- Bulk ingestion handlers (spec §20) ---- */
 function setBulkRadio(name, val){
@@ -5357,6 +5898,155 @@ function download(name, text, type){
   const a=document.createElement('a'); a.href=url; a.download=name; document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
+/* ============================================================
+   §49 — FULL EXPORT & REPRODUCIBILITY ("walk-away" guarantee)
+   Assembles real, readable open-format content from mock data. No zip lib:
+   the bundle is one JSON whose keys mirror the file tree. Secrets never exported.
+   ============================================================ */
+let exportJobs=[
+  { id:'exj_cag', tenantId:'tenant_pravartak', projectId:'proj_cag_audit', scope:'project', createdBy:'Dr. Anand Krishnan', createdAt:'11 Jul 2026', destination:'local_volume', sizeLabel:'4.2 MB', includedSections:['datasets','documents','lineage','eval','checkpoints','synthesis'] },
+  { id:'exj_nbfc', tenantId:'tenant_nbfc', projectId:'proj_nbfc_chatbot', scope:'eval_run', createdBy:'Arjun Mehta', createdAt:'27 Apr 2025', destination:'download', sizeLabel:'0.9 MB', includedSections:['datasets','eval','reproduce'] },
+];
+function getExportJobs(){ return scoped(exportJobs); }
+const EXPORT_SECTIONS=[
+  ['datasets','Datasets','JSONL + Parquet'],
+  ['documents','Documents & chunks','JSONL (text) + manifest'],
+  ['lineage','Lineage graph','JSON (nodes + edges)'],
+  ['evalcfg','Eval configs','YAML (rubric, weights, judge cfg)'],
+  ['evalres','Eval results','JSON (scores, per-dimension)'],
+  ['checkpoints','Checkpoint metadata','JSON (hash, base model, probe fp)'],
+  ['synthesis','Synthesis templates','text + params'],
+];
+// Deterministic pseudo-sha256 for the demo (real hashing not needed for a mock manifest).
+function mockHash(s){ s=String(s); let h=0x811c9dc5>>>0; for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=(h*0x01000193)>>>0; } let out=''; for(let i=0;i<16;i++){ out+=(h>>>0).toString(16).padStart(8,'0').slice(0,4); h=(h*2654435761+i)>>>0; } return 'sha256:'+(out+out).slice(0,64); }
+function dsFile(d){ return String(d.name||d.id).toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,''); }
+function yamlScalar(v){ if(v==null) return 'null'; if(typeof v==='number'||typeof v==='boolean') return String(v); const s=String(v); return /[:#{}\[\],&*?|<>=!%@`"']|^\s|\s$/.test(s)?JSON.stringify(s):s; }
+function toYaml(obj, ind){ ind=ind||0; const pad='  '.repeat(ind); const lines=[];
+  if(Array.isArray(obj)){ obj.forEach(v=>{ if(v&&typeof v==='object'){ lines.push(pad+'-'); lines.push(toYaml(v,ind+1)); } else lines.push(pad+'- '+yamlScalar(v)); }); }
+  else if(obj&&typeof obj==='object'){ Object.entries(obj).forEach(([k,v])=>{ if(v&&typeof v==='object'){ lines.push(pad+k+':'); lines.push(toYaml(v,ind+1)); } else lines.push(pad+k+': '+yamlScalar(v)); }); }
+  else lines.push(pad+yamlScalar(obj));
+  return lines.join('\n'); }
+// Export-safe judge config: secrets (authRef/token) are never serialised (note 207).
+function stripJudgeSecrets(ec, run){
+  const mode=(run&&run.judgeMode)||(ec?ec.judgeMode:'local');
+  const out={ type:mode, model:(run&&run.judgeModel)||(ec?ec.judgeModel:'mistral-7b-int8'), reference_grounded: ec?!!ec.referenceGrounded:true };
+  if(mode==='custom' && ec && ec.customEndpoint){ out.endpoint={ url:ec.customEndpoint.url, model_name:ec.customEndpoint.modelName, request_format:ec.customEndpoint.requestFormat, egress:ec.customEndpoint.egress }; out.note='auth secret excluded from export'; }
+  return { judge:out };
+}
+function buildLineageGraph(projectId){
+  const nodes=[], edges=[];
+  getDatasets().filter(d=>d.projectId===projectId).forEach(d=>nodes.push({id:d.id,type:'dataset',label:d.name,sha256:mockHash(d.id)}));
+  getReleases().filter(r=>r.projectId===projectId).forEach(r=>{ nodes.push({id:r.id,type:'release',label:r.name}); if(r.datasetId) edges.push({from:r.datasetId,to:r.id,rel:'dataset_of'}); if(r.evalRunId) edges.push({from:r.id,to:r.evalRunId,rel:'evaluated_by'}); });
+  getEvalRuns().filter(e=>e.projectId===projectId).forEach(e=>{ nodes.push({id:e.id,type:'eval_run',overall:e.results?e.results.B.Overall:null}); if(e.checkpointB) edges.push({from:e.checkpointB,to:e.id,rel:'checkpoint_of'}); });
+  checkpoints.filter(c=>c.projectId===projectId && (currentUser.role==='SuperAdmin'||c.tenantId===currentTenant.id)).forEach(c=>nodes.push({id:c.id,type:'checkpoint',sha256:c.weightsHash}));
+  return {nodes,edges};
+}
+function buildReproduce(run, ec, ds){
+  if(!run) return { note:'No completed eval run in scope — a reproducibility manifest requires one eval result.' };
+  const judge = ec&&ec.judgeMode==='custom'&&ec.customEndpoint
+    ? { type:'custom', model:ec.customEndpoint.modelName, prompt:'eval/prompt.txt' }
+    : { type:(run.judgeMode||(ec?ec.judgeMode:'local')), model:(run.judgeModel||(ec?ec.judgeModel:'mistral-7b-int8')), prompt:'eval/prompt.txt' };
+  const per={}; if(run.results&&run.results.B) Object.keys(run.results.B).forEach(k=>{ if(k!=='Overall') per[k.toLowerCase().replace(/ /g,'_')]=run.results.B[k]; });
+  return {
+    eval_run_id:run.id,
+    dataset_snapshot: ds?(dsFile(ds)+'.jsonl'):'datasets/snapshot.jsonl',
+    dataset_sha256: mockHash((ds?ds.id:'ds')+':'+run.id),
+    rubric:'eval/rubric.yaml',
+    judge,
+    reference_grounded: run.referenceGrounded!=null?!!run.referenceGrounded:(ec?!!ec.referenceGrounded:true),
+    corpus_chunks:'documents/chunks.jsonl',
+    swap_augmented: run.swapAugmented!=null?!!run.swapAugmented:true,
+    seed: run._seed!=null?run._seed:42,
+    result_summary:{ overall: run.results?run.results.B.Overall:null, per_dimension: per }
+  };
+}
+function exportReadme(proj, scope){
+  return '# '+(proj?proj.name:'Project')+' — Cueval export\n\n'
+    +'Scope: '+(scope==='eval_run'?'single eval run (reproducibility bundle)':'whole project')+'\n\n'
+    +'This bundle is open, tool-agnostic, and readable without Cueval.\n\n'
+    +'## Contents\n- datasets/ — training rows as JSONL (+ Parquet import note)\n- documents/ — manifest + chunk text\n- lineage/graph.json — provenance nodes + edges\n- eval/ — rubric.yaml, judge_config.yaml (no secrets), run results\n- checkpoints/ — sha256, base model, probe fingerprint (re-verifiable independently)\n- synthesis/templates.json\n- reproduce.json — pins every input to re-run one eval without Cueval\n\n'
+    +'## Reproduce a result\nWith the dataset snapshot, the rubric, the judge spec, the corpus chunks, and the seed in reproduce.json, your own engineer can reconstruct the score.\n\nAuth secrets are never included in any export.\n';
+}
+function buildProjectExport(projectId, scope, runId){
+  const proj=byId(getProjects(),projectId); const files={};
+  const slug=(proj?proj.name:'project').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'')+'_export';
+  const ec=getEvalConfig();
+  const dsList=getDatasets().filter(d=>d.projectId===projectId);
+  const runs=getEvalRuns().filter(e=>e.projectId===projectId && (scope!=='eval_run'||e.id===runId));
+  files['README.md']=exportReadme(proj, scope);
+  dsList.forEach(d=>{ const rows=(d.rows||[]);
+    files['datasets/'+dsFile(d)+'.jsonl']=rows.map(r=>JSON.stringify({instruction:r.instruction,input:r.input||'',output:r.output,language:r.language})).join('\n');
+    files['datasets/'+dsFile(d)+'.parquet.README']='Parquet is a binary columnar format — cannot be serialised in-browser. Import the sibling .jsonl into your Parquet writer. Schema: instruction:string, input:string, output:string, language:string'; });
+  if(scope!=='eval_run'){
+    const docs=getDocuments().filter(x=>x.projectId===projectId);
+    if(docs.length){
+      files['documents/manifest.jsonl']=docs.map(x=>JSON.stringify({id:x.id,name:x.name,pages:x.pages,scripts:x.scriptsDetected||[],sha256:mockHash(x.name)})).join('\n');
+      let ch=[]; docs.forEach(x=>chunksForDoc(x.id).forEach(c=>ch.push(JSON.stringify({docId:x.id,chunkIndex:c.chunkIndex,sourcePages:c.sourcePages,text:c.text}))));
+      files['documents/chunks.jsonl']=ch.join('\n');
+    }
+    files['lineage/graph.json']=JSON.stringify(buildLineageGraph(projectId),null,2);
+    const cks=checkpoints.filter(c=>c.projectId===projectId && (currentUser.role==='SuperAdmin'||c.tenantId===currentTenant.id));
+    cks.forEach(c=>{ files['checkpoints/'+c.id+'.json']=JSON.stringify({sha256:c.weightsHash, base_model:c.baseModel, probe_fingerprint:c.probeFingerprint, inference_endpoint:c.inferenceEndpoint, integrity:c.integrityStatus},null,2); });
+    files['synthesis/templates.json']=JSON.stringify((typeof SYNTH_TEMPLATES!=='undefined'?SYNTH_TEMPLATES:[]).map(t=>({key:t.key,name:t.name,domain:t.domain,pairTypes:t.pairTypes,prompt:t.prompt})),null,2);
+  }
+  // Judge config is a project-level artifact — always emitted (secrets stripped), so the
+  // custom/BYO judge (§47) is inspectable in the export even before an eval run exists.
+  files['eval/judge_config.yaml']=toYaml(stripJudgeSecrets(ec, runs[0]));
+  files['eval/prompt.txt']='[Cueval reference-grounded scoring prompt — §37. Judge returns JSON {dimension: score(1-5), rationale}.]';
+  if(runs.length){
+    const rubric=runs[0].rubric||RUBRIC_DEFAULT.map(n=>({dimension:n,weight:20}));
+    files['eval/rubric.yaml']=toYaml({rubric});
+    runs.forEach(e=>{ if(!e.results&&e.status==='completed') computeEval(e); files['eval/run_'+(e.results?e.results.B.Overall:e.id)+'.json']=JSON.stringify({id:e.id, results:e.results, variance:e.variance, rubric:e.rubric},null,2); });
+  }
+  const rep=buildReproduce(runs[0]||null, ec, dsList.find(d=>runs[0]&&d.releaseId===runs[0].releaseId)||dsList[0]);
+  files['reproduce.json']=JSON.stringify(rep,null,2);
+  return {slug, files, reproduce:rep};
+}
+function openExportModal(projectId, scope, runId){
+  const proj=byId(getProjects(),projectId); if(!proj) return;
+  appState.exportCfg={ projectId, scope:scope||'project', runId:runId||null, dest: isSovereign()?'local_volume':(appState.exportCfg&&appState.exportCfg.dest)||'local_volume' };
+  const cfg=appState.exportCfg;
+  const secRows=EXPORT_SECTIONS.map(s=>'<div class="flex gap8" style="padding:3px 0;font-size:13px"><span class="score-good">☑</span> '+escapeHtml(s[1])+' <span class="muted" style="margin-left:auto">→ '+escapeHtml(s[2])+'</span></div>').join('')
+    +'<div class="flex gap8" style="padding:3px 0;font-size:13px"><span class="score-bad">☐</span> Auth secrets <span class="muted" style="margin-left:auto">→ never exported</span></div>';
+  const destOpt=(v,label)=>'<label class="flex gap6" style="cursor:pointer;font-size:13px;align-items:center" data-action="export-dest" data-val="'+v+'"><span style="width:14px;height:14px;border-radius:50%;border:2px solid '+(cfg.dest===v?'var(--coral)':'var(--border-active)')+';'+(cfg.dest===v?'background:var(--coral);box-shadow:inset 0 0 0 3px var(--bg-surface)':'')+'"></span>'+escapeHtml(label)+'</label>';
+  const dest = isSovereign()
+    ? destOpt('local_volume','Local volume (sovereign)')+'<div class="muted mt4" style="font-size:11px">🔒 0 bytes leave your network. Download is disabled in sovereign mode.</div>'
+    : destOpt('local_volume','Local volume (sovereign)')+destOpt('download','Download');
+  openModal('<div class="modal-head"><strong>Export '+(cfg.scope==='eval_run'?'eval result':'Project')+': '+escapeHtml(proj.name)+'</strong><button class="icon-btn" data-action="close-modal">'+ICON.x+'</button></div>'
+    +'<div class="modal-body"><div class="section-h" style="margin:0">Include</div><div class="mt8">'+secRows+'</div>'
+    +'<div class="muted mt12" style="font-size:12px">Format: open, tool-agnostic. Readable without Cueval. No zip library in this prototype — the bundle downloads as one JSON whose keys mirror the file tree; reproduce.json is also available standalone.</div>'
+    +'<div class="section-h mt16">Destination</div><div class="flex gap16 mt8">'+dest+'</div></div>'
+    +'<div class="modal-foot"><button class="btn btn-ghost" data-action="export-reproduce">'+ICON.download+'reproduce.json only</button><button class="btn btn-primary" data-action="export-run">'+ICON.download+(cfg.scope==='eval_run'?'Export result bundle':'Export project bundle')+'</button></div>');
+}
+function performExport(){
+  const cfg=appState.exportCfg; if(!cfg) return;
+  const bundle=buildProjectExport(cfg.projectId, cfg.scope, cfg.runId);
+  const sections=Object.keys(bundle.files).map(p=>p.split('/')[0]).filter((v,i,a)=>a.indexOf(v)===i);
+  const size=(JSON.stringify(bundle.files).length/1024).toFixed(0);
+  const rec={ id:'exj_'+Date.now(), tenantId:currentTenant.id, projectId:cfg.projectId, scope:cfg.scope, createdBy:currentUser.name, createdAt:'12 Jul 2026', destination:cfg.dest, sizeLabel:size+' KB', includedSections:sections };
+  exportJobs.unshift(rec);
+  log.event('export:'+cfg.scope,{ project:cfg.projectId, dest:cfg.dest, files:Object.keys(bundle.files).length });
+  if(cfg.dest==='download' && !isSovereign()){ download(bundle.slug+'.json', JSON.stringify(bundle.files,null,2), 'application/json'); showToast('Project bundle exported ('+Object.keys(bundle.files).length+' files)','ok'); }
+  else { showToast('Written to /data/exports/'+bundle.slug+'/ · 0 bytes left client network','ok'); }
+  closeModal(); if(currentView==='settings') renderView();
+}
+function exportReproduceOnly(){
+  const cfg=appState.exportCfg; if(!cfg) return;
+  const bundle=buildProjectExport(cfg.projectId, cfg.scope, cfg.runId);
+  download('reproduce.json', bundle.files['reproduce.json'], 'application/json');
+  log.event('export:reproduce',{project:cfg.projectId}); showToast('reproduce.json exported','ok');
+}
+function settingsPortability(){
+  const jobs=getExportJobs();
+  const proj=activeProject();
+  const head='<div class="card mt16"><div class="row-between"><div><div class="section-h" style="margin:0">Data portability</div><div class="muted" style="font-size:12px">Walk away with everything, in open formats, at any time.</div></div>'
+    +(proj?'<button class="btn btn-primary" data-action="export-open" data-id="'+proj.id+'" data-scope="project">'+ICON.download+'Export project</button>':'')+'</div></div>';
+  let rows=jobs.map(j=>{ const p=byId(getProjects(),j.projectId);
+    return '<tr><td>'+escapeHtml(p?p.name:j.projectId)+'</td><td>'+(j.scope==='eval_run'?'Eval run':'Project')+'</td><td>'+(j.destination==='download'?'Download':'Local volume')+'</td><td class="secondary">'+escapeHtml(j.createdAt)+'</td><td class="mono">'+escapeHtml(j.sizeLabel)+'</td></tr>'; }).join('');
+  if(!rows) rows='<tr><td colspan="5" class="secondary" style="padding:16px">No exports yet.</td></tr>';
+  const hist='<div class="card mt16" style="padding:0;overflow:hidden"><div style="padding:12px 16px" class="section-h">Export history</div><table class="tbl"><thead><tr><th>Project</th><th>Scope</th><th>Destination</th><th>When</th><th>Size</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+  return head+hist;
+}
 function exportPref(){
   const done=getPrefPairs().filter(p=>p.status==='done' && (p.chosen==='A'||p.chosen==='B'));
   const lines=done.map(p=>{ const chosen=p.chosen==='A'?p.respA:p.respB, rejected=p.chosen==='A'?p.respB:p.respA;
@@ -5393,12 +6083,20 @@ document.addEventListener('input', e=>{
   else if(a==='mon-field'){ const c=monitorDraft(); if(c) c[t.dataset.key]=t.value; }
   else if(a==='lineage-search-live'){ appState.lineageRowQuery=t.value; }
   else if(a==='agent-filter'){ appState.agentFilter=t.value; const box=el('agent-log'); if(box) box.innerHTML=logEntriesHtml(getAgentLog()); }
+  // §47 — custom judge endpoint fields (no re-render on keystroke; secrets stored by reference only)
+  else if(a==='eval-custom-field'){ const ec=getEvalConfig(); if(ec){ if(!ec.customEndpoint) ec.customEndpoint={url:'',modelName:'',authRef:null,requestFormat:'openai',egress:'in_network'}; ec.customEndpoint[t.dataset.key]=t.value; appState.customJudgeTest=null; } }
+  else if(a==='eval-custom-secret'){ const ec=getEvalConfig(); if(ec&&ec.customEndpoint){ const v=(t.value||'').trim(); if(v) ec.customEndpoint.authRef='secret_ref_'+((v.length*97)>>>0).toString(16).slice(0,4); } }
+});
+// §46 — <select> change events (delegation; the click listener can't read a select's chosen value).
+document.addEventListener('change', e=>{
+  const t=e.target.closest('[data-action]'); if(!t || t.tagName!=='SELECT') return;
+  if(t.dataset.action==='cockpit-doc-filter'){ dispatch('cockpit-doc-filter', {...t.dataset, val:t.value}); }
 });
 
 document.addEventListener('keydown', e=>{
   const mod=e.metaKey||e.ctrlKey;
   if(mod && e.key.toLowerCase()==='k'){ e.preventDefault(); if(appState.paletteOpen) closePalette(); else if(currentUser) openPalette(); return; }
-  if(e.key==='Escape'){ if(appState.paletteOpen){ closePalette(); return; } if(el('dlp-modal')){ return; } /* DLP modal is not Esc-dismissable (§38) */ if(el('overlays').innerHTML){ closeModal(); return; } if(el('panel')&&el('panel').classList.contains('is-open')){ closePanel(); return; } closeAllDropdowns(); return; }
+  if(e.key==='Escape'){ if(appState.paletteOpen){ closePalette(); return; } if(appState.cockpitKbHelp){ appState.cockpitKbHelp=false; renderView(); return; } if(el('dlp-modal')){ return; } /* DLP modal is not Esc-dismissable (§38) */ if(el('overlays').innerHTML){ closeModal(); return; } if(el('panel')&&el('panel').classList.contains('is-open')){ closePanel(); return; } closeAllDropdowns(); return; }
   if(appState.paletteOpen){
     const items=window._paletteItems||[];
     if(e.key==='ArrowDown'){ e.preventDefault(); appState.paletteSel=Math.min(items.length-1, appState.paletteSel+1); renderPalette(); }
@@ -5423,6 +6121,25 @@ document.addEventListener('keydown', e=>{
       if(typing) return; // A/B/T/X shouldn't fire while typing the reasoning
       if(k==='a'){ p.chosen='A'; renderView(); } else if(k==='b'){ p.chosen='B'; renderView(); }
       else if(k==='t'){ p.chosen='tie'; renderView(); } else if(k==='x'){ p.chosen='both_bad'; renderView(); }
+    } else if(tab==='ocr'){
+      // §46 cockpit keyboard (note 190). Cmd/Ctrl+Enter saves edit even while typing.
+      if(appState.annotationJobId) return;
+      const cur=cockpitCur();
+      if(e.key==='Enter' && mod){ if(cur){ e.preventDefault(); ocrCorrect(cur.id,true); } return; }
+      if(typing) return; // let other keys type normally inside the field
+      if(e.key==='?'){ appState.cockpitKbHelp=!appState.cockpitKbHelp; renderView(); return; }
+      if(!cur) return;
+      const reviewer=isReviewerRole(); const corr=cur.reviewStatus==='corrected';
+      if(k==='j'||e.key==='ArrowDown'){ e.preventDefault(); cockpitAdvance(1); renderView(); }
+      else if(k==='k'||e.key==='ArrowUp'){ e.preventDefault(); cockpitAdvance(-1); renderView(); }
+      else if(e.key==='Enter'){ e.preventDefault(); if(!(reviewer&&corr)) ocrCorrect(cur.id,false); }
+      else if(k==='e'){ e.preventDefault(); const ta=el('cockpit-edit'); if(ta) ta.focus(); }
+      else if(k==='f'){ ocrFlag(cur.id); }
+      else if(k==='a'){ if(reviewer&&corr) ocrApprove(cur.id); }
+      else if(k==='b'){ if(reviewer&&corr) ocrSendBack(cur.id); }
+      else if(k==='d' && appState.cockpitGD){ appState.cockpitGD=false; if(reviewer){ appState.cockpitDocView=!appState.cockpitDocView; renderView(); } }
+      else if(k==='g'){ appState.cockpitGD=true; setTimeout(()=>{ appState.cockpitGD=false; }, 800); }
+      else if('123456'.includes(e.key)){ const l=COCKPIT_LANGS[+e.key-1]; if(l){ appState.cockpitFilters.language=appState.cockpitFilters.language===l?null:l; appState.cockpitSel=null; renderView(); } }
     }
   }
   // §45 — Calibration keyboard: 1/2/3 rate the next dimension; Enter = save & next.
