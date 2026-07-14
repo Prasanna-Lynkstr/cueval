@@ -460,11 +460,29 @@ function qualityLabel(score){ return score>=80 ? {text:'Good',tone:'green'} : sc
 // §45 note 173 — Domain Expert's 3-point calibration ratings map onto the 1–5 rubric scale.
 const CAL_RATING_MAP = { wrong:1, partial:3, right:5 };
 
+// §51 — V1 evaluation core: seeded ground-truth comparison (primary) + reference-grounded checking (complement).
+const COMPARISON_VERDICTS = ['match','partial','mismatch'];
+const COMPARISON_VERDICT_LABEL = { match:'Match', partial:'Partial', mismatch:'Mismatch' };
+function comparisonVerdictColor(v){ return v==='match'?'green':v==='partial'?'yellow':'red'; }
+function comparisonVerdictIcon(v){ return v==='match'?'✅':v==='partial'?'🟡':'🔴'; }
+// scorePct rewards partial credit — always shown next to the raw counts, never alone (note 223).
+function comparisonScorePct(s){ const t=s.match+s.partial+s.mismatch; return t? +(((s.match+0.5*s.partial)/t)*100).toFixed(1) : 0; }
+const GROUNDED_RETRIEVAL_THRESHOLD = 0.55; // below this similarity, the judge abstains (no_relevant_source) rather than grade a weak chunk
+// §51 note 227 — seed-set provenance: how the (question, baseline) pairs came to exist.
+const PROVENANCE_LABEL = { authored:'Authored by an expert', synthesis_drafted_then_approved:'Synthesis-drafted, expert-approved' };
+// One pluggable judge interface, three deployments (extends §37/§47). Keys map onto evalConfig.judgeMode.
+const JUDGE_TIERS = [
+  {key:'cloud', label:'Cloud API (default)', desc:'Best accuracy, zero setup — non-sensitive pilots.'},
+  {key:'local', label:'Sovereign (local, general instruct)', desc:'Private, cheap, no training data required — data can’t leave your network.'},
+  {key:'custom', label:'BYO (bring your own judge)', desc:'Your own model or endpoint — skeptical or self-standardised buyers.'},
+];
+const ALPHA_HUMAN_REVIEW_THRESHOLD = 0.65; // dimensions below this are marked human-review-only, never silently averaged in
+
 /* ============================================================
    SECTION B — MOCK DATA
    ============================================================ */
 const tenants = [
-  { id:'tenant_pravartak', name:'IITM Pravartak AI Lab', slug:'pravartak', plan:'Enterprise', deploymentProfile:'research', // §48
+  { id:'tenant_pravartak', name:'IITM Pravartak AI Lab', slug:'pravartak', plan:'Enterprise', deploymentProfile:'evaluation_only', // §48/§51 — v1 evaluation-and-audit layer only
     planLimits:{ rowsPerMonth:Infinity, evalRunsPerMonth:Infinity, maxUsers:Infinity, maxProjects:Infinity, sovereignDeployment:true },
     usage:{ rowsThisMonth:14832, evalRunsThisMonth:7, activeUsers:6, activeProjects:3 }, fee:200000,
     createdAt:'2025-01-15', status:'active' },
@@ -861,6 +879,165 @@ const evalRuns = [
     variance:{ A:{Factuality:6,'Task Completion':4,Tone:9,Faithfulness:3,Overall:5.2}, B:{Factuality:6,'Task Completion':4,Tone:9,Faithfulness:3,Overall:5.2} },
     tokens:0, cost:0, costLabel:'₹0 · Custom judge — indic-eval-13b (client-hosted, nothing left your network)', heldOutRows:80, humanReviewQueue:[], _seed:76 },
 ];
+
+/* ============================================================
+   §51 — V1 EVALUATION CORE: seeded ground-truth comparison (PRIMARY)
+   + reference-grounded checking (COMPLEMENT). Mock data for the CAG audit pilot.
+   ============================================================ */
+// ---- Eval Sets: fixed (question, expert-approved baseline) pairs — the primary validation mode ----
+const evalSets = [
+  { id:'evalset_cag_gfr', tenantId:'tenant_pravartak', projectId:'proj_cag_audit', name:'GFR Core Q&A v1',
+    purpose:'Primary validation + regression suite for the CAG audit assistant, checked against GFR-approved answers.',
+    provenance:'synthesis_drafted_then_approved', approvedBy:'Kavitha Nair (Domain Expert)', approvedAt:'10 Jul 2026',
+    coverage:{ intents:['rule_explanation','violation_detection','evidence_checklist','finding_formulation','impact_quantification'], nQuestions:40,
+      samplingMethod:'Stratified — 8 questions per audit intent, synthesis-drafted from the ingested GFR corpus then expert-reviewed by Kavitha Nair.',
+      notes:'Does not yet cover cross-document numeric reconciliation or materiality thresholds below ₹10,000 — flagged for v1.1.' } },
+];
+// 12 hand-authored items across the 5 audit intents (2 explicit mismatches + 3 partials + 7 matches),
+// padded to 40 with generated variants — mirrors buildRows()'s pad-to-count pattern (ADR-5).
+function esItem(o){ return Object.assign({ setId:'evalset_cag_gfr', expertId:'u10' }, o); }
+const EVAL_SET_ITEM_SEED = [
+  esItem({ id:'esi_01', tags:['rule_explanation'], question:'What is the purpose of GFR Rule 230 and when does it apply?',
+    baselineAnswer:'GFR Rule 230 regulates advance payments to contractors in government procurement. It applies whenever a contract involves advance payment and requires: (a) advances be permitted only under explicit contract terms, (b) recovery commence from the first running bill. The rule protects government funds by ensuring advances are not converted into interest-free loans to contractors.',
+    candidateAnswer:'GFR Rule 230 governs contractor advance payments under government contracts. It applies wherever advances are contractually provided for, and mandates that (a) the advance be authorised by explicit contract terms and (b) recovery begin from the first running bill — preventing the advance from becoming a de facto interest-free loan.',
+    verdict:'match', differences:[], dims:{'Factual equivalence':'match','Completeness':'match','Tone':'match'} }),
+  esItem({ id:'esi_02', tags:['violation_detection'], question:'What conditions would cause advance payment to a contractor to constitute an audit irregularity under GFR?',
+    baselineAnswer:'An advance payment constitutes an audit irregularity under GFR Rule 230 when: (1) paid without contractual provision, (2) not recovered from the first running bill, or (3) recovery deferred beyond scheduled instalments. Examine the contract terms, payment voucher date, and first running bill to establish timing of recovery.',
+    candidateAnswer:'An advance to a contractor becomes an audit irregularity under GFR Rule 230 if it is paid with no contractual basis, is not recovered starting from the first running bill, or its recovery is pushed beyond the agreed instalment schedule. Check the contract\'s advance clause, the payment voucher date, and the first running bill to confirm the recovery timeline.',
+    verdict:'match', differences:[], dims:{'Factual equivalence':'match','Completeness':'match','Tone':'match'} }),
+  esItem({ id:'esi_03', tags:['evidence_checklist'], question:'What documents should an auditor examine to verify compliance with GFR Rule 230 on contractor advances?',
+    baselineAnswer:'Documents to examine: (1) Original contract — verify advance clause and quantum, (2) Sanction order for advance — check authorisation level, (3) Payment voucher — verify date and amount, (4) First running bill — verify recovery deduction, (5) Subsequent bills if recovery spread — verify instalment schedule, (6) Correspondence if recovery disputed.',
+    candidateAnswer:'An auditor should review: the original contract to confirm the advance clause and amount, the sanction order to check authorisation level, the payment voucher for date and amount, the first running bill to verify the recovery deduction, later bills if recovery was spread across instalments, and any correspondence where recovery was disputed.',
+    verdict:'match', differences:[], dims:{'Factual equivalence':'match','Completeness':'match','Tone':'match'} }),
+  esItem({ id:'esi_04', tags:['finding_formulation'], question:'How should an auditor frame an audit finding when GFR Rule 230 has been violated through unrecovered advance?',
+    baselineAnswer:'Structure the finding as — Criteria: GFR Rule 230 requires advances to contractors to be recovered from the first running bill. Condition: Advances totalling ₹X were paid to M/s [contractor] during [period] but recovery was not initiated as of [audit date]. Cause: [lack of monitoring / oversight failure]. Effect: Government funds of ₹X remain at risk with no assurance of recovery. Recommendation: Initiate immediate recovery and fix accountability.',
+    candidateAnswer:'Frame the finding with Criteria (GFR Rule 230 requires recovery of contractor advances from the first running bill), Condition (₹X advanced to M/s [contractor] in [period] remains unrecovered as of [audit date]), Cause (monitoring lapse), Effect (₹X of public funds at risk), and Recommendation (initiate recovery and fix accountability).',
+    verdict:'match', differences:[], dims:{'Factual equivalence':'match','Completeness':'match','Tone':'match'} }),
+  esItem({ id:'esi_05', tags:['impact_quantification'], question:'How is notional interest computed on a contractor advance lying unrecovered for a given period?',
+    baselineAnswer:'Notional interest = outstanding advance × prevailing government borrowing rate × (period of non-recovery ÷ 12), reported separately from the principal amount at risk.',
+    candidateAnswer:'Compute notional interest as the outstanding advance multiplied by the prevailing government borrowing rate, multiplied by the non-recovery period in months divided by 12 — stated as a separate figure alongside the principal at risk.',
+    verdict:'match', differences:[], dims:{'Factual equivalence':'match','Completeness':'match','Tone':'match'} }),
+  esItem({ id:'esi_06', tags:['rule_explanation'], question:'What does GFR Rule 21 require regarding the standards of financial propriety?',
+    baselineAnswer:'GFR Rule 21 requires every officer to exercise the same vigilance over public expenditure as a person of ordinary prudence would over their own money. Expenditure should not be prima facie more than the occasion demands, and no authority should sanction expenditure that benefits itself.',
+    candidateAnswer:'GFR Rule 21 requires every officer to exercise the same vigilance over public expenditure as they would over their own money, and to ensure expenditure is not prima facie more than the occasion demands.',
+    verdict:'partial', differences:['Candidate omits the third propriety standard — that no authority should sanction expenditure that benefits itself.'],
+    dims:{'Factual equivalence':'match','Completeness':'partial','Tone':'match'} }),
+  esItem({ id:'esi_07', tags:['evidence_checklist'], question:'What evidence proves a grant-in-aid was diverted from its sanctioned purpose?',
+    baselineAnswer:'Evidence includes: (1) the sanction order stating the purpose, (2) the Utilisation Certificate, (3) bank statements of the grantee, (4) the asset register, (5) a physical verification report, (6) correspondence approving any change of purpose.',
+    candidateAnswer:'Evidence includes the sanction order stating the purpose, the Utilisation Certificate, bank statements of the grantee, a physical verification report, and correspondence approving any change of purpose.',
+    verdict:'partial', differences:['Candidate omits the asset register from the evidence checklist — same facts otherwise, incomplete list.'],
+    dims:{'Factual equivalence':'match','Completeness':'partial','Tone':'match'} }),
+  esItem({ id:'esi_08', tags:['violation_detection'], question:'Is payment of mobilisation advance without a bank guarantee always a violation?',
+    baselineAnswer:'Not always — it is a violation only where the contract or GFR requires a bank guarantee for the advance quantum. Below the prescribed threshold an indemnity bond may suffice. Check the contract clause and the advance amount.',
+    candidateAnswer:'Not always — it is a violation only where the contract or GFR requires a bank guarantee for the advance quantum. Below the prescribed threshold an indemnity bond may suffice, though in practice most divisions still insist on a bank guarantee regardless of amount.',
+    verdict:'partial', differences:['Candidate adds an unsupported practical caveat not present in the baseline — same core facts, extra hedge.'],
+    dims:{'Factual equivalence':'match','Completeness':'match','Tone':'partial'} }),
+  esItem({ id:'esi_09', tags:['rule_explanation'], question:'Which GFR rule governs contractor advance payments, and what does it require?',
+    baselineAnswer:'GFR Rule 230 governs contractor advance payments. It requires that advances be permitted only under explicit contract terms and that recovery commence from the first running bill.',
+    candidateAnswer:'GFR Rule 232 governs contractor advance payments. It requires advances to be sanctioned by the competent financial authority before disbursement.',
+    verdict:'mismatch', differences:['Candidate cites GFR Rule 232; the correct rule is GFR Rule 230.','Candidate omits the recovery-from-first-running-bill requirement entirely.'],
+    dims:{'Factual equivalence':'mismatch','Completeness':'partial','Tone':'match'} }),
+  esItem({ id:'esi_10', tags:['violation_detection'], question:'When does award of a works contract on nomination basis breach GFR competitive-tendering norms?',
+    baselineAnswer:'Nomination is a breach unless it falls within a GFR-recognised exception (proprietary article, emergency, or a single available source), is supported by recorded reasons, and is approved by the competent authority. Absent these, the award defeats GFR Rule 173\'s competitive-tendering requirement.',
+    candidateAnswer:'Awarding a works contract on nomination basis always breaches GFR Rule 173\'s competitive-tendering requirement and should be treated as an irregularity in every case.',
+    verdict:'mismatch', differences:['Candidate omits all three recognised exceptions (proprietary article, emergency, single available source) and states nomination is always a breach — overstates the rule.'],
+    dims:{'Factual equivalence':'mismatch','Completeness':'mismatch','Tone':'match'} }),
+  esItem({ id:'esi_11', tags:['finding_formulation'], question:'How should an auditor formulate a systemic finding covering repeated advance-recovery lapses across divisions?',
+    baselineAnswer:'Frame as a systemic observation: Criteria (GFR Rule 230), Condition (advances of ₹X across N divisions unrecovered), Cause (absence of a centralised advance-monitoring mechanism), Effect (₹X of public funds at recurring risk), Recommendation (institute a monthly advance-register review).',
+    candidateAnswer:'Frame it systemically: Criteria is GFR Rule 230, Condition is unrecovered advances of ₹X spread across N divisions, Cause is the lack of a centralised monitoring mechanism, Effect is recurring risk to ₹X of public funds, and the Recommendation is a monthly advance-register review.',
+    verdict:'match', differences:[], dims:{'Factual equivalence':'match','Completeness':'match','Tone':'match'} }),
+  esItem({ id:'esi_12', tags:['impact_quantification'], question:'How do you quantify the loss when stores were procured above the last purchase price without justification?',
+    baselineAnswer:'Loss = (rate paid − last reasonable purchase price) × quantity procured, adjusted for any documented price escalation. State the comparison basis and the absence of justification.',
+    candidateAnswer:'The loss is the difference between the rate paid and the last reasonable purchase price, multiplied by the quantity procured, adjusted for any documented escalation — with the comparison basis and lack of justification stated explicitly.',
+    verdict:'match', differences:[], dims:{'Factual equivalence':'match','Completeness':'match','Tone':'match'} }),
+];
+// Small template bank reused (like CLEAN_ROWS) to pad the set to 40 questions.
+const EVAL_SET_GEN_BANK = [
+  ['rule_explanation','What is the difference between a "charged" and a "voted" expenditure for audit purposes?','Charged expenditure is not subject to the vote of the legislature (e.g. debt servicing, salaries of constitutional authorities); voted expenditure requires legislative approval via demands for grants. The distinction affects appropriation-audit treatment.'],
+  ['violation_detection','When does splitting a purchase to avoid tender constitute a GFR violation?','Splitting is a violation under GFR Rule 149/166 when a single foreseeable requirement is divided into parts each kept below the tender threshold to avoid competitive procurement. Look for same vendor, same period, related items.'],
+  ['evidence_checklist','What documents establish that a works contract was awarded without competitive bidding?','Documents to examine: file noting on mode of procurement, single-tender/nomination justification, NIT publication proof (or its absence), comparative statement, approval of competent authority, and CVC guidelines compliance note.'],
+  ['finding_formulation','How should an auditor frame a finding where tender evaluation criteria were changed after bids were opened?','Criteria: GFR Rule 173 requires evaluation on pre-disclosed criteria. Condition: evaluation parameters were altered after bid opening. Cause: absence of a documented evaluation committee decision. Effect: the process favoured one bidder, undermining competitive tendering. Recommendation: annul and re-tender.'],
+  ['impact_quantification','How do you quantify the loss when stores were procured above the last purchase price without a documented reason?','Loss = (rate paid − last reasonable purchase price) × quantity procured, adjusted for any documented price escalation. State the comparison basis and the absence of justification.'],
+  ['rule_explanation','What standard of financial propriety does GFR Rule 21 set for a sanctioning officer?','GFR Rule 21 requires every officer to exercise the same vigilance over public expenditure as a person of ordinary prudence would over their own money. Expenditure should not be prima facie more than the occasion demands, and no authority should sanction expenditure that benefits itself.'],
+  ['violation_detection','Is payment of a mobilisation advance without a bank guarantee always irregular?','Not always — it is a violation only where the contract or GFR requires a bank guarantee for the advance quantum. Below the prescribed threshold an indemnity bond may suffice. Check the contract clause and the advance amount.'],
+  ['evidence_checklist','What evidence would substantiate that a grant-in-aid was diverted from its sanctioned purpose?','Evidence includes: the sanction order stating the purpose, the Utilisation Certificate, bank statements of the grantee, the asset register, a physical verification report, and correspondence approving any change of purpose.'],
+];
+function buildEvalSetItems(){
+  const items = EVAL_SET_ITEM_SEED.map(x=>({ id:x.id, setId:x.setId, question:x.question, baselineAnswer:x.baselineAnswer, expertId:x.expertId, tags:x.tags.slice() }));
+  for(let i=0;i<28;i++){
+    const t=EVAL_SET_GEN_BANK[i%EVAL_SET_GEN_BANK.length]; const cycle=Math.floor(i/EVAL_SET_GEN_BANK.length)+1;
+    items.push(esItem({ id:'esi_gen_'+String(i+1).padStart(2,'0'), tags:[t[0]],
+      question: cycle>1 ? t[1]+' (supplementary set #'+cycle+')' : t[1], baselineAnswer:t[2] }));
+  }
+  return items;
+}
+let evalSetItems = buildEvalSetItems();
+// Result verdict/candidate for the 28 generated items: first 24 match, next 3 partial, last 1 mismatch.
+function buildGeneratedComparisonResults(){
+  const gen = evalSetItems.filter(i=>i.id.startsWith('esi_gen_'));
+  return gen.map((item,i)=>{
+    if(i<24) return { itemId:item.id, candidateAnswer:item.baselineAnswer, verdict:'match', differences:[], dims:{'Factual equivalence':'match','Completeness':'match','Tone':'match'} };
+    if(i<27) return { itemId:item.id, candidateAnswer:item.baselineAnswer.split(', ').slice(0,-1).join(', ')+'.', verdict:'partial',
+      differences:['Candidate omits the final point of the baseline\'s list — same facts otherwise, incomplete.'], dims:{'Factual equivalence':'match','Completeness':'partial','Tone':'match'} };
+    return { itemId:item.id, candidateAnswer:'No separate documentation is required beyond the Utilisation Certificate — it alone is sufficient evidence of proper end-use.', verdict:'mismatch',
+      differences:['Candidate contradicts the baseline — claims the Utilisation Certificate alone suffices, dropping the other five evidence items.'], dims:{'Factual equivalence':'mismatch','Completeness':'mismatch','Tone':'match'} };
+  });
+}
+// Primary comparison run — CAG audit model vs the GFR Core Q&A v1 baseline set.
+function buildEvalSetRunV1(){
+  const handResults = EVAL_SET_ITEM_SEED.map(x=>({ itemId:x.id, candidateAnswer:x.candidateAnswer, verdict:x.verdict, differences:x.differences, dims:x.dims }));
+  const run = { id:'esr_cag_v1', setId:'evalset_cag_gfr', tenantId:'tenant_pravartak', modelRef:'ckpt-cag', judgeConfigId:'tenant_pravartak', createdAt:'12 Jul 2026', createdBy:'Dr. Anand Krishnan',
+    results: handResults.concat(buildGeneratedComparisonResults()) };
+  computeComparisonSummary(run);
+  return run;
+}
+// Regression run — same set against a newer candidate checkpoint. One deliberate regression (match→mismatch)
+// on esi_02, one fix (mismatch→match) on esi_09, one partial improvement (mismatch→partial) on esi_10 (spec §51 note 228).
+function buildEvalSetRunV2(v1){
+  const flips = {
+    esi_02:{ verdict:'mismatch', candidateAnswer:'An advance to a contractor is only irregular if the contract is silent on advances at all — timing of recovery is a bookkeeping detail, not an audit concern.', differences:['Regression — v2 no longer treats delayed/deferred recovery as an irregularity; contradicts GFR Rule 230.'], dims:{'Factual equivalence':'mismatch','Completeness':'match','Tone':'match'} },
+    esi_09:{ verdict:'match', candidateAnswer:'GFR Rule 230 governs contractor advance payments. It requires advances be permitted only under explicit contract terms and recovery commence from the first running bill.', differences:[], dims:{'Factual equivalence':'match','Completeness':'match','Tone':'match'} },
+    esi_10:{ verdict:'partial', candidateAnswer:'Nomination-basis award breaches GFR Rule 173\'s competitive-tendering requirement unless it falls within a recognised exception such as a proprietary article or emergency, supported by recorded reasons.', differences:['Improved but still omits the "single available source" exception and the competent-authority approval requirement.'], dims:{'Factual equivalence':'match','Completeness':'partial','Tone':'match'} },
+  };
+  const results = v1.results.map(r=> flips[r.itemId] ? Object.assign({itemId:r.itemId}, flips[r.itemId]) : Object.assign({},r));
+  const run = { id:'esr_cag_v2', setId:'evalset_cag_gfr', tenantId:'tenant_pravartak', modelRef:'ckpt-cag-v2', judgeConfigId:'tenant_pravartak', createdAt:'14 Jul 2026', createdBy:'Dr. Anand Krishnan', results };
+  computeComparisonSummary(run);
+  return run;
+}
+const _esr_v1 = buildEvalSetRunV1();
+let evalSetRuns = [ _esr_v1, buildEvalSetRunV2(_esr_v1) ];
+
+// ---- Reference-grounded checking (COMPLEMENT) — open-ended questions scored against the ingested corpus,
+// each verdict carrying a retrieval citation; low-similarity retrieval abstains via no_relevant_source (§51 notes 224). ----
+const GROUNDED_QA_BANK = [
+  ['What is the monetary threshold above which re-appropriation of funds requires Ministry of Finance concurrence?','chunk_gfr_rule21', 82],
+  ['What is the retention period for Measurement Books after final payment?','chunk_gfr_rule230_para1', 79],
+  ['Can a Divisional Accountant refuse to sign a bill they consider irregular?','chunk_gfr_rule230_intro', 74],
+  ['What is the composition of a Tender Evaluation Committee for works above ₹1 crore?','chunk_gfr_rule21', 71],
+  ['How long must utilisation certificates be preserved after grant closure?','domain_seed_pwd_2021', 86],
+  ['What is the maximum permissible retention money percentage on a works contract?','chunk_gfr_rule230_para1', 77],
+  ['What internal control lapse most commonly precedes an unrecovered-advance finding?','domain_seed_pwd_2021', 68],
+  ['What is the audit treatment difference between charged and voted expenditure?','chunk_gfr_rule21', 81],
+  ['What is the current e-tendering portal mandated for central PSU procurement?', null, 28],
+  ['Has the GFR advance-recovery rule been amended for infrastructure PPP contracts in 2026?', null, 22],
+];
+function buildGroundedRun(){
+  const items = GROUNDED_QA_BANK.map((g,i)=>{
+    const abstain = g[1]===null;
+    return {
+      id:'grd_'+(i+1), question:g[0],
+      candidateAnswer: abstain ? null : 'Per the ingested corpus, '+g[0].toLowerCase().replace(/\?$/,'')+' — see the cited chunk for the exact figure and conditions.',
+      verdict: abstain ? 'no_relevant_source' : 'graded',
+      score: abstain ? null : g[2],
+      chunkId: g[1], similarity: g[2]/100,
+      routedToHuman: abstain,
+      note: abstain ? 'Top retrieval similarity '+(g[2]/100).toFixed(2)+' — below the '+GROUNDED_RETRIEVAL_THRESHOLD.toFixed(2)+' threshold. Routed to human review instead of grading against a weak chunk.' : null,
+    };
+  });
+  return { id:'egr_cag_v1', tenantId:'tenant_pravartak', projectId:'proj_cag_audit', modelRef:'ckpt-cag', judgeConfigId:'tenant_pravartak', createdAt:'12 Jul 2026', items };
+}
+let evalGroundedRuns = [ buildGroundedRun() ];
+
 const experiments = [
   { id:'x1', projectId:'p1', releaseId:'rel1', tenantId:'tenant_pravartak', name:'Legal base SFT', datasetId:'d1', datasetVersion:'v2.0', checkpointId:'ckpt-v1.0', evalRunId:'e1', costEstimate:1980, status:'completed', createdBy:'Arjun ML', createdAt:'2025-03-01', notes:'Baseline supervised fine-tune on curated legal corpus.', trainingConfig:{ baseModel:'Llama-3.1-8B', epochs:3, learningRate:0.0002, batchSize:16, loraRank:16, optimizer:'adamw' } },
   { id:'x2', projectId:'p1', releaseId:'rel2', tenantId:'tenant_pravartak', name:'Legal v1.1 curated', datasetId:'d1', datasetVersion:'v2.1', checkpointId:'ckpt-v1.1', evalRunId:'e2', costEstimate:2340, status:'completed', createdBy:'Arjun ML', createdAt:'2025-05-14', notes:'Retrained after removing near-duplicates and PII rows.', trainingConfig:{ baseModel:'Llama-3.1-8B', epochs:4, learningRate:0.00018, batchSize:16, loraRank:32, optimizer:'adamw' } },
@@ -985,6 +1162,8 @@ const appState = {
   cockpitPace:[],         // action timestamps this session → pace estimate
   cockpitKbHelp:false,    // '?' shortcuts overlay
   cockpitGD:false,        // 'G then D' chord latch
+  // §51 — Eval Harness: seeded comparison (primary) vs open-ended/grounded (complement) tab + sub-nav
+  evalTab:'comparison', evalCompView:'list', evalSetId:null, evalSetRunId:null,
 };
 // Document-ingestion collections (populated in initMockData — after Section E)
 let documents = [];
@@ -1094,6 +1273,13 @@ function getCorpusSeeds(){ return scoped(corpusSeeds); }
 function getDomainSeeds(){ return scoped(domainSeeds); }
 function getCalibrationDE(){ return scoped([calibrationDE])[0] || null; }
 function getTemplateSuggestions(){ return scoped(templateSuggestions); }
+// §51 — V1 evaluation core accessors (tenant isolation boundary, CLAUDE.md §5).
+function getEvalSets(){ return scoped(evalSets); }
+function getEvalSet(id){ return byId(getEvalSets(), id); }
+function getEvalSetItems(setId){ return evalSetItems.filter(i=>i.setId===setId); } // items carry no tenantId — scoped via the parent set
+function getEvalSetRuns(setId){ const set=getEvalSet(setId); if(!set) return []; return evalSetRuns.filter(r=>r.setId===setId); }
+function evalSetLatestRun(setId){ const rs=getEvalSetRuns(setId); return rs.length ? rs[rs.length-1] : null; }
+function getEvalGroundedRuns(){ return scoped(evalGroundedRuns); }
 // Corpus Seeds is an approval decision, not a review task (note 67/68) — ML/Architect/Admin only.
 function canSeeCorpusSeeds(){ return ['MLEngineer','Architect','Admin','SuperAdmin'].includes(currentUser.role) && getCorpusSeeds().length>=50; }
 function isSovereign(){ return !!(currentTenant && currentTenant.planLimits.sovereignDeployment); }
@@ -1204,6 +1390,23 @@ function computeEval(e){
   const ds = datasets.find(d=>d.releaseId===e.releaseId);
   e.humanReviewQueue = ds && ds.rows ? ds.rows.filter(r=>r.qualityScore<55).slice(0,5).map(r=>r.id) : [];
   return e;
+}
+// §51 — seeded comparison judge: recompute a run's match/partial/mismatch summary + scorePct from its results.
+function computeComparisonSummary(run){
+  const s={match:0,partial:0,mismatch:0};
+  run.results.forEach(r=>{ s[r.verdict]=(s[r.verdict]||0)+1; });
+  s.scorePct = comparisonScorePct(s);
+  run.summary=s;
+  return s;
+}
+// §51 note 228 — regression diff between two runs of the same set: what changed per item.
+function regressionDiff(oldRun, newRun){
+  const oldMap={}; oldRun.results.forEach(r=>{ oldMap[r.itemId]=r; });
+  return newRun.results.map(r=>{ const prev=oldMap[r.itemId];
+    return { itemId:r.itemId, prevVerdict:prev?prev.verdict:null, currVerdict:r.verdict,
+      regressed: prev && prev.verdict==='match' && r.verdict==='mismatch',
+      improved: prev && prev.verdict==='mismatch' && r.verdict!=='mismatch' };
+  });
 }
 function usagePct(t){ const l=t.planLimits.rowsPerMonth; return l===Infinity?0:Math.round(t.usage.rowsThisMonth/l*100); }
 function usageLevel(pct){ if(pct>95)return'red'; if(pct>85)return'orange'; if(pct>=70)return'yellow'; return'green'; }
@@ -1378,11 +1581,17 @@ const DOCK_VIS = {
 };
 function canSeeDockItem(view){ const v=DOCK_VIS[view]; if(!v) return true; return v.includes(currentUser.role); }
 // §48 — Deployment profiles gate module VISIBILITY and defaults only (never RBAC).
-const DEFERRED_MODULES=['releases','monitor','agents']; // productionisation surface, deferred for research
+// §51 — evaluation_only additionally defers Review + Experiments: the v1 product is the eval-and-audit layer alone.
+const DEFERRED_BY_PROFILE = {
+  research: ['releases','monitor','agents'],
+  evaluation_only: ['review','experiments','releases','monitor','agents'],
+};
+const DEFERRED_MODULES = [...new Set(Object.values(DEFERRED_BY_PROFILE).flat())]; // union — iterated for the "Productionise" tray + defer-open lookups
 function tenantProfile(){ return (currentTenant && currentTenant.deploymentProfile) || 'full'; }
 function moduleVisibility(view, profile){
   profile = profile || tenantProfile();
-  if(profile==='research' && DEFERRED_MODULES.includes(view)) return 'deferred';
+  const deferred = DEFERRED_BY_PROFILE[profile];
+  if(deferred && deferred.includes(view)) return 'deferred';
   return 'visible';
 }
 function profileFlags(profile){
@@ -1393,8 +1602,10 @@ const DEFERRED_INFO={
   releases:{ icon:'rocket', label:'Release', blurb:'Gate a model version behind approvals before it ships. Available when you ship a model.' },
   monitor:{ icon:'radar', label:'Monitor', blurb:'Watch live inference quality, drift, and flag rate in production. Available when you have live inference.' },
   agents:{ icon:'robot', label:'Agents', blurb:'Automate routing, curation, and eval triggers with agents. Available with Release + Monitor.' },
+  review:{ icon:'pencil', label:'Review Queue', blurb:'Correct and approve annotations at scale. Available once eval surfaces errors worth fixing.' },
+  experiments:{ icon:'beaker', label:'Experiments', blurb:'Fine-tune and compare checkpoints. Available once eval identifies a training-worthy problem.' },
 };
-const PROFILE_LABEL={ research:'Research / dataset building', regulated_production:'Regulated production', full:'Full platform' };
+const PROFILE_LABEL={ research:'Research / dataset building', regulated_production:'Regulated production', full:'Full platform', evaluation_only:'Evaluation-only (v1)' };
 // §48 — profile switch (Admin only): changes visibility + defaults, never RBAC or data.
 function setDeploymentProfile(p){
   if(!can('Org')){ showToast('Only Admins can change the deployment profile','error'); return; }
@@ -1564,6 +1775,7 @@ function renderView(){
     audit:screenAudit,
     seeding:screenExpertSeeding, calibration:screenCalibration, // §45 — Domain Expert screens
     agreement:screenAgreementReport, // §47 — Judge Agreement Report
+    auditreport:screenAuditReport,   // §51 note 230 — v1 headline deliverable: seeded score + grounded citations + agreement, one export
   };
   // §48 — a deferred module (research profile) never opens the real screen; show the explainer instead.
   if(currentUser && currentUser.role!=='SuperAdmin' && DEFERRED_MODULES.includes(currentView) && moduleVisibility(currentView)==='deferred'){
@@ -1842,10 +2054,11 @@ function screenDashboard(){
   return header+'<div class="mt24"></div>'+warn
     +'<div class="grid-3" style="grid-template-columns:1.5fr 1fr;align-items:start">'+board+side+'</div>';
 }
-// §48 note 201 — under a research profile, drop dashboard CTAs that target a deferred module.
+// §48 note 201 — under a profile with deferred modules, drop dashboard CTAs that target one.
 function stripDeferredCTAs(html){
-  if(tenantProfile()!=='research') return html;
-  return html.replace(/<button[^>]*data-view="(monitor|agents|releases)"[^>]*>[\s\S]*?<\/button>/g,'');
+  const deferred=DEFERRED_BY_PROFILE[tenantProfile()];
+  if(!deferred || !deferred.length) return html;
+  return html.replace(new RegExp('<button[^>]*data-view="('+deferred.join('|')+')"[^>]*>[\\s\\S]*?<\\/button>','g'),'');
 }
 function heroCard(icon,title,sub,primary,extra){
   return '<div class="card" style="border-color:var(--border-active)"><div class="flex gap12" style="align-items:flex-start">'
@@ -2214,6 +2427,7 @@ function screenDataWizard(p){
   const profStep = can('Org') ? '<div class="card mt24" style="max-width:640px"><div class="card-title" style="font-size:16px">How will you use Cueval?</div>'
     +'<div class="stack gap8 mt16">'
     +[['research','Research / dataset building','Curate, annotate, evaluate. No production release or live monitoring yet.'],
+      ['evaluation_only','Evaluation-only (v1)','Point at a model you already built and validate it — corpus ingest, eval, calibration, audit export only.'],
       ['regulated_production','Regulated production','Full lifecycle with release gates, monitoring, and strict data governance.'],
       ['full','Full platform','Everything visible, no opinionated defaults.']].map(o=>{ const on=tenantProfile()===o[0];
       return '<button class="card hover'+(on?' is-sel':'')+'" data-action="set-profile" data-val="'+o[0]+'" style="text-align:left;width:100%;display:flex;gap:12px;align-items:flex-start;'+(on?'border-color:var(--coral)':'')+'">'
@@ -2577,13 +2791,16 @@ function screenReview(){
 // Judge configuration panel (spec §38) — judge mode, calibration, reference-grounding.
 function judgePanel(ec){
   if(!ec) return '';
-  const jmode=(key,title,tag,tagCls)=>{ const on=ec.judgeMode===key;
-    return '<label class="flex gap8" style="padding:8px 0;cursor:pointer;align-items:flex-start" data-action="eval-judge" data-mode="'+key+'">'
+  // §51 — one pluggable judge interface, three deployment tiers (JUDGE_TIERS). Selecting Sovereign
+  // disables the Cloud API tier and skips the DLP gate entirely (note 225) — data never leaves the network.
+  const sovereignSelected = ec.judgeMode==='local';
+  const jmode=(key,title,tag,tagCls,disabled)=>{ const on=ec.judgeMode===key;
+    return '<label class="flex gap8" style="padding:8px 0;'+(disabled?'cursor:not-allowed;opacity:.45':'cursor:pointer')+';align-items:flex-start" '+(disabled?'':'data-action="eval-judge" data-mode="'+key+'"')+(disabled?' title="Disabled — Sovereign tier keeps all data in-network"':'')+'>'
       +'<span style="width:16px;height:16px;border-radius:50%;border:2px solid '+(on?'var(--coral)':'var(--border-active)')+';flex-shrink:0;margin-top:2px;'+(on?'background:var(--coral);box-shadow:inset 0 0 0 3px var(--bg-surface)':'')+'"></span>'
       +'<span style="flex:1"><span style="font-weight:500">'+escapeHtml(title)+'</span> <span class="pill '+tagCls+'" style="font-size:10px;margin-left:6px">'+tag+'</span></span></label>'; };
-  const modes=jmode('local','Local (Mistral 7B INT8)','🔒 Sovereign — recommended','pill-green')
-    +jmode('custom','Custom Endpoint (bring your own judge)','🔒 Client-hosted','pill-blue')  // §47
-    +jmode('cloud','Cloud API (Claude / GPT-4)','Data leaves network','pill-yellow')
+  const modes=jmode('local','Sovereign — local, general instruct (Mistral 7B INT8)','🔒 Recommended','pill-green')
+    +jmode('custom','BYO — bring your own model / endpoint','🔒 Client-hosted','pill-blue')  // §47
+    +jmode('cloud','Cloud API (default — Claude / GPT-4)','Data leaves network','pill-yellow', sovereignSelected)
     +jmode('human','Human eval','Manual — for calibration','pill-muted');
   // §47 — Custom Endpoint config panel (revealed when the custom judge is selected).
   const customPanel = ec.judgeMode==='custom' ? customJudgePanel(ec) : '';
@@ -2698,35 +2915,183 @@ function screenAgreementReport(){
     +'<div><div class="muted" style="font-size:11px">REFERENCE SET</div><div>'+rep.disagreeTotal+' disagreements · vs human-scored rows</div></div>'
     +'<div><div class="muted" style="font-size:11px">SCORED BY</div><div>'+escapeHtml(rep.scoredBy)+' · '+escapeHtml(rep.generatedAt)+'</div></div>'
     +'<div style="flex:1"></div><div class="flex gap6"><button class="btn btn-ghost btn-sm" data-action="agr-export" data-id="'+rep.id+'" data-fmt="pdf">'+ICON.download+'Export PDF</button><button class="btn btn-ghost btn-sm" data-action="agr-export" data-id="'+rep.id+'" data-fmt="json">'+ICON.download+'Export JSON</button></div></div></div>';
+  // §51 — per-dimension alpha now spans both v1 validation modes; anything below threshold is human-review-only, never silently averaged in.
+  const hasModes = rep.perDimension.some(d=>d.mode);
+  const modeLabel = m=> m==='comparison'?'Seeded comparison':m==='grounded'?'Grounded':'—';
   const rows=rep.perDimension.map(d=>{ const col=agrColor(d.alpha); const bandTxt=d.alpha>0.75?'good':d.alpha>=0.6?'fair':'poor';
     const biasTxt=d.bias===0?'0.0':(d.bias>0?'+'+d.bias.toFixed(1)+' (lenient)':d.bias.toFixed(1)+' (strict)');
-    return '<tr><td>'+escapeHtml(d.dimension)+'</td><td class="mono '+scoreClass(d.alpha*100)+'">'+d.alpha.toFixed(2)+' <span class="pill pill-'+col+'" style="font-size:10px">'+bandTxt+'</span></td><td class="mono">'+biasTxt+'</td><td class="mono">'+d.nDisagree+'</td></tr>'; }).join('');
-  const table='<div class="card mt16" style="padding:0;overflow:hidden"><table class="tbl"><thead><tr><th>Dimension</th><th>Agreement (α)</th><th>Bias</th><th>n disagree</th></tr></thead><tbody>'+rows
-    +'<tr style="border-top:2px solid var(--border)"><td><strong>Overall Krippendorff α</strong></td><td class="mono '+scoreClass(rep.overallAlpha*100)+'"><strong>'+rep.overallAlpha.toFixed(2)+'</strong></td><td></td><td></td></tr></tbody></table></div>';
-  const dis=rep.disagreements.map(x=>'<div style="padding:8px 0;border-bottom:1px solid var(--border);font-size:13px"><span class="mono">'+escapeHtml(x.rowId)+'</span> · judge '+x.judgeScore+', humans '+x.humanScore+' · <span class="secondary">'+escapeHtml(x.dimension)+'</span> — “'+escapeHtml(x.note)+'”</div>').join('');
+    const hrOnly = d.alpha<ALPHA_HUMAN_REVIEW_THRESHOLD ? ' <span class="pill pill-red" style="font-size:10px" title="Below the '+ALPHA_HUMAN_REVIEW_THRESHOLD+' agreement threshold — treat as human-review-only, not an automated signal.">Human-review only</span>' : '';
+    return '<tr><td>'+escapeHtml(d.dimension)+'</td>'+(hasModes?'<td class="secondary" style="font-size:12px">'+modeLabel(d.mode)+'</td>':'')+'<td class="mono '+scoreClass(d.alpha*100)+'">'+d.alpha.toFixed(2)+' <span class="pill pill-'+col+'" style="font-size:10px">'+bandTxt+'</span>'+hrOnly+'</td><td class="mono">'+biasTxt+'</td><td class="mono">'+d.nDisagree+'</td></tr>'; }).join('');
+  const table='<div class="card mt16" style="padding:0;overflow:hidden"><table class="tbl"><thead><tr><th>Dimension</th>'+(hasModes?'<th>Mode</th>':'')+'<th>Agreement (α)</th><th>Bias</th><th>n disagree</th></tr></thead><tbody>'+rows
+    +'<tr style="border-top:2px solid var(--border)"><td><strong>Overall Krippendorff α</strong></td>'+(hasModes?'<td></td>':'')+'<td class="mono '+scoreClass(rep.overallAlpha*100)+'"><strong>'+rep.overallAlpha.toFixed(2)+'</strong></td><td></td><td></td></tr></tbody></table></div>';
+  const tagPill = t=> t==='bad_retrieval' ? ' <span class="pill pill-yellow" style="font-size:10px">Bad retrieval</span>' : t==='bad_judgment' ? ' <span class="pill pill-blue" style="font-size:10px">Bad judgment</span>' : '';
+  const dis=rep.disagreements.map(x=>'<div style="padding:8px 0;border-bottom:1px solid var(--border);font-size:13px"><span class="mono">'+escapeHtml(x.rowId)+'</span> · judge '+x.judgeScore+', humans '+x.humanScore+' · <span class="secondary">'+escapeHtml(x.dimension)+'</span>'+tagPill(x.tag)+' — “'+escapeHtml(x.note)+'”</div>').join('');
   const disCard='<div class="card mt16"><div class="section-h">Where judge and humans disagree (sample)</div>'+dis
     +'<button class="btn btn-ghost btn-sm mt12" data-action="agr-see-all" data-id="'+rep.id+'">See all '+rep.disagreeTotal+' disagreements '+ICON.arrowR+'</button></div>';
   const pitch='<div class="muted mt16" style="font-size:12px;max-width:640px">This is the artifact you hand a lab that evaluates judges for a living. It invites scrutiny instead of asking for trust — export it for your procurement pack or re-run the analysis yourself from the JSON.</div>';
   return title+'<div class="mt24">'+meta+table+disCard+pitch+'</div>';
 }
-// §48 — deferred-module explainer (research profile): what it does + the upgrade path, no functionality.
+// §51 note 230 — v1's headline deliverable: one exportable, lineage-backed report combining the
+// seeded-set score + coverage statement, the grounded-mode findings with retrieval citations, and the
+// per-dimension agreement profile. Never presents a score without its coverage statement (note 227).
+function screenAuditReport(){
+  const proj=activeProject();
+  const back='<button class="btn btn-ghost btn-sm" data-action="nav" data-view="eval">'+ICON.chevR+'<span style="transform:rotate(180deg);display:inline-block">'+ICON.chevR+'</span> Back to Eval</button>';
+  const title='<div class="row-between"><div><h1 class="page-h">Audit Report</h1><p class="page-sub">The single artifact that combines what was validated, how it scored, and how much to trust the judge.</p></div>'+back+'</div>';
+  const sets=getEvalSets().filter(s=>!proj || s.projectId===proj.id);
+  const rep=proj?projectAgreementReport(proj.id):null;
+  const groundedRun=getEvalGroundedRuns().filter(r=>!proj||r.projectId===proj.id).slice(-1)[0];
+  if(!sets.length && !rep && !groundedRun){
+    return title+'<div class="mt24">'+emptyState('shield','Nothing to report yet','Run a seeded comparison or grounded check first — the audit report assembles from real runs, never placeholders.','')+'</div>';
+  }
+  const setSections=sets.map(s=>{
+    const run=evalSetLatestRun(s.id); if(!run) return '<div class="card mt16"><div class="card-title">'+escapeHtml(s.name)+'</div><div class="secondary mt8">Not run yet.</div></div>';
+    const sm=run.summary;
+    return '<div class="card mt16"><div class="row-between"><span class="card-title">'+escapeHtml(s.name)+'</span><span class="pill pill-'+(sm.scorePct>=80?'green':sm.scorePct>=60?'yellow':'red')+'">'+sm.scorePct+'%</span></div>'
+      +'<div class="secondary mt4" style="font-size:12.5px">'+sm.match+' match · '+sm.partial+' partial · '+sm.mismatch+' mismatch of '+(sm.match+sm.partial+sm.mismatch)+' questions · model '+escapeHtml(run.modelRef)+'</div>'
+      +coverageStatement(s)+'</div>';
+  }).join('');
+  const groundedSection = groundedRun ? (()=>{
+    const graded=groundedRun.items.filter(i=>i.verdict==='graded'), abst=groundedRun.items.filter(i=>i.verdict==='no_relevant_source');
+    return '<div class="card mt16"><div class="card-title">Open-ended / grounded findings</div>'
+      +'<div class="secondary mt4" style="font-size:12.5px">'+graded.length+' graded with a cited corpus chunk · '+abst.length+' abstained (no relevant source, routed to human review) — retrieval-bounded by design.</div>'
+      +'<div class="mt8">'+groundedRun.items.map(i=>i.verdict==='graded'
+        ?'<div style="padding:4px 0;font-size:12.5px"><span class="mono secondary">'+escapeHtml(i.chunkId)+'</span> — '+escapeHtml(truncate(i.question,70))+' <span class="pill pill-'+(i.score>=80?'green':i.score>=60?'yellow':'red')+'" style="font-size:9px">'+i.score+'</span></div>'
+        :'<div style="padding:4px 0;font-size:12.5px"><span class="pill pill-red" style="font-size:9px">no source</span> '+escapeHtml(truncate(i.question,70))+'</div>').join('')+'</div></div>'; })() : '';
+  const agreementSection = rep ? '<div class="card mt16"><div class="card-title">Judge agreement profile</div>'
+    +'<div class="secondary mt4" style="font-size:12.5px">Overall Krippendorff α = '+rep.overallAlpha.toFixed(2)+' ('+alphaBand(rep.overallAlpha)+') · scored by '+escapeHtml(rep.scoredBy)+'</div>'
+    +'<div class="mt8">'+rep.perDimension.map(d=>'<div class="row-between" style="padding:3px 0;font-size:12.5px"><span>'+escapeHtml(d.dimension)+(d.mode?' <span class="muted">('+escapeHtml(d.mode)+')</span>':'')+'</span><span class="mono '+scoreClass(d.alpha*100)+'">'+d.alpha.toFixed(2)+(d.alpha<ALPHA_HUMAN_REVIEW_THRESHOLD?' <span class="pill pill-red" style="font-size:9px">human-review only</span>':'')+'</span></div>').join('')+'</div>'
+    +'<button class="btn btn-ghost btn-sm mt12" data-action="nav" data-view="agreement">'+ICON.arrowR+'Full agreement report</button></div>' : '';
+  const exportBtn='<button class="btn btn-primary" data-action="auditreport-export" data-id="'+(proj?proj.id:'')+'">'+ICON.download+'Export Audit Report</button>';
+  return title+'<div class="mt16">'+exportBtn+'</div><div class="mt8">'+setSections+groundedSection+agreementSection+'</div>'
+    +'<div class="muted mt16" style="font-size:12px;max-width:640px">Every score on this page carries its coverage statement and its judge-agreement context — never a bare number. Export for your procurement pack, regulator, or reviewing lab.</div>';
+}
+// §48 — deferred-module explainer (research/evaluation_only profiles): what it does + the upgrade path, no functionality.
+const PROFILE_STRAPLINE = {
+  research:'Data, Review, Eval, Experiments, and Lineage, without production release or live monitoring.',
+  evaluation_only:'Corpus ingest, Eval (seeded comparison + grounded), Calibration, and Audit export only — this is the v1 evaluation-and-audit layer.',
+};
 function screenDeferred(){
   const mod=appState.deferModule||currentView; const info=DEFERRED_INFO[mod]||{icon:'rocket',label:mod,blurb:''};
-  const isAdmin=can('Org');
+  const isAdmin=can('Org'); const profile=tenantProfile();
+  const deferredHere=DEFERRED_BY_PROFILE[profile]||[];
   const cta=isAdmin
     ? '<button class="btn btn-primary" data-action="switch-profile-full">'+ICON.rocket+'Switch to full platform</button>'
     : '<span class="secondary">Ask your admin to enable the full platform for this workspace.</span>';
-  const others=DEFERRED_MODULES.map(v=>{ const i=DEFERRED_INFO[v]; return '<div class="flex gap8" style="align-items:center;padding:6px 0;'+(v===mod?'':'opacity:.6')+'">'+ICON[i.icon]+'<span style="font-weight:'+(v===mod?600:400)+'">'+escapeHtml(i.label)+'</span></div>'; }).join('');
-  return '<div class="row-between"><div><h1 class="page-h">'+escapeHtml(info.label)+'</h1><p class="page-sub">Part of the productionisation stage — deferred for research deployments.</p></div></div>'
+  const others=deferredHere.map(v=>{ const i=DEFERRED_INFO[v]; return '<div class="flex gap8" style="align-items:center;padding:6px 0;'+(v===mod?'':'opacity:.6')+'">'+ICON[i.icon]+'<span style="font-weight:'+(v===mod?600:400)+'">'+escapeHtml(i.label)+'</span></div>'; }).join('');
+  return '<div class="row-between"><div><h1 class="page-h">'+escapeHtml(info.label)+'</h1><p class="page-sub">Part of the productionisation stage — deferred for '+escapeHtml(PROFILE_LABEL[profile]||profile)+' deployments.</p></div></div>'
     +'<div class="mt24" style="max-width:640px"><div class="card"><div class="flex gap8" style="align-items:center">'+ICON[info.icon]+'<span class="section-h" style="margin:0">'+escapeHtml(info.label)+'</span><span class="pill pill-muted">Available when you productionise</span></div>'
     +'<p class="secondary mt12" style="font-size:14px;line-height:1.7">'+escapeHtml(info.blurb)+'</p>'
     +'<div class="section-h mt16">Productionisation modules</div>'+others
     +'<div class="mt16">'+cta+'</div></div>'
-    +'<div class="muted mt12" style="font-size:12px">Your workspace runs the <strong>research</strong> profile — Data, Review, Eval, Experiments, and Lineage, without production release or live monitoring. Switching to full platform reveals these modules; it never changes anyone\'s role permissions.</div></div>';
+    +'<div class="muted mt12" style="font-size:12px">Your workspace runs the <strong>'+escapeHtml(PROFILE_LABEL[profile]||profile)+'</strong> profile — '+escapeHtml(PROFILE_STRAPLINE[profile]||'')+' Switching to full platform reveals these modules; it never changes anyone\'s role permissions.</div></div>';
 }
+/* ---- §51 — Eval Harness: seeded comparison (primary) + open-ended/grounded (complement) ---- */
 function screenEval(){
+  const tab=appState.evalTab||'comparison';
+  const tabBtn=(key,label)=>'<button class="chip '+(tab===key?'is-on':'')+'" data-action="eval-tab" data-tab="'+key+'">'+escapeHtml(label)+'</button>';
+  const tabs='<div class="row-between"><div class="flex wrap gap8">'+tabBtn('comparison','Seeded Comparison')+tabBtn('grounded','Open-ended / Grounded')+'</div>'
+    +'<button class="btn btn-ghost btn-sm" data-action="nav" data-view="auditreport">'+ICON.shield+'Audit Report</button></div>';
+  return tabs+'<div class="mt16">'+(tab==='grounded' ? screenEvalGrounded() : screenEvalComparison())+'</div>';
+}
+// Coverage statement — rendered next to every score; the audit report must never present a score without it (note 227).
+function coverageStatement(set){
+  const c=set.coverage||{};
+  return '<div class="card mt12" style="background:var(--bg-hover)"><div class="section-h" style="margin:0">Coverage statement</div>'
+    +'<div class="secondary mt4" style="font-size:12.5px;line-height:1.7">'
+    +'<div>Provenance: <strong>'+escapeHtml(PROVENANCE_LABEL[set.provenance]||set.provenance)+'</strong>'+(set.approvedBy?' · approved by '+escapeHtml(set.approvedBy)+(set.approvedAt?' · '+escapeHtml(set.approvedAt):''):'')+'</div>'
+    +(c.intents&&c.intents.length?'<div class="mt4">Intents covered: '+c.intents.map(t=>'<span class="pill pill-muted" style="font-size:10px;margin-right:4px">'+escapeHtml(t)+'</span>').join('')+'</div>':'')
+    +'<div class="mt4">'+(c.nQuestions||0)+' questions · '+escapeHtml(c.samplingMethod||'—')+'</div>'
+    +(c.notes?'<div class="mt4">'+ICON.info+' <em>What this does not cover:</em> '+escapeHtml(c.notes)+'</div>':'')+'</div></div>';
+}
+function evalSetCard(set){
+  const runs=getEvalSetRuns(set.id); const latest=runs[runs.length-1];
+  const scoreLine = latest ? '<span class="pill pill-'+(latest.summary.scorePct>=80?'green':latest.summary.scorePct>=60?'yellow':'red')+'">'+latest.summary.scorePct+'%</span> <span class="secondary" style="font-size:12px">'+latest.summary.match+' match · '+latest.summary.partial+' partial · '+latest.summary.mismatch+' mismatch</span>'
+    : '<span class="muted" style="font-size:12px">Not run yet</span>';
+  return '<div class="card hover" data-action="eval-set-open" data-id="'+set.id+'">'
+    +'<div class="row-between"><span class="card-title">'+escapeHtml(set.name)+'</span><span class="pill pill-muted" style="font-size:10px">'+escapeHtml(PROVENANCE_LABEL[set.provenance]||set.provenance)+'</span></div>'
+    +'<div class="secondary mt4" style="font-size:12.5px">'+escapeHtml(set.purpose)+'</div>'
+    +'<div class="mt12">'+scoreLine+'</div>'
+    +'<div class="muted mt8" style="font-size:11px">'+getEvalSetItems(set.id).length+' questions · '+runs.length+' run'+(runs.length===1?'':'s')+'</div></div>';
+}
+function comparisonResultRow(item, res){
+  const v=res?res.verdict:null; if(!v) return '';
+  const diffHtml = res.differences&&res.differences.length ? '<div class="secondary mt4" style="font-size:12px">'+res.differences.map(d=>'• '+escapeHtml(d)).join('<br>')+'</div>' : '';
+  const dimsHtml = res.dims ? Object.entries(res.dims).map(([k,dv])=>'<span class="pill pill-'+comparisonVerdictColor(dv)+'" style="font-size:9px;margin-right:4px" title="'+escapeAttr(k)+'">'+escapeHtml(k)+'</span>').join('') : '';
+  return '<div class="card mt8" style="padding:12px">'
+    +'<div class="row-between" style="align-items:flex-start"><div style="flex:1"><div style="font-weight:500;font-size:13.5px">'+escapeHtml(item.question)+'</div>'
+    +'<div class="muted mt4" style="font-size:11.5px">Baseline: '+escapeHtml(truncate(item.baselineAnswer,140))+'</div></div>'
+    +'<span class="pill pill-'+comparisonVerdictColor(v)+'" style="margin-left:12px;white-space:nowrap">'+comparisonVerdictIcon(v)+' '+COMPARISON_VERDICT_LABEL[v]+'</span></div>'
+    +diffHtml+(dimsHtml?'<div class="mt6">'+dimsHtml+'</div>':'')+'</div>';
+}
+function screenEvalComparison(){
+  if(appState.evalCompView==='regression') return screenEvalRegression();
+  const sets=getEvalSets();
+  const view=appState.evalCompView||'list';
+  const head='<div class="row-between"><div><h1 class="page-h">Seeded Comparison</h1><p class="page-sub">Validate against a fixed, expert-approved test set — the judge only compares, never generates.</p></div>'
+    +(view==='list'?'<button class="btn btn-primary" data-action="eval-set-new">'+ICON.plus+'New Eval Set</button>':'<button class="btn btn-ghost btn-sm" data-action="eval-set-back">'+ICON.arrowL+'Back to sets</button>')+'</div>';
+  if(view==='list'){
+    if(!sets.length) return head+'<div class="mt24">'+emptyState('scale','No eval sets yet','Create a fixed (question, expert-approved answer) test set to validate your model against.','<button class="btn btn-primary" data-action="eval-set-new">'+ICON.plus+'New Eval Set</button>')+'</div>';
+    return head+'<div class="mt24" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px">'+sets.map(evalSetCard).join('')+'</div>';
+  }
+  const set=getEvalSet(appState.evalSetId); if(!set) return head+'<div class="mt24">'+emptyState('scale','Set not found','It may have been removed.','')+'</div>';
+  const items=getEvalSetItems(set.id); const runs=getEvalSetRuns(set.id);
+  const runToShow = appState.evalSetRunId ? byId(runs,appState.evalSetRunId) : runs[runs.length-1];
+  const resMap={}; if(runToShow) runToShow.results.forEach(r=>resMap[r.itemId]=r);
+  const ec=getEvalConfig();
+  const runPanel='<div class="card mt16">'+judgePanel(ec)
+    +'<div class="muted mt12" style="font-size:12px">The comparison judge is given the question, the baseline, and the candidate — it never answers the question itself, only classifies match / partial / mismatch.</div>'
+    +'<div class="flex gap8 mt12" style="align-items:center"><input class="input" id="eval-set-modelref" placeholder="Model ref (e.g. ckpt-cag-v3)" style="max-width:260px">'
+    +'<button class="btn btn-primary" data-action="eval-set-run" data-id="'+set.id+'">'+ICON.bolt+'Run comparison</button></div></div>';
+  const addItemForm='<div class="card mt16"><div class="section-h">Add a question</div>'
+    +'<input class="input mt8" id="esi-q" placeholder="Question"><textarea class="input mt8" id="esi-a" placeholder="Expert-approved baseline answer" style="min-height:70px"></textarea>'
+    +'<button class="btn btn-ghost btn-sm mt8" data-action="eval-set-add-item" data-id="'+set.id+'">'+ICON.plus+'Add to set</button></div>';
+  let body;
+  if(!items.length){
+    body=coverageStatement(set)+'<div class="mt16">'+emptyState('pencil','No questions yet','Add at least one (question, baseline) pair before running a comparison.','')+'</div>'+addItemForm;
+  } else if(!runToShow){
+    const qList=items.map(it=>'<div class="card mt8" style="padding:10px 12px"><div style="font-weight:500;font-size:13px">'+escapeHtml(it.question)+'</div><div class="muted mt4" style="font-size:11.5px">Baseline: '+escapeHtml(truncate(it.baselineAnswer,140))+'</div></div>').join('');
+    body=coverageStatement(set)+'<div class="section-h mt16">Questions ('+items.length+')</div>'+qList+runPanel+addItemForm;
+  } else {
+    const s=runToShow.summary;
+    const scoreCard='<div class="card"><div class="row-between"><div><div class="muted" style="font-size:11px">SCORE (never shown without counts)</div>'
+      +'<div class="bignum '+scoreClass(s.scorePct)+'" style="font-size:28px">'+s.scorePct+'%</div>'
+      +'<div class="secondary" style="font-size:12.5px">'+s.match+' match · '+s.partial+' partial · '+s.mismatch+' mismatch of '+items.length+'</div></div>'
+      +'<div style="text-align:right"><div class="muted" style="font-size:11px">MODEL</div><div class="mono">'+escapeHtml(runToShow.modelRef)+'</div>'
+      +'<div class="muted mt8" style="font-size:11px">RUN</div><div class="secondary" style="font-size:12px">'+escapeHtml(runToShow.createdAt)+'</div></div></div></div>';
+    const histSel = runs.length>1 ? '<div class="flex gap6 mt8 wrap">'+runs.map(r=>'<button class="btn btn-sm '+(r.id===runToShow.id?'btn-primary':'btn-ghost')+'" data-action="eval-set-view-run" data-id="'+r.id+'">'+escapeHtml(r.modelRef)+' · '+r.summary.scorePct+'%</button>').join('')
+      +'<button class="btn btn-sm btn-ghost" data-action="eval-set-regression" data-id="'+set.id+'">'+ICON.radar+'Regression view</button></div>' : '';
+    const resultsList=items.map(it=>comparisonResultRow(it, resMap[it.id])).join('');
+    body=scoreCard+histSel+coverageStatement(set)+'<div class="section-h mt16">Results</div>'+resultsList+runPanel+addItemForm;
+  }
+  return head+'<div class="row-between mt16" style="align-items:flex-start"><div><h2 style="font-size:18px;margin:0">'+escapeHtml(set.name)+'</h2><p class="secondary" style="font-size:13px;margin-top:4px">'+escapeHtml(set.purpose)+'</p></div>'
+    +'<button class="btn btn-ghost btn-sm" data-action="export-open" data-id="'+(set.projectId||'')+'" data-scope="project">'+ICON.download+'Export</button></div>'
+    +'<div class="mt16">'+body+'</div>';
+}
+function screenEvalRegression(){
+  const set=getEvalSet(appState.evalSetId); if(!set) return '';
+  const runs=getEvalSetRuns(set.id);
+  const back='<button class="btn btn-ghost btn-sm" data-action="eval-set-open" data-id="'+set.id+'">'+ICON.arrowL+'Back to '+escapeHtml(set.name)+'</button>';
+  if(runs.length<2) return '<div class="row-between"><h1 class="page-h">Regression</h1>'+back+'</div><div class="mt24">'+emptyState('radar','Need at least two runs','Run this set again against a new model to see a regression diff.','')+'</div>';
+  const oldRun=runs[runs.length-2], newRun=runs[runs.length-1];
+  const diff=regressionDiff(oldRun, newRun);
+  const items=getEvalSetItems(set.id); const itemMap={}; items.forEach(i=>itemMap[i.id]=i);
+  const regressed=diff.filter(d=>d.regressed), improved=diff.filter(d=>d.improved);
+  const rows=diff.map(d=>{ const item=itemMap[d.itemId]; if(!item) return '';
+    const flag = d.regressed ? '<span class="pill pill-red">'+ICON.warn+'Regressed</span>' : d.improved ? '<span class="pill pill-green">'+ICON.check+'Improved</span>' : '';
+    return '<tr'+(d.regressed?' style="background:rgba(239,68,68,.08)"':'')+'><td>'+escapeHtml(truncate(item.question,60))+'</td>'
+      +'<td><span class="pill pill-'+comparisonVerdictColor(d.prevVerdict)+'" style="font-size:10px">'+COMPARISON_VERDICT_LABEL[d.prevVerdict]+'</span></td>'
+      +'<td>'+ICON.arrowR+'</td><td><span class="pill pill-'+comparisonVerdictColor(d.currVerdict)+'" style="font-size:10px">'+COMPARISON_VERDICT_LABEL[d.currVerdict]+'</span></td><td>'+flag+'</td></tr>'; }).join('');
+  return '<div class="row-between"><div><h1 class="page-h">Regression — '+escapeHtml(set.name)+'</h1><p class="page-sub">'+escapeHtml(oldRun.modelRef)+' ('+oldRun.summary.scorePct+'%) → '+escapeHtml(newRun.modelRef)+' ('+newRun.summary.scorePct+'%)</p></div>'+back+'</div>'
+    +(regressed.length?'<div class="warn-banner warn-red mt16" style="margin:0">'+ICON.warn+'<span><strong>'+regressed.length+' item'+(regressed.length===1?'':'s')+' regressed</strong> from match to mismatch — review before promoting this model.</span></div>':'')
+    +'<div class="card mt16" style="padding:0;overflow:hidden"><table class="tbl"><thead><tr><th>Question</th><th>Previous</th><th></th><th>New</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+    +'<div class="muted mt12" style="font-size:12px">'+improved.length+' improved (mismatch → match/partial) · '+regressed.length+' regressed (match → mismatch) · '+(diff.length-improved.length-regressed.length)+' unchanged.</div>';
+}
+// §51 note 221 — Section 37's checkpoint-rubric + reference-grounded eval, relabelled the "Open-ended / grounded" tab:
+// the complement to seeded comparison, for questions the fixed baseline set can't cover.
+function screenEvalGrounded(){
   const runs=getEvalRuns(); const rel=activeRelease();
-  const head='<div class="row-between"><div><h1 class="page-h">Eval Harness</h1><p class="page-sub">Compare checkpoints across a weighted rubric</p></div></div>';
+  const head='<div class="row-between"><div><h1 class="page-h">Open-ended / Grounded</h1><p class="page-sub">Compare checkpoints across a weighted rubric, or check open-ended answers against the ingested corpus</p></div></div>';
   // Only honour a pinned eval if it belongs to the current tenant's runs (isolation, CLAUDE.md §5).
   const pinned = appState.evalResult && runs.includes(appState.evalResult) ? appState.evalResult : null;
   const result = pinned || runs.filter(e=>e.status==='completed').slice(-1)[0] || null;
@@ -2757,7 +3122,24 @@ function screenEval(){
   // history
   let hist=''; runs.forEach(e=>{ hist+='<button class="dropdown-item" data-action="load-eval" data-id="'+e.id+'" style="justify-content:space-between"><span>'+escapeHtml(e.runAt)+' · '+escapeHtml(e.checkpointB)+'</span>'+(e.results?'<span class="pill pill-'+pillColorForScore(e.results.B.Overall)+'">'+e.results.B.Overall+'</span>':statusPill(e.status))+'</button>'; });
   return head+'<div class="mt24" id="eval-body">'+cfg+resultHtml+'</div>'
-    +'<div class="section-h mt24">History</div><div class="card" style="padding:8px">'+(hist||'<span class="muted" style="padding:8px">No past runs</span>')+'</div>';
+    +'<div class="section-h mt24">History</div><div class="card" style="padding:8px">'+(hist||'<span class="muted" style="padding:8px">No past runs</span>')+'</div>'
+    +'<div class="mt24">'+groundedQAPanel()+'</div>';
+}
+// §51 note 224 — open-ended questions checked against the ingested corpus. Every verdict carries a
+// retrieval citation (which chunk it was graded against); low-similarity retrieval abstains rather than
+// grading against a weak chunk, and routes to human review instead.
+function groundedQAPanel(){
+  const runs=getEvalGroundedRuns(); const run=runs[runs.length-1]; if(!run) return '';
+  const graded=run.items.filter(i=>i.verdict==='graded'), abstained=run.items.filter(i=>i.verdict==='no_relevant_source');
+  const rows=run.items.map(i=>{
+    if(i.verdict==='no_relevant_source') return '<tr><td>'+escapeHtml(i.question)+'</td><td><span class="pill pill-red">'+ICON.warn+'No relevant source</span></td><td class="secondary" style="font-size:12px">'+escapeHtml(i.note)+'</td><td></td></tr>';
+    const col=i.score>=80?'green':i.score>=60?'yellow':'red';
+    return '<tr><td>'+escapeHtml(i.question)+'</td><td><span class="pill pill-'+col+'">Graded — '+i.score+'</span></td><td class="mono" style="font-size:12px">'+escapeHtml(i.chunkId)+'</td><td class="secondary" style="font-size:12px">sim '+i.similarity.toFixed(2)+'</td></tr>';
+  }).join('');
+  return '<div class="section-h">Open-ended grounded checks</div>'
+    +'<div class="secondary mt4" style="font-size:12px">'+graded.length+' graded against a cited corpus chunk · '+abstained.length+' abstained (no relevant source) and routed to human review.</div>'
+    +'<div class="card mt8" style="padding:0;overflow:auto"><table class="tbl"><thead><tr><th>Question</th><th>Verdict</th><th>Chunk cited</th><th>Retrieval similarity</th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+    +(abstained.length?'<button class="btn btn-ghost btn-sm mt8" data-action="nav" data-view="review">'+ICON.pencil+'Review '+abstained.length+' abstained question'+(abstained.length===1?'':'s')+'</button>':'');
 }
 function evalResultView(e){
   if(!e.results) return '';
@@ -3090,6 +3472,7 @@ function deploymentProfileCard(){
   return '<div class="mt16" style="padding-top:12px;border-top:1px solid var(--border)"><div class="section-h" style="margin:0">Deployment profile</div>'
     +'<div class="muted" style="font-size:11.5px;margin-bottom:4px">Controls which modules are visible and their defaults — never role permissions.</div>'
     +opt('research','Research / dataset building','Curate, annotate, evaluate. Release, Monitor, Agents deferred.')
+    +opt('evaluation_only','Evaluation-only (v1)','Corpus ingest, Eval, Calibration, Audit export only. Review, Experiments, Release, Monitor, Agents deferred.')
     +opt('regulated_production','Regulated production','Full lifecycle, reference-grounded eval forced on, strict DLP.')
     +opt('full','Full platform','Everything visible, no opinionated defaults.')+strict+'</div>';
 }
@@ -4186,11 +4569,19 @@ function projectAgreementReport(projectId){ return getAgreementReports().find(r=
 function initAgreementReports(){
   agreementReports=[
     { id:'agr_cag', tenantId:'tenant_pravartak', projectId:'proj_cag_audit', judgeConfigId:'tenant_pravartak', referenceSetId:'cal_cag_80', scoredBy:'Kavitha Nair (Domain Expert)', generatedAt:'12 Jul 2026', overallAlpha:0.76,
-      perDimension:[ {dimension:'Factuality',alpha:0.78,bias:-0.1,nDisagree:6}, {dimension:'Task completion',alpha:0.81,bias:0.0,nDisagree:4}, {dimension:'Tone',alpha:0.62,bias:0.3,nDisagree:11}, {dimension:'Faithfulness',alpha:0.84,bias:-0.1,nDisagree:3} ],
+      // §51 — extended to cover both v1 validation modes; dimensions below ALPHA_HUMAN_REVIEW_THRESHOLD are human-review-only, never silently averaged in.
+      perDimension:[
+        {dimension:'Factual equivalence', mode:'comparison', alpha:0.82,bias:-0.1,nDisagree:5},
+        {dimension:'Completeness', mode:'comparison', alpha:0.74,bias:0.1,nDisagree:7},
+        {dimension:'Tone', mode:'comparison', alpha:0.58,bias:0.3,nDisagree:9},
+        {dimension:'Factuality', mode:'grounded', alpha:0.78,bias:-0.1,nDisagree:6},
+        {dimension:'Task completion', mode:'grounded', alpha:0.81,bias:0.0,nDisagree:4},
+        {dimension:'Faithfulness', mode:'grounded', alpha:0.84,bias:-0.1,nDisagree:3},
+      ],
       disagreements:[
-        {rowId:'row_214',judgeScore:4,humanScore:2,dimension:'Factuality',note:'cited GFR 232 not 230'},
-        {rowId:'row_087',judgeScore:5,humanScore:3,dimension:'Tone',note:'verbose answer over-scored'},
-        {rowId:'row_133',judgeScore:4,humanScore:2,dimension:'Tone',note:'formal register mistaken for correctness'} ],
+        {rowId:'row_214',judgeScore:4,humanScore:2,dimension:'Factuality',mode:'grounded',tag:'bad_retrieval',note:'cited GFR 232 not 230'},
+        {rowId:'row_087',judgeScore:5,humanScore:3,dimension:'Tone',mode:'comparison',tag:'bad_judgment',note:'verbose answer over-scored'},
+        {rowId:'row_133',judgeScore:4,humanScore:2,dimension:'Tone',mode:'comparison',tag:'bad_judgment',note:'formal register mistaken for correctness'} ],
       disagreeTotal:24 },
     { id:'agr_legalai', tenantId:'tenant_legalai', projectId:'p4', judgeConfigId:'tenant_legalai', referenceSetId:'cal_legal_75', scoredBy:'Compliance Officer', generatedAt:'22 May 2025', overallAlpha:0.71,
       perDimension:[ {dimension:'Factuality',alpha:0.74,bias:-0.1,nDisagree:7}, {dimension:'Task completion',alpha:0.78,bias:0.0,nDisagree:5}, {dimension:'Tone',alpha:0.79,bias:0.1,nDisagree:4}, {dimension:'Faithfulness',alpha:0.63,bias:0.2,nDisagree:12} ],
@@ -5226,6 +5617,7 @@ function dispatch(action, d){
     case 'eval-custom-egress': { const ec=getEvalConfig(); if(ec&&ec.customEndpoint){ ec.customEndpoint.egress=d.val; if(d.val==='in_network') ec.dlpConfirmed=false; renderView(); } break; }
     case 'eval-test-conn': { const ec=getEvalConfig(); if(ec){ testCustomJudge(ec); log.event('custom_judge_test',{ok:appState.customJudgeTest&&appState.customJudgeTest.ok}); renderView(); } break; }
     case 'agr-export': { const rep=byId(agreementReports,d.id); if(!rep) break; if(d.fmt==='json'){ download('agreement_report_'+rep.projectId+'.json', JSON.stringify(rep,null,2), 'application/json'); } log.event('agreement:export',{id:rep.id, fmt:d.fmt}); showToast('Agreement report exported'+(d.fmt==='pdf'?' (PDF mocked)':''),'ok'); break; }
+    case 'auditreport-export': { const bundle=buildAuditReportBundle(d.id); download('audit_report_'+(d.id||'cueval')+'.json', JSON.stringify(bundle,null,2), 'application/json'); log.event('auditreport:export',{project:d.id}); showToast('Audit report exported','ok'); break; }
     case 'agr-see-all': { const rep=byId(agreementReports,d.id); if(rep) showToast('Full disagreement list ('+rep.disagreeTotal+' rows) — mocked in prototype','info'); break; }
     // --- §48 Deployment profiles ---
     case 'toggle-productionise': appState.productioniseOpen=!appState.productioniseOpen; renderShell(); break;
@@ -5252,6 +5644,20 @@ function dispatch(action, d){
       pushActivity('🛡 confirmed cloud-judge DLP clearance for eval'); pushNotif('🛡 Cloud-judge DLP clearance confirmed','check');
       closeModal(); appState.dlpChecked=false; showToast('Cloud judge enabled — DLP clearance confirmed','ok'); renderView(); break; }
     case 'load-eval': { const e=byId(getEvalRuns(),d.id); if(e){ if(!e.results&&e.status==='completed') computeEval(e); appState.evalResult=e; setView('eval'); } break; }
+    // --- §51 — Seeded comparison eval sets ---
+    case 'eval-tab': appState.evalTab=d.tab; appState.evalCompView='list'; renderView(); break;
+    case 'eval-set-open': appState.evalCompView='detail'; appState.evalSetId=d.id; appState.evalSetRunId=null; renderView(); break;
+    case 'eval-set-back': appState.evalCompView='list'; appState.evalSetId=null; appState.evalSetRunId=null; renderView(); break;
+    case 'eval-set-new': { if(!can('Eval')){ showToast('You lack eval permission','error'); break; }
+      newEvalSetModal(); break; }
+    case 'eval-set-create': { const nm=el('nes-name'), pu=el('nes-purpose'); if(!nm||!nm.value.trim()){ showToast('Name is required','error'); break; }
+      const s=createEvalSet(nm.value.trim(), pu?pu.value.trim():''); closeModal(); appState.evalCompView='detail'; appState.evalSetId=s.id; renderView(); showToast('Eval set created — add questions to begin','ok'); break; }
+    case 'eval-set-add-item': { const q=el('esi-q'), a=el('esi-a'); if(!q||!a||!q.value.trim()||!a.value.trim()){ showToast('Question and baseline answer are both required','error'); break; }
+      const it=addEvalSetItem(d.id, q.value.trim(), a.value.trim()); if(it){ showToast('Question added to set','ok'); renderView(); } break; }
+    case 'eval-set-run': { if(!can('Eval')){ showToast('You lack eval permission','error'); break; }
+      const mr=el('eval-set-modelref'); const run=runComparisonSet(d.id, mr&&mr.value.trim()?mr.value.trim():null); if(run){ appState.evalSetRunId=run.id; renderView(); showToast('Comparison run complete — '+run.summary.scorePct+'%','ok'); } break; }
+    case 'eval-set-view-run': appState.evalSetRunId=d.id; renderView(); break;
+    case 'eval-set-regression': appState.evalSetId=d.id; appState.evalCompView='regression'; renderView(); break;
     case 'new-experiment': newExperimentModal(); break;
     // --- §44 checkpoint integrity / audit ---
     case 'register-checkpoint': closeModal(); registerCheckpointModal(d.endpoint?{endpoint:d.endpoint}:null); break;
@@ -5393,6 +5799,53 @@ function deTemplateSubmit(){
 
 /* ---- Eval run flow ---- */
 // Judge-mode aware eval run (spec §40). Local/Cloud animate + auto-score; Human diverts to a manual scoring flow.
+/* ---- §51 — Seeded ground-truth comparison: eval-set CRUD + mock comparison judge run ---- */
+// Comparison judge never generates an answer — it only classifies CANDIDATE vs BASELINE (note 222).
+// Deterministic per (set,modelRef) so re-running with the same inputs is stable (ADR-5).
+function mockComparisonRunResults(set, modelRef){
+  const items=getEvalSetItems(set.id);
+  const rand=mkRand(((set.id+'|'+modelRef).split('').reduce((a,c)=>a+c.charCodeAt(0),0))||1);
+  return items.map(item=>{
+    const r=rand(); const verdict = r<0.72 ? 'match' : r<0.9 ? 'partial' : 'mismatch';
+    if(verdict==='match') return { itemId:item.id, candidateAnswer:item.baselineAnswer, verdict, differences:[],
+      dims:{'Factual equivalence':'match','Completeness':'match','Tone':'match'} };
+    if(verdict==='partial') return { itemId:item.id, candidateAnswer:item.baselineAnswer.replace(/[^.]*\.?$/,'').trim()||item.baselineAnswer, verdict,
+      differences:['Candidate omits the baseline\'s final point — same facts otherwise, incomplete.'],
+      dims:{'Factual equivalence':'match','Completeness':'partial','Tone':'match'} };
+    return { itemId:item.id, candidateAnswer:'This does not hold: '+item.baselineAnswer.split('.')[0]+' is contradicted by the candidate\'s response.', verdict,
+      differences:['Candidate contradicts the baseline on the core claim.'],
+      dims:{'Factual equivalence':'mismatch','Completeness':'match','Tone':'match'} };
+  });
+}
+function createEvalSet(name, purpose){
+  if(!currentTenant) return null;
+  const set={ id:'evalset_'+Date.now(), tenantId:currentTenant.id, projectId:activeProject()?activeProject().id:null,
+    name:name||'Untitled eval set', purpose:purpose||'',
+    provenance:'authored', approvedBy:currentUser.name, approvedAt:'14 Jul 2026',
+    coverage:{ intents:[], nQuestions:0, samplingMethod:'Authored directly by '+currentUser.name+'.', notes:'Newly created — coverage grows as questions are added.' } };
+  evalSets.push(set);
+  log.event('evalset:create',{id:set.id});
+  return set;
+}
+function addEvalSetItem(setId, question, baselineAnswer){
+  const set=getEvalSet(setId); if(!set || !assertTenant(set) || !question || !baselineAnswer) return null;
+  const item={ id:'esi_u'+Date.now(), setId, question, baselineAnswer, expertId:currentUser.id, tags:['custom'] };
+  evalSetItems.push(item);
+  set.coverage.nQuestions=getEvalSetItems(setId).length;
+  log.event('evalset:add_item',{setId,itemId:item.id});
+  return item;
+}
+function runComparisonSet(setId, modelRef){
+  const set=getEvalSet(setId); if(!set || !assertTenant(set)) return null;
+  if(!getEvalSetItems(setId).length){ showToast('Add at least one question before running','error'); return null; }
+  const run={ id:'esr_'+Date.now(), setId, tenantId:set.tenantId, modelRef:modelRef||'candidate-model', judgeConfigId:currentTenant.id, createdAt:'14 Jul 2026', createdBy:currentUser.name,
+    results: mockComparisonRunResults(set, modelRef||'candidate-model') };
+  computeComparisonSummary(run);
+  evalSetRuns.push(run);
+  log.event('evalset:run',{setId, modelRef, scorePct:run.summary.scorePct});
+  pushActivity('ran comparison eval set "'+set.name+'" vs '+(modelRef||'candidate-model')+' — '+run.summary.scorePct+'%');
+  return run;
+}
 function runEvalFlow(relId){
   if(!can('Eval')){ showToast('You lack eval permission','error'); return; }
   const ec=getEvalConfig(); const run=evalRunnable(ec); if(!run.ok){ showToast(run.why,'error'); return; } // §38 calibration / DLP gate
@@ -5533,6 +5986,13 @@ function newProjectModal(){
   el('np-save').onclick=()=>{ const name=el('np-name').value.trim(); if(!name){ el('np-err').classList.remove('hidden'); el('np-err').innerHTML=ICON.warn+'Name is required'; return; }
     const id='p'+Date.now(); projects.push({ id, tenantId:currentTenant.id, name, description:el('np-desc').value.trim()||'—', status:'active', tags:el('np-tags').value.split(',').map(s=>s.trim()).filter(Boolean), members:[{userId:currentUser.id,role:currentUser.role}], createdAt:'2026-07-10' });
     closeModal(); appState.projectId=id; log.event('project:create',{id}); pushActivity('created project '+name); renderShell(); showToast('Project created','ok'); };
+}
+// §51 — new eval set (name + purpose); questions are added afterwards on the set's own page.
+function newEvalSetModal(){
+  openModal('<div class="modal-head"><strong>New Eval Set</strong><button class="icon-btn" data-action="close-modal">'+ICON.x+'</button></div>'
+    +'<div class="modal-body"><label class="field-label">Name</label><input class="input" id="nes-name" placeholder="e.g. GFR Core Q&A v2">'
+    +'<div class="mt12"></div><label class="field-label">Purpose</label><textarea class="input" id="nes-purpose" placeholder="What this set validates, and why" style="font-family:var(--font-body);min-height:60px"></textarea></div>'
+    +'<div class="modal-foot"><button class="btn btn-ghost" data-action="close-modal">Cancel</button><button class="btn btn-primary" data-action="eval-set-create">'+ICON.plus+'Create</button></div>');
 }
 function newExperimentModal(clone){
   if(!can('Experiments')){ showToast('You lack experiment permission','error'); return; }
@@ -5966,6 +6426,28 @@ function exportReadme(proj, scope){
     +'This bundle is open, tool-agnostic, and readable without Cueval.\n\n'
     +'## Contents\n- datasets/ — training rows as JSONL (+ Parquet import note)\n- documents/ — manifest + chunk text\n- lineage/graph.json — provenance nodes + edges\n- eval/ — rubric.yaml, judge_config.yaml (no secrets), run results\n- checkpoints/ — sha256, base model, probe fingerprint (re-verifiable independently)\n- synthesis/templates.json\n- reproduce.json — pins every input to re-run one eval without Cueval\n\n'
     +'## Reproduce a result\nWith the dataset snapshot, the rubric, the judge spec, the corpus chunks, and the seed in reproduce.json, your own engineer can reconstruct the score.\n\nAuth secrets are never included in any export.\n';
+}
+// §51 note 230 — v1's headline export: seeded-set score + coverage, grounded findings + citations, agreement profile, lineage-backed.
+function buildAuditReportBundle(projectId){
+  const proj=byId(getProjects(),projectId);
+  const sets=getEvalSets().filter(s=>!proj||s.projectId===proj.id);
+  const seeded=sets.map(s=>{ const run=evalSetLatestRun(s.id);
+    return { setId:s.id, name:s.name, provenance:s.provenance, coverage:s.coverage,
+      run: run ? { modelRef:run.modelRef, createdAt:run.createdAt, summary:run.summary,
+        mismatches: run.results.filter(r=>r.verdict==='mismatch').map(r=>({itemId:r.itemId, differences:r.differences})) } : null };
+  });
+  const groundedRun=getEvalGroundedRuns().filter(r=>!proj||r.projectId===proj.id).slice(-1)[0];
+  const grounded = groundedRun ? { modelRef:groundedRun.modelRef, createdAt:groundedRun.createdAt,
+    items: groundedRun.items.map(i=>({ question:i.question, verdict:i.verdict, chunkId:i.chunkId, similarity:i.similarity, note:i.note })) } : null;
+  const rep=proj?projectAgreementReport(proj.id):null;
+  return {
+    project: proj?{id:proj.id,name:proj.name}:null,
+    generated_note:'reproduce.json-adjacent — export the project bundle for the full lineage graph and raw datasets.',
+    seeded_comparison: seeded,
+    grounded_checking: grounded,
+    agreement_profile: rep ? { overallAlpha:rep.overallAlpha, perDimension:rep.perDimension, disagreements:rep.disagreements, humanReviewOnly: rep.perDimension.filter(d=>d.alpha<ALPHA_HUMAN_REVIEW_THRESHOLD).map(d=>d.dimension) } : null,
+    lineage: proj ? buildLineageGraph(proj.id) : null,
+  };
 }
 function buildProjectExport(projectId, scope, runId){
   const proj=byId(getProjects(),projectId); const files={};

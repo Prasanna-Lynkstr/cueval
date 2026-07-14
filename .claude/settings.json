@@ -1,0 +1,21 @@
+{
+  "$comment": "Shared, committed Claude Code settings for Cueval. Machine-specific and one-off permissions belong in .claude/settings.local.json (gitignored), not here. Keep this list to stable, safe, repo-wide operations only.",
+  "permissions": {
+    "allow": [
+      "Bash(python3 -m http.server *)",
+      "Bash(git status)",
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git show *)",
+      "Bash(git branch *)",
+      "Bash(git add *)",
+      "Bash(git checkout *)",
+      "Bash(grep *)",
+      "Bash(awk *)",
+      "Bash(node -e *)",
+      "Bash(gh pr view *)",
+      "Bash(gh pr list *)"
+    ]
+  }
+}

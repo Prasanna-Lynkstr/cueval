@@ -6223,3 +6223,147 @@ Legal AI Corp eval harness shows the blocked state with the integrity failure UI
 166. Probe similarity warning (0.85–0.95): shown as an amber interstitial before eval results. User can proceed — logged if they do.
 167. Base model change warning: shown once per experiment creation when base_model differs from previous experiment's checkpoint. Proceed closes the modal. "Run calibration" opens a new experiment form pre-filled with 200-row subset config.
 168. Audit log entry for integrity failure: auto-created, visible to Admin role in audit log. Shown with red background in the log list. Filterable by event type "checkpoint_integrity_failure".
+
+## 51. DELTA — V1 EVALUATION CORE (SEEDED COMPARISON + GROUNDED CHECKING)
+
+### Overview
+This delta re-scopes the product to a shippable v1: the **evaluation-and-audit layer only**. It does not invent a new eval engine — Section 37 (reference-grounded scoring, judge selection) and Delta 47 (bring-your-own-judge, agreement report) already carry most of it. It makes three changes:
+
+1. Elevates **seeded ground-truth comparison** to the *primary* validation mode (Section 37's grounded scoring becomes the complement, not the headline).
+2. Adds the pieces that mode needs — a comparison-judge rubric, seed-set authoring and coverage tracking, a regression suite — plus retrieval transparency for the grounded complement.
+3. Adds a **v1 evaluation-only deployment profile** (extending Delta 48) that hides everything deferred, so the product and the spec both stop presenting the full loop.
+
+Core logic of v1: point Cueval at a model the customer already built and a reference corpus; validate its answers two ways — against a fixed expert-approved test set (primary) and against the corpus for open-ended questions (complement); wrap both in human calibration; emit one audit report. Everything else in the eight-stage loop is deferred, not built.
+
+---
+
+### Validation mode 1 — Seeded ground-truth comparison (PRIMARY)
+
+A fixed test set of `(question, expert-approved answer)` pairs. The customer's model answers each question; a judge decides whether the model's answer is equivalent to the baseline and where it differs.
+
+Why primary: no retrieval dependency (the correct answer is pinned, not fetched), most legible to a regulator/reviewer, gives the judge the *easy* task (compare to a known answer, not grade open-ended), and doubles as a regression suite.
+
+**Comparison-judge rubric** (distinct from Section 37's grounded rubric):
+
+```
+Given QUESTION, BASELINE (expert-approved), and CANDIDATE (model output):
+  verdict ∈ { match | partial | mismatch }
+  differences: [ what the candidate adds, omits, or contradicts vs baseline ]
+  per-dimension where applicable (factual equivalence, completeness, safety)
+Return structured JSON. Do NOT answer the question — only compare.
+```
+
+`partial` covers "same facts, extra caveats" or "correct but incomplete" — the common real case. The judge never generates an answer; it only compares, which is why a small local model suffices (see judge tiers).
+
+**Test-set / run data model:**
+
+```javascript
+eval_sets = [
+  { id, tenantId, projectId, name, purpose,   // e.g. "GFR core Q&A v1"
+    provenance,                                 // authored | synthesis_drafted_then_approved
+    coverage,                                   // { intents:[], nQuestions, samplingMethod, notes }
+    approvedBy, approvedAt }
+]
+eval_set_items = [
+  { id, setId, question, baselineAnswer, expertId, tags:[] }
+]
+eval_runs = [
+  { id, setId, modelRef, judgeConfigId, createdAt,
+    results:[ { itemId, candidateAnswer, verdict, differences, dims } ],
+    summary:{ match, partial, mismatch, scorePct } }
+]
+```
+
+---
+
+### Validation mode 2 — Reference-grounded checking (COMPLEMENT)
+
+Reuses Section 37's grounded scoring for open-ended and production questions the seed set can't cover. Two additions required by this architecture:
+
+- **Retrieval citation on every verdict.** Each grounded judgment records *which corpus chunk it graded against*, shown in the report, so mis-retrieval is visible and correctable — not silent.
+- **Fourth verdict: `no_relevant_source`.** When retrieval returns nothing above a similarity threshold, the judge abstains and routes to a human instead of grading against weak chunks. This bounds the confident-wrong failure mode.
+
+Grounded mode's accuracy is explicitly framed as retrieval-bounded; the citation trail and abstention make that boundary auditable.
+
+---
+
+### Judge tiers (v1)
+
+One pluggable judge interface, three deployments (extends Section 37 / Delta 47):
+
+```
+Default        Cloud API judge (best accuracy, zero setup)      non-sensitive pilots
+Sovereign      Local general-instruct model (7–8B class)        data can't leave network
+BYO            Customer's own model / endpoint (Delta 47)       skeptical / self-standardised buyers
+```
+
+The sovereign tier is a NEW addition: an off-the-shelf **general** instruct model (not a self-trained rater), prompted with the comparison rubric — private, cheap, no training data required. Selecting the sovereign tier disables the cloud-API option and skips the DLP gate. A self-trained comparator is explicitly out of v1 (revisit only once pilots have produced labelled comparison data; see deferrals).
+
+---
+
+### Calibration wraps both modes
+
+Reuses the Delta 47 agreement report, extended:
+
+- Covers **both** the comparison judge's equivalence decisions and the grounded judge's verdicts.
+- Reported **per dimension** (e.g. factual equivalence α 0.85, tone α 0.55) — never a single "it works" number. Dimensions below a threshold are marked human-review-only.
+- Disagreements are separated into **bad judging vs bad retrieval** (grounded mode), so the reported agreement reflects the end-to-end pipeline the customer actually runs, not a judge in isolation.
+
+The pilot's real output is this per-dimension agreement profile, not a headline score.
+
+---
+
+### Seed-set construction & coverage (the attackable point, made explicit)
+
+Because a passing score on a narrow or model-friendly set is false comfort, seed-set provenance is first-class:
+
+- Questions may be **synthesis-drafted from the corpus** (reusing existing templates) then **expert-approved** — turning authoring into faster review. `provenance` records which.
+- **Coverage** is tracked: which intents/topics the set spans, how questions were sampled, how much of the real question distribution is (and isn't) represented.
+- The audit report includes a **coverage statement** alongside the score: what this set does and doesn't validate. The deliverable is never the number alone.
+
+---
+
+### Regression suite
+
+An `eval_set` can be re-run against a new `modelRef` after each fine-tune; the UI shows score deltas per item and per dimension, and flags regressions (items that were `match` and became `mismatch`). This is the reusable-benchmark value of the seeded mode.
+
+---
+
+### v1 deployment profile — `evaluation_only`
+
+Extends Delta 48's profiles. Visible: reference-corpus ingest (minimal), Eval (both modes), Calibration/Agreement, Audit export, Settings. Hidden/deferred (shown as "future stage" per Delta 48): Synthesis-as-product, the full annotation/correction cockpit, Training, Release, Monitor, Agents.
+
+This profile is what makes the spec itself reflect the narrowed product rather than the eight-stage loop.
+
+---
+
+### What v1 explicitly defers
+
+Training · data synthesis as a product surface · the full Delta 46 correction cockpit (only minimal corpus ingest remains) · production-monitoring SDK · serving/deployment · agents · Delta 48's other profiles beyond evaluation_only · a self-trained judge model. Each is earned later by customer pull, not built up front:
+- **v2:** review/correction cockpit — pulled by errors the eval surfaces.
+- **v3:** production monitoring (grounded checks on live traffic) + optional distilled small rater, funded by accumulated pilot labels.
+
+---
+
+### Mock data updates
+
+- Add one `eval_set` ("GFR core Q&A v1", 40 items, `provenance: synthesis_drafted_then_approved`, coverage across 6 intents) with expert-approved baselines.
+- One `eval_run` of that set against the CAG mock model: 40 items → 31 match / 6 partial / 3 mismatch, scorePct 77.5, with 2 mismatches carrying `differences` (wrong rule number; omitted exception clause).
+- One grounded run on 10 open-ended questions using the same corpus, including 2 `no_relevant_source` abstentions with retrieval citations shown.
+- Extend the agreement report: per-dimension α for both modes (factual equivalence 0.82, completeness 0.74, tone 0.58), with tone flagged human-review-only, and 3 disagreements tagged bad-retrieval vs bad-judgment.
+- Set the CAG tenant to `deploymentProfile: 'evaluation_only'`.
+
+---
+
+### Implementation Notes for Claude Code (delta)
+
+221. Add seeded comparison as the primary eval mode. New screens: Eval Sets (list/create), Set editor (question + baseline + expert), Run (pick model + judge), Results (match/partial/mismatch with per-item differences). Reference-grounded mode (Section 37) remains available as a second tab, relabelled "Open-ended / grounded".
+222. Comparison judge: implement the comparison rubric as a distinct prompt from Section 37's grounded rubric. Judge receives question + baseline + candidate, returns `{verdict, differences, dims}`. It must never generate an answer to the question. Mock the judge call; do not require a real model.
+223. Verdict set for comparison: `match | partial | mismatch`. `scorePct` = (match + 0.5·partial) / total, shown with the raw counts. Never show scorePct without the counts beside it.
+224. Grounded mode additions: every grounded verdict stores and displays the `chunkId` it graded against (retrieval citation). Add the `no_relevant_source` verdict when top-retrieval similarity is below a threshold (mock: flag ~10% of grounded items), routing them to a human-review list rather than scoring them.
+225. Judge tiers: selector with Cloud API (default) / Sovereign local (general instruct) / BYO (Delta 47). Sovereign disables the cloud option and hides the DLP gate. Do not implement a self-trained rater.
+226. Calibration/agreement (extend Delta 47): compute and display per-dimension α for both comparison and grounded runs; mark dimensions below threshold (mock: <0.65) as "human-review only"; tag grounded disagreements as bad-retrieval vs bad-judgment.
+227. Seed-set provenance & coverage: `provenance` field (authored | synthesis_drafted_then_approved) and a `coverage` block; render a coverage statement on the audit report next to the score. The audit report must never present a score without its coverage statement.
+228. Regression: allow re-running an `eval_set` against a new `modelRef`; show per-item and per-dimension deltas; highlight items that regressed from match to mismatch.
+229. Add `evaluation_only` to the Delta 48 profile enum. Under it, show only corpus ingest, Eval (both modes), Calibration, Audit export, Settings; render all other modules as deferred "future stage" cards. Set it as the CAG tenant's profile in mock data.
+230. Audit report (extend Delta 49 export): a single exportable, lineage-backed report combining the seeded-set score + coverage statement, the grounded-mode findings with retrieval citations, and the per-dimension agreement profile. This is v1's headline deliverable.
