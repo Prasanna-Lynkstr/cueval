@@ -459,6 +459,19 @@ const RUBRIC_DEFAULT = ['Factuality','Instruction Following','Tone','Task Comple
 function qualityLabel(score){ return score>=80 ? {text:'Good',tone:'green'} : score>=60 ? {text:'Needs improvement',tone:'yellow'} : {text:'Needs attention',tone:'red'}; }
 // §45 note 173 — Domain Expert's 3-point calibration ratings map onto the 1–5 rubric scale.
 const CAL_RATING_MAP = { wrong:1, partial:3, right:5 };
+// §50 — Access minimisation & preview scoping. Restrictiveness ranks: none < region < page < document.
+// Effective scope = min(role default, sensitivity cap); 'none' overrides all; an active override can raise it.
+const PREVIEW_SCOPES = ['none','region','page','document'];
+const SCOPE_RANK = { none:0, region:1, page:2, document:3 };
+const SCOPE_LABEL = { none:'no page preview', region:'this region only', page:'this page', document:'full document' };
+const SENSITIVITY_LABEL = { normal:'Normal', restricted:'Restricted', confidential:'Confidential' };
+const SENSITIVITY_PILL  = { normal:'muted', restricted:'yellow', confidential:'red' };
+const SENSITIVITY_LEVELS = ['normal','restricted','confidential'];
+// Default role → preview scope (a starting policy; tightenable per tenant via accessScopeConfig, note 212).
+const DEFAULT_SCOPE_MAP = { Annotator:'region', Reviewer:'document', DomainExpert:'none', Architect:'page',
+  MLEngineer:'none', ProjectManager:'document', Admin:'document', SuperAdmin:'document' };
+const MONTHS3 = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function nowStamp(){ const d=new Date(); const p=n=>String(n).padStart(2,'0'); return p(d.getDate())+' '+MONTHS3[d.getMonth()]+' '+d.getFullYear()+', '+p(d.getHours())+':'+p(d.getMinutes()); }
 
 // §51 — V1 evaluation core: seeded ground-truth comparison (primary) + reference-grounded checking (complement).
 const COMPARISON_VERDICTS = ['match','partial','mismatch'];
@@ -1162,8 +1175,13 @@ const appState = {
   cockpitPace:[],         // action timestamps this session → pace estimate
   cockpitKbHelp:false,    // '?' shortcuts overlay
   cockpitGD:false,        // 'G then D' chord latch
+<<<<<<< HEAD
   // §51 — Eval Harness: seeded comparison (primary) vs open-ended/grounded (complement) tab + sub-nav
   evalTab:'comparison', evalCompView:'list', evalSetId:null, evalSetRunId:null,
+=======
+  cockpitLastLogged:null, // §50 dedupe key so re-renders don't double-write the access log
+  accessLogFilter:{ documentId:null, userId:null, date:null }, // §50 Settings → Access Log filters
+>>>>>>> 44b12d5c8d70714be5f262e4feeada25cf4d79d2
 };
 // Document-ingestion collections (populated in initMockData — after Section E)
 let documents = [];
@@ -1171,6 +1189,9 @@ let ocrRegions = [];
 let chunks = [];
 let worklistViews = [];   // §46 saved filter presets per user
 let reviewBatches = [];   // §46 reviewer batch-approve / bulk-assign / mark-complete audit
+let previewAccessLog = [];// §50 audit trail — every full-document / cross-page / sensitive-doc view
+let scopeOverrides = [];  // §50 bounded temporary scope grants (per user, per document, time-boxed)
+let accessScopeConfig = {}; // §50 per-tenant role → default preview scope
 let bulkJobs = [];
 // Inference monitor / RLHF preference (spec §23-24)
 let inferences = [];
@@ -1258,6 +1279,8 @@ function getDocuments(){ return scoped(documents); }
 function getOcrRegions(){ return scoped(ocrRegions); }
 function getChunks(){ return scoped(chunks); }
 function getWorklistViews(){ return worklistViews.filter(v=>v.userId===currentUser.id); } // §46 saved views are per-user
+function getPreviewAccessLog(){ return scoped(previewAccessLog); } // §50 tenant-scoped audit trail
+function getScopeOverrides(){ return scoped(scopeOverrides); }     // §50 tenant-scoped bounded grants
 function getReviewBatches(){ return scoped(reviewBatches); }
 function getBulkJobs(){ return scoped(bulkJobs); }
 function activeBulkJob(){ return byId(getBulkJobs(), appState.bulkJobId) || getBulkJobs()[0] || null; }
@@ -1532,6 +1555,7 @@ const ICON = {
   arrowL:S+'<path d="M19 12H5M11 6l-6 6 6 6"/></svg>',
   skip:S+'<path d="M5 4l10 8-10 8zM19 5v14"/></svg>',
   eye:S+'<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>',
+  key:S+'<circle cx="8" cy="15" r="4"/><path d="M10.8 12.2L20 3M17 6l2 2M14 9l2 2"/></svg>',
   logout:S+'<path d="M16 17l5-5-5-5M21 12H9M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/></svg>',
   clone:S+'<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 012-2h10"/></svg>',
   users:S+'<circle cx="9" cy="8" r="3"/><path d="M3 20a6 6 0 0112 0M16 6a3 3 0 010 6M21 20a6 6 0 00-4-5.6"/></svg>',
@@ -3431,19 +3455,122 @@ function openReleaseDetail(id){
 }
 
 /* ---- Settings (Admin) ---- */
+// §50 — Access Log is visible to Admin and Project Manager (oversight); other Settings tabs stay Admin-only.
+function canAccessLog(){ return can('Org') || currentUser.role==='ProjectManager'; }
 function screenSettings(){
-  if(!can('Org')) return emptyState('gear','Restricted','Settings are available to Admins only.','');
-  const tab=appState.settingsTab||'org';
-  const tabs=['org','users','roles','portability','integrations'];
-  const labels={org:'Organisation',users:'Users',roles:'Roles & Permissions',portability:'Data Portability',integrations:'Integrations'};
-  let tabBar='<div class="flex gap8 mt16">'+tabs.map(t=>'<button class="chip '+(tab===t?'is-on':'')+'" data-action="settings-tab" data-tab="'+t+'">'+labels[t]+'</button>').join('')+'</div>';
+  const isAdmin=can('Org');
+  if(!isAdmin && !canAccessLog()) return emptyState('gear','Restricted','Settings are available to Admins only.','');
+  const tabs = isAdmin ? ['org','users','roles','accesslog','portability','integrations'] : ['accesslog'];
+  let tab=appState.settingsTab||tabs[0];
+  if(!tabs.includes(tab)){ tab=tabs[0]; appState.settingsTab=tab; }
+  const labels={org:'Organisation',users:'Users',roles:'Roles & Permissions',accesslog:'Access Log',portability:'Data Portability',integrations:'Integrations'};
+  let tabBar='<div class="flex wrap gap8 mt16">'+tabs.map(t=>'<button class="chip '+(tab===t?'is-on':'')+'" data-action="settings-tab" data-tab="'+t+'">'+labels[t]+'</button>').join('')+'</div>';
   let body='';
   if(tab==='org') body=settingsOrg();
   else if(tab==='users') body=settingsUsers();
   else if(tab==='roles') body=settingsRoles();
+  else if(tab==='accesslog') body=settingsAccessLog(); // §50
   else if(tab==='portability') body=settingsPortability(); // §49
   else body='<div class="card mt16">'+emptyState('sliders','Integrations','Connect Axolotl, LLaMA-Factory, W&B and storage buckets here.','<button class="btn btn-ghost" data-action="toast" data-msg="Integrations are mocked in this prototype">'+ICON.plus+'Add Integration</button>')+'</div>';
   return '<h1 class="page-h">Settings</h1><p class="page-sub">'+escapeHtml(currentTenant.name)+' · '+currentTenant.plan+' plan</p>'+tabBar+'<div id="settings-body">'+body+'</div>';
+}
+// §50 — Access Log: read-only audit of every full-document / cross-page / sensitive-doc view, filterable.
+function settingsAccessLog(){
+  const f=appState.accessLogFilter;
+  let log=getPreviewAccessLog();
+  if(f.documentId) log=log.filter(e=>e.documentId===f.documentId);
+  if(f.userId) log=log.filter(e=>e.userId===f.userId);
+  if(f.date) log=log.filter(e=>(e.viewedAt||'').indexOf(f.date)===0);
+  const docs=getDocuments().filter(d=>regionsForDoc(d.id).length);
+  const userIds=[...new Set(getPreviewAccessLog().map(e=>e.userId))];
+  const dates=[...new Set(getPreviewAccessLog().map(e=>(e.viewedAt||'').split(',')[0]))];
+  const docSel='<select class="input" data-action="accesslog-filter" data-key="documentId" style="width:auto;padding:3px 8px;font-size:12px"><option value="">All documents</option>'
+    +docs.map(d=>'<option value="'+d.id+'"'+(f.documentId===d.id?' selected':'')+'>'+escapeHtml(truncate(d.name,28))+'</option>').join('')+'</select>';
+  const userSel='<select class="input" data-action="accesslog-filter" data-key="userId" style="width:auto;padding:3px 8px;font-size:12px"><option value="">All users</option>'
+    +userIds.map(uid=>{ const u=byId(users,uid); return '<option value="'+uid+'"'+(f.userId===uid?' selected':'')+'>'+escapeHtml(u?u.name:uid)+'</option>'; }).join('')+'</select>';
+  const dateSel='<select class="input" data-action="accesslog-filter" data-key="date" style="width:auto;padding:3px 8px;font-size:12px"><option value="">Any date</option>'
+    +dates.map(dt=>'<option value="'+escapeHtml(dt)+'"'+(f.date===dt?' selected':'')+'>'+escapeHtml(dt)+'</option>').join('')+'</select>';
+  const anyF=f.documentId||f.userId||f.date;
+  const clear=anyF?'<button class="btn btn-ghost btn-sm" data-action="accesslog-clear">'+ICON.x+'Clear</button>':'';
+  // Active grants sub-panel.
+  const now=Date.now();
+  const grants=getScopeOverrides().filter(o=>o.expiresAt>now).sort((a,b)=>b.expiresAt-a.expiresAt);
+  let grantRows=grants.map(o=>{ const u=byId(users,o.userId); const doc=byId(documents,o.documentId);
+    const hrs=Math.max(0,Math.round((o.expiresAt-now)/3600000));
+    return '<tr><td>'+escapeHtml(u?u.name:o.userId)+'</td><td class="truncate" style="max-width:200px">'+escapeHtml(doc?doc.name:o.documentId)+'</td>'
+      +'<td><span class="pill pill-blue">'+SCOPE_LABEL[o.grantedScope]+'</span></td><td class="secondary">'+escapeHtml(o.grantedBy||'—')+'</td>'
+      +'<td class="secondary">'+escapeHtml(o.reason||'—')+'</td><td class="mono">'+hrs+'h left</td>'
+      +'<td><button class="btn btn-ghost btn-sm" data-action="revoke-override" data-id="'+o.id+'" aria-label="Revoke grant">'+ICON.x+'Revoke</button></td></tr>'; }).join('');
+  const grantCard='<div class="card mt16" style="padding:0;overflow:hidden"><div class="row-between" style="padding:12px 16px">'
+    +'<div><span class="section-h" style="margin:0">Active scope grants</span><div class="muted" style="font-size:12px">Time-boxed, per-document, per-user — always logged.</div></div>'
+    +'<button class="btn btn-primary btn-sm" data-action="grant-access-open">'+ICON.key+'Grant expanded access</button></div>'
+    +(grants.length?'<table class="tbl"><thead><tr><th>User</th><th>Document</th><th>Scope</th><th>Granted by</th><th>Reason</th><th>Expires</th><th></th></tr></thead><tbody>'+grantRows+'</tbody></table>'
+      :'<div class="secondary" style="padding:0 16px 16px">No active grants. Access follows role + sensitivity defaults.</div>')+'</div>';
+  // Log table.
+  let rows=log.map(e=>{ const u=byId(users,e.userId); const doc=byId(documents,e.documentId);
+    return '<tr><td class="secondary mono">'+escapeHtml(e.viewedAt||'—')+'</td>'
+      +'<td>'+escapeHtml(u?u.name:e.userId)+' <span class="muted" style="font-size:11px">'+(ROLE_LABEL[e.role]||e.role)+'</span></td>'
+      +'<td class="truncate" style="max-width:200px">'+escapeHtml(doc?doc.name:e.documentId)+' <span class="pill pill-'+(SENSITIVITY_PILL[e.sensitivity]||'muted')+'" style="font-size:9px">'+SENSITIVITY_LABEL[e.sensitivity]+'</span></td>'
+      +'<td class="mono">p.'+e.pageNumber+'</td><td><span class="pill pill-muted" style="font-size:10px">'+SCOPE_LABEL[e.scopeUsed]+'</span></td>'
+      +'<td class="secondary" style="font-size:12px">'+(e.reason?escapeHtml(e.reason):'—')+'</td></tr>'; }).join('');
+  if(!rows) rows='<tr><td colspan="6" class="secondary" style="padding:16px">No access events match this filter.</td></tr>';
+  const intro='<div class="card mt16"><div class="section-h" style="margin:0">Preview access log</div>'
+    +'<div class="muted" style="font-size:12px">Every full-document view, every cross-page navigation, and every view of a restricted or confidential document is recorded here — who saw which page, when, at what scope, and why. For a sovereign corpus, this trail is a deliverable in its own right.</div>'
+    +'<div class="flex wrap gap8 mt12" style="align-items:center">'+docSel+userSel+dateSel+clear+'</div></div>';
+  const logCard='<div class="card mt16" style="padding:0;overflow:auto"><table class="tbl" style="min-width:720px"><thead><tr><th>When</th><th>User</th><th>Document</th><th>Page</th><th>Scope</th><th>Reason</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+  return intro+grantCard+logCard;
+}
+// §50 — bounded temporary scope override. Reviewer/Admin can grant one user expanded scope on one document.
+function grantAccessModal(prefillDocId, prefillUserId){
+  const docs=getDocuments().filter(d=>regionsForDoc(d.id).length);
+  const us=getUsers().filter(u=>u.role!=='SuperAdmin');
+  const userOpts=us.map(u=>'<option value="'+u.id+'"'+(prefillUserId===u.id?' selected':'')+'>'+escapeHtml(u.name)+' · '+(ROLE_LABEL[u.role]||u.role)+'</option>').join('');
+  const docOpts=docs.map(d=>'<option value="'+d.id+'"'+(prefillDocId===d.id?' selected':'')+'>'+escapeHtml(truncate(d.name,32))+' ('+SENSITIVITY_LABEL[d.sensitivity||'normal']+')</option>').join('');
+  const scopeRadio=['page','document'].map((s,i)=>'<label class="flex gap6" style="cursor:pointer;font-size:13px;align-items:center"><input type="radio" name="grant-scope" value="'+s+'"'+(i===0?' checked':'')+' style="accent-color:var(--coral)">'+SCOPE_LABEL[s]+'</label>').join('');
+  const durOpts=[['4','4 hours'],['24','24 hours'],['72','72 hours']].map(d=>'<option value="'+d[0]+'"'+(d[0]==='24'?' selected':'')+'>'+d[1]+'</option>').join('');
+  openModal('<div class="modal-head"><strong>Grant expanded access</strong><button class="icon-btn" data-action="close-modal" aria-label="Close">'+ICON.x+'</button></div>'
+    +'<div class="modal-body">'
+    +'<div class="muted" style="font-size:12px">Raise one user\'s preview scope on a single document, temporarily. The grant is logged, auto-expires, and appears in the Access Log.</div>'
+    +'<label class="field-label mt12">User</label><select class="input" id="grant-user">'+userOpts+'</select>'
+    +'<label class="field-label mt12">Document</label><select class="input" id="grant-doc">'+docOpts+'</select>'
+    +'<label class="field-label mt12">Scope</label><div class="flex gap16 mt4">'+scopeRadio+'</div>'
+    +'<label class="field-label mt12">Duration</label><select class="input" id="grant-dur" style="width:auto">'+durOpts+'</select>'
+    +'<label class="field-label mt12">Reason (required)</label><textarea class="input" id="grant-reason" placeholder="e.g. needs surrounding sections to resolve cross-refs" style="min-height:56px"></textarea>'
+    +'</div><div class="modal-foot"><button class="btn btn-ghost" data-action="close-modal">Cancel</button><button class="btn btn-primary" data-action="grant-access-submit">'+ICON.key+'Grant</button></div>');
+}
+function grantScopeOverride(){
+  if(!(isReviewerRole())){ showToast('Granting access is a Reviewer / Admin action','error'); return; }
+  const userId=(el('grant-user')||{}).value, docId=(el('grant-doc')||{}).value;
+  const scopeEl=document.querySelector('input[name="grant-scope"]:checked'); const scope=scopeEl?scopeEl.value:'page';
+  const dur=+(((el('grant-dur')||{}).value)||24); const reason=((el('grant-reason')||{}).value||'').trim();
+  const doc=byId(documents,docId), u=byId(users,userId);
+  if(!doc||!assertTenant(doc)||!u){ showToast('Pick a user and a document','error'); return; }
+  if(!reason){ showToast('A reason is required for every grant','error'); return; }
+  scopeOverrides.unshift({ id:'ovr_'+Date.now(), tenantId:doc.tenantId, documentId:docId, userId,
+    grantedScope:scope, grantedBy:currentUser.name, reason, createdAt:nowStamp(), expiresAt: Date.now()+dur*3600*1000 });
+  log.event('access:grant',{ user:userId, doc:docId, scope, hours:dur });
+  pushActivity('granted '+u.name+' '+SCOPE_LABEL[scope]+' access to '+truncate(doc.name,24)+' for '+dur+'h');
+  showToast('Granted '+SCOPE_LABEL[scope]+' access to '+u.name+' · expires in '+dur+'h','ok');
+  closeModal(); renderView();
+}
+function revokeScopeOverride(id){
+  if(!isReviewerRole()){ showToast('Reviewer / Admin action only','error'); return; }
+  const o=byId(scopeOverrides,id); if(!o||!assertTenant(o)) return;
+  scopeOverrides=scopeOverrides.filter(x=>x.id!==id);
+  log.event('access:revoke',{ id }); showToast('Grant revoked','info'); renderView();
+}
+// §50 note 211 — Architect/PM/Admin set a document's sensitivity at or after ingestion.
+function canSetSensitivity(){ return ['Architect','ProjectManager','Admin','SuperAdmin'].includes(currentUser.role); }
+function setDocSensitivity(docId, level){
+  if(!canSetSensitivity()){ showToast('Only Architect / PM / Admin can set sensitivity','error'); return; }
+  if(!SENSITIVITY_LEVELS.includes(level)) return;
+  const doc=byId(documents,docId); if(!doc||!assertTenant(doc)) return;
+  doc.sensitivity=level; doc.sensitivitySetBy=currentUser.name; doc.sensitivitySetAt=nowStamp();
+  appState.cockpitLastLogged=null; // effective scope may have changed → allow a fresh access-log entry
+  log.event('doc:sensitivity',{ doc:docId, level });
+  pushActivity('set '+truncate(doc.name,24)+' sensitivity to '+SENSITIVITY_LABEL[level]);
+  showToast('Sensitivity set to '+SENSITIVITY_LABEL[level],'ok');
+  renderView(); panelDoc(docId); // refresh the list badge underneath + the open detail panel
 }
 function settingsOrg(){
   const t=currentTenant; const rows=t.usage.rowsThisMonth, lim=t.planLimits;
@@ -3689,19 +3816,49 @@ function viewTenantDetail(id){
    ============================================================ */
 // Seed definitions — regions generated deterministically in initDocuments().
 const DOC_SEEDS = [
-  { id:'doc1', tenantId:'tenant_pravartak', projectId:'p1', name:'Audit_Observation_Report_2024.pdf', kind:'scanned', pages:24, flagged:6, uploadedBy:'Arjun ML', uploadedAt:'2025-06-02', seed:9001 },
+  { id:'doc1', tenantId:'tenant_pravartak', projectId:'p1', name:'Audit_Observation_Report_2024.pdf', kind:'scanned', pages:24, flagged:6, uploadedBy:'Arjun ML', uploadedAt:'2025-06-02', seed:9001, sensitivity:'confidential' }, // §50 CAG-type sovereign corpus
   { id:'doc2', tenantId:'tenant_pravartak', projectId:'p1', name:'Legal_Framework_AI_Guidelines.pdf', kind:'digital', pages:18, flagged:0, uploadedBy:'Rohan Das', uploadedAt:'2025-06-05', seed:9002 },
-  { id:'doc3', tenantId:'tenant_pravartak', projectId:'p3', name:'Tamil_Heritage_Research_Paper.pdf', kind:'scanned', pages:12, flagged:14, uploadedBy:'Neha Shah', uploadedAt:'2025-06-08', seed:9003 },
+  { id:'doc3', tenantId:'tenant_pravartak', projectId:'p3', name:'Tamil_Heritage_Research_Paper.pdf', kind:'scanned', pages:12, flagged:14, uploadedBy:'Neha Shah', uploadedAt:'2025-06-08', seed:9003, sensitivity:'restricted' }, // §50
   { id:'doc4', tenantId:'tenant_legalai', projectId:'p4', name:'Contract_Template_v3.pdf', kind:'digital', pages:8, flagged:0, uploadedBy:'Sara Iyer', uploadedAt:'2025-05-20', seed:9004 },
   { id:'doc5', tenantId:'tenant_legalai', projectId:'p4', name:'Supreme_Court_Judgment_2023.pdf', kind:'scanned', pages:32, flagged:9, uploadedBy:'Vikram Rao', uploadedAt:'2025-05-24', seed:9005 },
   { id:'doc6', tenantId:'tenant_healthbot', projectId:'p7', name:'Clinical_Guidelines_Hindi.pdf', kind:'scanned', pages:16, flagged:22, uploadedBy:'Meera Pillai', uploadedAt:'2025-06-11', seed:9006 },
 ];
 let REGION_UID=0, CHUNK_UID=0;
 function initDocuments(){
-  documents=[]; ocrRegions=[]; chunks=[]; worklistViews=[]; reviewBatches=[];
+  documents=[]; ocrRegions=[]; chunks=[]; worklistViews=[]; reviewBatches=[]; previewAccessLog=[]; scopeOverrides=[]; accessScopeConfig={};
   DOC_SEEDS.forEach(s=>{ buildDocument(s); });
   seedCockpitMock();
+  seedAccessMock(); // §50 access-log rows + one bounded override + per-tenant scope config
   log.info('[boot] documents ready — '+documents.length+' docs, '+ocrRegions.length+' OCR regions');
+}
+// §50 — seed the access-minimisation demo: per-tenant default scope map, a non-empty access log, one live grant.
+function seedAccessMock(){
+  tenants.forEach(t=>{ accessScopeConfig[t.id]=Object.assign({}, DEFAULT_SCOPE_MAP); });
+  const regOn=(docId,page)=>{ const rs=ocrRegions.filter(r=>r.documentId===docId && r.pageNumber===page); return rs[0]||ocrRegions.filter(r=>r.documentId===docId)[0]; };
+  const rev='u5', ann='u6'; // Ravi Kumar (Reviewer) · Neha Shah (Annotator)
+  const mk=(userId,role,docId,page,scopeUsed,sensitivity,when,reason)=>{ const r=regOn(docId,page)||{}; PREVIEW_LOG_UID++;
+    return { id:'pal_'+PREVIEW_LOG_UID, tenantId:'tenant_pravartak', projectId:(byId(documents,docId)||{}).projectId, documentId:docId,
+      userId, role, pageNumber:page, regionId:r.id||null, scopeUsed, sensitivity, reason:reason||null, viewedAt:when }; };
+  // Newest first. Mix of region / page / document across the two sensitive documents and two users (seed 6–8).
+  // Each row is consistent with the policy: the annotator only reaches 'page' on doc3 via the active grant below.
+  const grantReason='needs surrounding sections to resolve cross-refs';
+  previewAccessLog = [
+    mk(rev,'Reviewer','doc1',5,'document','confidential','12 Jul 2026, 09:18',null),
+    mk(rev,'Reviewer','doc1',2,'document','confidential','12 Jul 2026, 09:12',null),
+    mk(ann,'Annotator','doc1',1,'region','confidential','11 Jul 2026, 17:55',null),
+    mk(ann,'Annotator','doc3',2,'page','restricted','11 Jul 2026, 16:41',grantReason), // via the grant below
+    mk(rev,'Reviewer','doc3',4,'document','restricted','11 Jul 2026, 16:20',null),
+    mk(ann,'Annotator','doc3',5,'page','restricted','11 Jul 2026, 15:47',grantReason),
+    mk(rev,'Reviewer','doc3',7,'document','restricted','10 Jul 2026, 11:03',null),
+  ];
+  // One active, unexpired grant: Neha (Annotator, region-scoped) raised to page scope on the restricted doc,
+  // so the confidential doc still demonstrates the region-masked view while this shows the bounded elevation.
+  const now=Date.now();
+  scopeOverrides = [
+    { id:'ovr_1', tenantId:'tenant_pravartak', documentId:'doc3', userId:ann, grantedScope:'page',
+      grantedBy:'Ravi Kumar', reason:grantReason,
+      createdAt:'11 Jul 2026, 15:30', expiresAt: now + 20*3600*1000 },
+  ];
 }
 // §46 — seed the cockpit with assignments, corrected regions, redline deltas, rework, and saved views.
 // Scaled to the mock corpus (smaller than the 300-doc scenario in the spec).
@@ -3736,7 +3893,9 @@ function buildDocument(s){
   const digital = s.kind==='digital';
   const doc={ id:s.id, tenantId:s.tenantId, projectId:s.projectId, name:s.name,
     format: digital?'pdf-digital':'pdf-scanned', pages:s.pages, uploadedBy:s.uploadedBy, uploadedAt:s.uploadedAt,
-    scriptsDetected:scripts, chunks:[], synthesisedPairs:[], status:'processed' };
+    scriptsDetected:scripts, chunks:[], synthesisedPairs:[], status:'processed',
+    // §50 — data-sensitivity level (set at/after ingestion by Architect/PM/Admin). Caps preview scope; never loosens.
+    sensitivity: s.sensitivity||'normal', sensitivitySetBy: s.sensitivity?s.uploadedBy:null, sensitivitySetAt: s.sensitivity?s.uploadedAt:null };
   if(digital){
     doc.avgOcrConfidence=null; doc.regionsTotal=Math.round(s.pages*1.5); doc.regionsFlagged=0;
     doc.status='ready-chunk';
@@ -3776,6 +3935,24 @@ function buildDocument(s){
 const DOC_STATUS_PILL={ processed:'blue', 'needs-review':'yellow', 'ready-chunk':'green', chunked:'coral', synthesised:'pink' };
 const DOC_STATUS_LABEL={ processed:'Processed', 'needs-review':'Needs Review', 'ready-chunk':'Ready for Chunking', chunked:'Chunked', synthesised:'Pairs Synthesised' };
 function docStatusPill(s){ return '<span class="pill pill-'+(DOC_STATUS_PILL[s]||'muted')+'">'+(DOC_STATUS_LABEL[s]||s)+'</span>'; }
+// §50 — sensitivity badge (with setter/timestamp on hover). Non-normal docs only in compact contexts.
+function sensitivityBadge(doc, always){
+  const lv=doc.sensitivity||'normal'; if(lv==='normal' && !always) return '';
+  const tip=lv==='normal'?'Role defaults apply':((doc.sensitivitySetBy?'Set by '+doc.sensitivitySetBy:'')+(doc.sensitivitySetAt?' · '+doc.sensitivitySetAt:''));
+  return '<span class="pill pill-'+(SENSITIVITY_PILL[lv]||'muted')+'" style="font-size:10px" title="'+escapeHtml(tip.trim()||'')+'">'+(lv==='confidential'?ICON.lock:'')+SENSITIVITY_LABEL[lv]+'</span>';
+}
+// §50 note 211 — sensitivity control in the document detail panel (setter for Architect/PM/Admin, read-only otherwise).
+function sensitivitySection(d){
+  const lv=d.sensitivity||'normal';
+  const meta=(d.sensitivitySetBy||d.sensitivitySetAt)?'<div class="muted mt4" style="font-size:11px">Set'+(d.sensitivitySetBy?' by '+escapeHtml(d.sensitivitySetBy):'')+(d.sensitivitySetAt?' · '+escapeHtml(d.sensitivitySetAt):'')+'</div>':'';
+  const caps={ normal:'Role defaults apply — no extra logging.', restricted:'Annotators forced to region scope; page navigation logged for all roles.', confidential:'Everyone below Reviewer is region-scoped with hard redaction; every view is logged.' };
+  const body = canSetSensitivity()
+    ? '<select class="input mt8" data-action="set-doc-sensitivity" data-id="'+d.id+'" style="width:auto;padding:4px 10px">'
+        +SENSITIVITY_LEVELS.map(s=>'<option value="'+s+'"'+(lv===s?' selected':'')+'>'+SENSITIVITY_LABEL[s]+'</option>').join('')+'</select>'
+    : '<div class="mt8">'+sensitivityBadge(d,true)+'</div>';
+  return '<div class="section-h mt16">Data sensitivity</div><div class="card" style="padding:12px">'+body+meta
+    +'<div class="muted mt8" style="font-size:11.5px">'+escapeHtml(caps[lv])+'</div></div>';
+}
 
 /* ---- Documents screen (list / chunk / synth sub-views + bulk tab) ---- */
 function screenDocuments(){
@@ -3810,7 +3987,7 @@ function screenDocList(){
   const head='';
   let rows='';
   docs.forEach(d=>{ const scripts=d.scriptsDetected.map(s=>langPill(s)).join(' ');
-    rows+='<tr data-action="open-doc" data-id="'+d.id+'"><td><div class="flex gap8">'+(d.format==='pdf-scanned'?ICON.image:ICON.doc)+'<span>'+escapeHtml(d.name)+'</span></div></td>'
+    rows+='<tr data-action="open-doc" data-id="'+d.id+'"><td><div class="flex gap8" style="align-items:center">'+(d.format==='pdf-scanned'?ICON.image:ICON.doc)+'<span>'+escapeHtml(d.name)+'</span>'+sensitivityBadge(d)+'</div></td>'
       +'<td><span class="badge-fmt">'+DOC_FORMAT_LABEL[d.format]+'</span></td>'
       +'<td class="mono">'+d.pages+'</td><td><div class="flex wrap gap6">'+scripts+'</div></td>'
       +'<td class="mono">'+d.regionsTotal+(d.regionsFlagged?' <span class="score-bad">('+d.regionsFlagged+'⚠)</span>':'')+'</td>'
@@ -3839,6 +4016,7 @@ function panelDoc(id){
     +'<div class="row-between mt8"><span>Flagged (&lt;60%)</span><strong class="'+(d.regionsFlagged?'score-bad':'score-good')+'">'+d.regionsFlagged+'</strong></div>'
     +'<div class="row-between mt8"><span>Chunks</span><strong>'+dch.length+'</strong></div></div>'
     +'<div class="section-h mt16">Uploaded</div><div class="secondary">'+escapeHtml(d.uploadedAt)+' by '+escapeHtml(d.uploadedBy)+'</div>'
+    +sensitivitySection(d)
     +actions;
   openPanel(html, d.name);
 }
@@ -4024,7 +4202,64 @@ function ocrCorrectionQueue(){ return getOcrRegions().filter(r=>r.correctionStat
    Three-pane workspace: worklist · document preview · correction panel.
    ============================================================ */
 // Reviewer capability = sign-off. Annotator produces corrections only.
-function isReviewerRole(){ return ['Reviewer','Admin','ProjectManager'].includes(currentUser.role); }
+function roleIsReviewer(role){ return ['Reviewer','Admin','ProjectManager'].includes(role); }
+function isReviewerRole(){ return roleIsReviewer(currentUser.role); }
+
+/* ============================================================
+   §50 — ACCESS MINIMISATION & PREVIEW SCOPING
+   Effective scope = min(role default, sensitivity cap); 'none' overrides all;
+   an active, unexpired override can raise it for one user on one document.
+   ============================================================ */
+let PREVIEW_LOG_UID = 0;
+// Role's default scope for a tenant (per-tenant config overrides the platform default, note 212).
+function roleDefaultScope(role, tenantId){
+  const cfg = accessScopeConfig[tenantId || (currentTenant && currentTenant.id)];
+  if(cfg && cfg[role]) return cfg[role];
+  return DEFAULT_SCOPE_MAP[role] || 'document';
+}
+// Sensitivity can only tighten. Confidential → everyone below Reviewer is region-scoped;
+// restricted → the Annotator is forced to region; normal → no cap.
+function sensitivityCap(sensitivity, role){
+  if(sensitivity==='confidential') return roleIsReviewer(role) ? 'document' : 'region';
+  if(sensitivity==='restricted')   return role==='Annotator' ? 'region' : 'document';
+  return 'document';
+}
+// The strongest active, unexpired override for this user+document (if any).
+function activeOverride(userId, docId){
+  const now=Date.now();
+  return getScopeOverrides()
+    .filter(o=>o.userId===userId && o.documentId===docId && o.expiresAt>now)
+    .sort((a,b)=>SCOPE_RANK[b.grantedScope]-SCOPE_RANK[a.grantedScope])[0] || null;
+}
+// Resolve the effective preview scope for a user on a document.
+function effectivePreviewScope(doc, user){
+  user=user||currentUser;
+  if(!doc) return { scope:'document', sensitivity:'normal', override:null };
+  const role=user.role; const sens=doc.sensitivity||'normal';
+  let rank=Math.min(SCOPE_RANK[roleDefaultScope(role, doc.tenantId)], SCOPE_RANK[sensitivityCap(sens, role)]);
+  const ov=activeOverride(user.id, doc.id);
+  if(ov) rank=Math.max(rank, SCOPE_RANK[ov.grantedScope]);
+  return { scope:PREVIEW_SCOPES[rank], sensitivity:sens, override:ov };
+}
+// True if this view must be written to the audit trail (note 216).
+function accessNeedsLog(info){ return info.scope==='document' || info.sensitivity==='restricted' || info.sensitivity==='confidential'; }
+// Write a preview_access_log entry for the current region view (deduped across re-renders).
+function recordPreviewAccess(region){
+  try{
+    if(!region) return;
+    const doc=byId(documents, region.documentId); if(!doc) return;
+    const info=effectivePreviewScope(doc, currentUser);
+    if(info.scope==='none') return;                 // Domain Expert path — nothing rendered, nothing to log
+    if(!accessNeedsLog(info)) return;
+    const key=region.id+'@'+info.scope;
+    if(appState.cockpitLastLogged===key) return;    // same region already logged this session position
+    appState.cockpitLastLogged=key;
+    previewAccessLog.unshift({ id:'pal_'+(++PREVIEW_LOG_UID), tenantId:doc.tenantId, projectId:doc.projectId, documentId:doc.id,
+      userId:currentUser.id, role:currentUser.role, pageNumber:region.pageNumber, regionId:region.id,
+      scopeUsed:info.scope, sensitivity:info.sensitivity, reason: info.override?info.override.reason:null, viewedAt: nowStamp() });
+    log.event('preview:access',{ doc:doc.id, page:region.pageNumber, scope:info.scope, sensitivity:info.sensitivity });
+  }catch(err){ log.error('[access] log write failed', err); }
+}
 // Default worklist scope depends on persona: annotators fix, reviewers sign off.
 function cockpitDefaultStatuses(){ return isReviewerRole() ? ['corrected'] : ['pending','needs_rework']; }
 const RS_LABEL={ pending:'Pending', corrected:'Corrected', approved:'Approved', flagged:'Flagged', needs_rework:'Rework' };
@@ -4042,6 +4277,10 @@ function cockpitWorklist(){
   if(f.assignedTo==='me') regs=regs.filter(r=>r.assignedTo===currentUser.id);
   else if(f.assignedTo==='unassigned') regs=regs.filter(r=>!r.assignedTo);
   if(f.band) regs=regs.filter(r=>r.confidence>=f.band[0] && r.confidence<f.band[1]);
+  // §50 note 220 — a region-scoped user only ever traverses regions assigned to them; J/next-flagged
+  // never loads a page whose regions are all unassigned. (Overrides remain per-document, so this global
+  // guard still holds — expanded scope changes what's *rendered*, not which regions are in the worklist.)
+  if(roleDefaultScope(currentUser.role)==='region') regs=regs.filter(r=>r.assignedTo===currentUser.id);
   return regs.slice().sort((a,b)=>a.confidence-b.confidence);
 }
 function cockpitCur(){ const q=cockpitWorklist(); let r=q.find(x=>x.id===appState.cockpitSel); if(!r){ r=q[0]||null; appState.cockpitSel=r?r.id:null; } return r; }
@@ -4132,32 +4371,60 @@ function cockpitLeft(q,cur){
     +'<div class="mt8" style="max-height:44vh;overflow:auto">'+rows+more+'</div>'+footer+'</div>';
 }
 
-// ---- Centre: document preview with the flagged region boxed, + page thumbnail rail ----
+// ---- Centre: document preview, scoped per §50 (region-masked / page / full-document + rail / none) ----
 function cockpitCenter(cur){
   if(!cur) return '<div class="card"><div class="empty" style="padding:40px 16px">'+ICON.check+'<div class="empty-title">Nothing selected</div><div class="empty-sub">Pick a region from the worklist.</div></div></div>';
   const doc=byId(documents,cur.documentId); const digital=doc && /digital/.test(doc.format||'');
+  const info=effectivePreviewScope(doc, currentUser); const scope=info.scope;
+  recordPreviewAccess(cur); // §50 — write the audit entry (deduped) whenever this view warrants it
   const q=cockpitWorklist(); const idx=q.findIndex(r=>r.id===cur.id);
-  // Sibling regions on the same page (de-emphasised); current region boxed in coral.
+  // §50 scope indicator — always tells the user what they can see, plus the document's sensitivity.
+  const sensPill='<span class="pill pill-'+(SENSITIVITY_PILL[info.sensitivity]||'muted')+'" style="font-size:10px">'+SENSITIVITY_LABEL[info.sensitivity]+'</span>';
+  const ovPill=info.override?' <span class="pill pill-blue" style="font-size:10px">'+ICON.key+'granted '+SCOPE_LABEL[info.override.grantedScope]+'</span>':'';
+  const scopeLine='<div class="flex gap8 mt4" style="align-items:center;font-size:11px;color:var(--text-secondary)">'
+    +'<span class="muted">Viewing:</span><strong style="color:var(--text)">'+SCOPE_LABEL[scope]+'</strong>'
+    +'<span class="muted">·</span><span class="truncate" style="max-width:200px">'+escapeHtml(doc?doc.name:'')+'</span>'+sensPill+ovPill+'</div>';
+  const headMeta='<div class="row-between"><div class="flex gap8" style="align-items:center">'+langPill(cur.script)+'<span class="pill pill-'+(cur.confidence<50?'red':cur.confidence<60?'yellow':'blue')+'">'+cur.confidence+'% conf</span></div>'
+    +'<span class="muted" style="font-size:12px">Region '+(idx+1)+' of '+q.length+' · pg '+cur.pageNumber+'</span></div>'+scopeLine;
+  const navFoot='<div class="muted mt8" style="font-size:11px">Next flagged → <span class="kbd">J</span> · previous <span class="kbd">K</span> · <button class="btn btn-ghost btn-sm" data-action="cockpit-help-open" style="padding:0 6px">shortcuts <span class="kbd">?</span></button></div>';
+
+  // scope === 'none' → no rendered page at all (Domain Expert / ML Engineer path, note 213).
+  if(scope==='none'){
+    return '<div class="card">'+headMeta
+      +'<div class="mt12">'+emptyState('shield','Page preview disabled for your role','Your role works from plain-language flags and derived fragments — raw pages are never rendered here (data minimisation).','')+'</div></div>';
+  }
+
+  // Build the page body. Region scope masks every non-assigned region; page/document show siblings in context.
   const siblings=getOcrRegions().filter(r=>r.documentId===cur.documentId && r.pageNumber===cur.pageNumber);
   let pageBody=siblings.map(r=>{ const active=r.id===cur.id;
     if(active) return '<div style="border:2px solid var(--coral);border-radius:8px;padding:10px 12px;margin:8px 0;background:rgba(232,93,38,.06)">'
       +'<div style="font-size:9px;letter-spacing:1px;color:var(--coral);margin-bottom:4px">FLAGGED REGION · '+r.regionType.toUpperCase()+'</div>'
-      +'<div style="font-family:var(--font-mono);font-size:13px;line-height:1.9'+(digital?'':';transform:skew(-.4deg)')+'">'+escapeHtml(r.cleanText)+'</div></div>';
+      +'<div style="font-family:var(--font-mono);font-size:13px;line-height:1.9'+(digital?'':';transform:skew(-.4deg)')+'">'+escapeHtml(r.cleanText)+'</div>'
+      +(scope==='region'?'<div style="font-size:9px;letter-spacing:1px;color:var(--coral);margin-top:6px;opacity:.8">'+SENSITIVITY_LABEL[info.sensitivity].toUpperCase()+' · YOUR REGION ONLY</div>':'')+'</div>';
+    if(scope==='region') // hard redaction — opaque grey rectangle, no text, not selectable
+      return '<div aria-hidden="true" title="Masked — outside your assigned region" style="height:34px;margin:8px 0;border-radius:6px;background:repeating-linear-gradient(135deg,var(--border),var(--border) 8px,var(--bg-hover) 8px,var(--bg-hover) 16px);opacity:.9"></div>';
     return '<div style="opacity:.32;padding:6px 12px;margin:6px 0;font-family:var(--font-mono);font-size:12px;line-height:1.7;border-left:2px solid var(--border)">'+escapeHtml(truncate(r.cleanText,90))+'</div>'; }).join('');
   const page='<div style="background:'+(digital?'var(--surface)':'#efe9dd')+';color:'+(digital?'var(--text)':'#2a2a2a')+';border-radius:10px;padding:18px;min-height:300px;'+(digital?'':'filter:contrast(1.04);box-shadow:inset 0 0 30px rgba(0,0,0,.10)')+'">'
     +'<div style="opacity:.5;font-size:10px;letter-spacing:1px;margin-bottom:6px">'+(digital?'DIGITAL PDF — EXTRACTED TEXT':'SCANNED PAGE')+' · '+escapeHtml(doc?doc.name:'')+' · p.'+cur.pageNumber+'</div>'+pageBody+'</div>';
-  // Thumbnail rail — one per page, red dot on pages with queued regions.
-  const pages=doc?doc.pages:1; let rail='';
-  for(let p=1;p<=pages;p++){ const act=p===cur.pageNumber; const flag=pageHasFlag(cur.documentId,p);
-    rail+='<button data-action="cockpit-thumb" data-doc="'+cur.documentId+'" data-page="'+p+'" title="Page '+p+'" '
-      +'style="position:relative;flex:0 0 auto;width:34px;height:44px;border:1.5px solid '+(act?'var(--coral)':'var(--border)')+';border-radius:4px;background:var(--surface);cursor:pointer;font-size:9px;color:var(--muted)">'+p
-      +(flag?'<span style="position:absolute;top:2px;right:2px;width:6px;height:6px;border-radius:50%;background:var(--red)"></span>':'')+'</button>'; }
-  const railWrap='<div style="display:flex;gap:5px;overflow-x:auto;padding:8px 2px;margin-top:10px">'+rail+'</div>';
-  return '<div class="card">'
-    +'<div class="row-between"><div class="flex gap8" style="align-items:center">'+langPill(cur.script)+'<span class="pill pill-'+(cur.confidence<50?'red':cur.confidence<60?'yellow':'blue')+'">'+cur.confidence+'% conf</span></div>'
-    +'<span class="muted" style="font-size:12px">Region '+(idx+1)+' of '+q.length+' · pg '+cur.pageNumber+'</span></div>'
-    +'<div class="mt12">'+page+'</div>'+railWrap
-    +'<div class="muted mt8" style="font-size:11px">Next flagged → <span class="kbd">J</span> · previous <span class="kbd">K</span> · <button class="btn btn-ghost btn-sm" data-action="cockpit-help-open" style="padding:0 6px">shortcuts <span class="kbd">?</span></button></div></div>';
+
+  // Confidential + region scope → visible banner (note 215).
+  const banner = (info.sensitivity==='confidential' && scope==='region')
+    ? '<div class="warn-banner warn-red" style="margin:0 0 10px">'+ICON.lock+'<span>Confidential — access limited to your assigned region. Views are logged.</span></div>' : '';
+
+  // Thumbnail rail — rendered ONLY at document scope (note 214). Hidden, not disabled, otherwise.
+  let railWrap='';
+  if(scope==='document'){
+    const pages=doc?doc.pages:1; let rail='';
+    for(let p=1;p<=pages;p++){ const act=p===cur.pageNumber; const flag=pageHasFlag(cur.documentId,p);
+      rail+='<button data-action="cockpit-thumb" data-doc="'+cur.documentId+'" data-page="'+p+'" title="Page '+p+'" '
+        +'style="position:relative;flex:0 0 auto;width:34px;height:44px;border:1.5px solid '+(act?'var(--coral)':'var(--border)')+';border-radius:4px;background:var(--surface);cursor:pointer;font-size:9px;color:var(--muted)">'+p
+        +(flag?'<span style="position:absolute;top:2px;right:2px;width:6px;height:6px;border-radius:50%;background:var(--red)"></span>':'')+'</button>'; }
+    railWrap='<div style="display:flex;gap:5px;overflow-x:auto;padding:8px 2px;margin-top:10px">'+rail+'</div>';
+  } else if(scope==='page') {
+    railWrap='<div class="muted mt8" style="font-size:11px">'+ICON.lock+' Page navigation is disabled at your scope — this page only.</div>';
+  }
+  return '<div class="card">'+headMeta
+    +'<div class="mt12">'+banner+page+'</div>'+railWrap+navFoot+'</div>';
 }
 
 // ---- Right: correction (annotator) or sign-off redline (reviewer) ----
@@ -4211,7 +4478,8 @@ function cockpitDocuments(){
       +'<button class="btn btn-ghost btn-sm" data-action="cockpit-bulk-assign" data-id="'+d.id+'">'+ICON.users+'Assign</button>'
       +(done?'':'<button class="btn btn-ghost btn-sm" data-action="cockpit-mark-complete" data-id="'+d.id+'">'+ICON.flag+'Mark complete</button>')+'</div></td></tr>'; }).join('');
   if(!rows) rows='<tr><td colspan="6" class="secondary" style="padding:20px">No documents with regions.</td></tr>';
-  return '<div class="card" style="padding:12px"><div class="row-between"><span class="section-h" style="margin:0">Documents</span>'+toggle+'</div>'
+  const grantBtn = isReviewerRole()?'<button class="btn btn-ghost btn-sm" data-action="grant-access-open">'+ICON.key+'Grant expanded access</button>':'';
+  return '<div class="card" style="padding:12px"><div class="row-between"><span class="section-h" style="margin:0">Documents</span><div class="flex gap8">'+grantBtn+toggle+'</div></div>'
     +'<div class="mt12" style="overflow:auto"><table class="tbl"><thead><tr><th>Document</th><th>Regions</th><th>Flagged</th><th>Approved</th><th>Progress</th><th>Actions</th></tr></thead><tbody>'+rows+'</tbody></table></div></div>';
 }
 
@@ -5629,6 +5897,13 @@ function dispatch(action, d){
     case 'export-dest': if(appState.exportCfg){ appState.exportCfg.dest=d.val; openExportModal(appState.exportCfg.projectId, appState.exportCfg.scope, appState.exportCfg.runId); } break;
     case 'export-run': performExport(); break;
     case 'export-reproduce': exportReproduceOnly(); break;
+    // --- §50 Access minimisation & preview scoping ---
+    case 'accesslog-filter': break; // value handled on 'change'; ignore the select's bubbled click
+    case 'accesslog-clear': appState.accessLogFilter={ documentId:null, userId:null, date:null }; renderView(); break;
+    case 'grant-access-open': grantAccessModal(d.doc||null, d.user||null); break;
+    case 'grant-access-submit': grantScopeOverride(); break;
+    case 'revoke-override': revokeScopeOverride(d.id); break;
+    case 'set-doc-sensitivity': setDocSensitivity(d.id, d.val); break;
     case 'eval-refground': { const ec=getEvalConfig(); if(ec){ ec.referenceGrounded=(d.val==='corpus'); renderView(); } break; }
     case 'eval-kappa-toggle': { const ec=getEvalConfig(); if(ec){ ec.kappaOpen=!ec.kappaOpen; renderView(); } break; }
     case 'eval-calibrate': showToast('Calibration run started — label 50 rows to establish human-judge agreement (mocked).','info'); break;
@@ -6425,7 +6700,7 @@ function exportReadme(proj, scope){
     +'Scope: '+(scope==='eval_run'?'single eval run (reproducibility bundle)':'whole project')+'\n\n'
     +'This bundle is open, tool-agnostic, and readable without Cueval.\n\n'
     +'## Contents\n- datasets/ — training rows as JSONL (+ Parquet import note)\n- documents/ — manifest + chunk text\n- lineage/graph.json — provenance nodes + edges\n- eval/ — rubric.yaml, judge_config.yaml (no secrets), run results\n- checkpoints/ — sha256, base model, probe fingerprint (re-verifiable independently)\n- synthesis/templates.json\n- reproduce.json — pins every input to re-run one eval without Cueval\n\n'
-    +'## Reproduce a result\nWith the dataset snapshot, the rubric, the judge spec, the corpus chunks, and the seed in reproduce.json, your own engineer can reconstruct the score.\n\nAuth secrets are never included in any export.\n';
+    +'## Reproduce a result\nWith the dataset snapshot, the rubric, the judge spec, the corpus chunks, and the seed in reproduce.json, your own engineer can reconstruct the score.\n\nAuth secrets are never included in any export.\nConfidential source pages/scans are never included — only their metadata and approved derived rows (see documents/CONFIDENTIAL_SOURCE_EXCLUDED.txt).\n';
 }
 // §51 note 230 — v1's headline export: seeded-set score + coverage, grounded findings + citations, agreement profile, lineage-backed.
 function buildAuditReportBundle(projectId){
@@ -6462,9 +6737,13 @@ function buildProjectExport(projectId, scope, runId){
   if(scope!=='eval_run'){
     const docs=getDocuments().filter(x=>x.projectId===projectId);
     if(docs.length){
-      files['documents/manifest.jsonl']=docs.map(x=>JSON.stringify({id:x.id,name:x.name,pages:x.pages,scripts:x.scriptsDetected||[],sha256:mockHash(x.name)})).join('\n');
+      // §50 note 219 — confidential source pages/scans are NEVER exported; only metadata + derived rows.
+      files['documents/manifest.jsonl']=docs.map(x=>{ const conf=(x.sensitivity||'normal')==='confidential';
+        return JSON.stringify({id:x.id,name:x.name,pages:x.pages,scripts:x.scriptsDetected||[],sensitivity:x.sensitivity||'normal',source_excluded:conf,sha256:mockHash(x.name)}); }).join('\n');
       let ch=[]; docs.forEach(x=>chunksForDoc(x.id).forEach(c=>ch.push(JSON.stringify({docId:x.id,chunkIndex:c.chunkIndex,sourcePages:c.sourcePages,text:c.text}))));
       files['documents/chunks.jsonl']=ch.join('\n');
+      const confDocs=docs.filter(x=>(x.sensitivity||'normal')==='confidential');
+      if(confDocs.length) files['documents/CONFIDENTIAL_SOURCE_EXCLUDED.txt']='The following documents are marked confidential. Their raw pages / scans are excluded from this bundle by policy — only approved derived rows (chunks/pairs, already minimised) and metadata are exported:\n\n'+confDocs.map(x=>'- '+x.name).join('\n')+'\n';
     }
     files['lineage/graph.json']=JSON.stringify(buildLineageGraph(projectId),null,2);
     const cks=checkpoints.filter(c=>c.projectId===projectId && (currentUser.role==='SuperAdmin'||c.tenantId===currentTenant.id));
@@ -6497,6 +6776,7 @@ function openExportModal(projectId, scope, runId){
   openModal('<div class="modal-head"><strong>Export '+(cfg.scope==='eval_run'?'eval result':'Project')+': '+escapeHtml(proj.name)+'</strong><button class="icon-btn" data-action="close-modal">'+ICON.x+'</button></div>'
     +'<div class="modal-body"><div class="section-h" style="margin:0">Include</div><div class="mt8">'+secRows+'</div>'
     +'<div class="muted mt12" style="font-size:12px">Format: open, tool-agnostic. Readable without Cueval. No zip library in this prototype — the bundle downloads as one JSON whose keys mirror the file tree; reproduce.json is also available standalone.</div>'
+    +'<div class="flex gap8 mt8" style="font-size:12px;color:var(--text-secondary)">'+ICON.lock+'<span>Confidential source pages are never exported; derived data only.</span></div>'
     +'<div class="section-h mt16">Destination</div><div class="flex gap16 mt8">'+dest+'</div></div>'
     +'<div class="modal-foot"><button class="btn btn-ghost" data-action="export-reproduce">'+ICON.download+'reproduce.json only</button><button class="btn btn-primary" data-action="export-run">'+ICON.download+(cfg.scope==='eval_run'?'Export result bundle':'Export project bundle')+'</button></div>');
 }
@@ -6573,6 +6853,8 @@ document.addEventListener('input', e=>{
 document.addEventListener('change', e=>{
   const t=e.target.closest('[data-action]'); if(!t || t.tagName!=='SELECT') return;
   if(t.dataset.action==='cockpit-doc-filter'){ dispatch('cockpit-doc-filter', {...t.dataset, val:t.value}); }
+  else if(t.dataset.action==='accesslog-filter'){ appState.accessLogFilter[t.dataset.key]=t.value||null; renderView(); } // §50
+  else if(t.dataset.action==='set-doc-sensitivity'){ dispatch('set-doc-sensitivity', {...t.dataset, val:t.value}); } // §50
 });
 
 document.addEventListener('keydown', e=>{
