@@ -495,7 +495,7 @@ const ALPHA_HUMAN_REVIEW_THRESHOLD = 0.65; // dimensions below this are marked h
    SECTION B — MOCK DATA
    ============================================================ */
 const tenants = [
-  { id:'tenant_pravartak', name:'IITM Pravartak AI Lab', slug:'pravartak', plan:'Enterprise', deploymentProfile:'evaluation_only', // §48/§51 — v1 evaluation-and-audit layer only
+  { id:'tenant_pravartak', name:'IITM Pravartak AI Lab', slug:'pravartak', plan:'Enterprise', deploymentProfile:'research', // §48 — full-feature demo tenant (Data/Review/Eval/Experiments/Lineage)
     planLimits:{ rowsPerMonth:Infinity, evalRunsPerMonth:Infinity, maxUsers:Infinity, maxProjects:Infinity, sovereignDeployment:true },
     usage:{ rowsThisMonth:14832, evalRunsThisMonth:7, activeUsers:6, activeProjects:3 }, fee:200000,
     createdAt:'2025-01-15', status:'active' },
@@ -503,7 +503,7 @@ const tenants = [
     planLimits:{ rowsPerMonth:500000, evalRunsPerMonth:50, maxUsers:20, maxProjects:10, sovereignDeployment:false },
     usage:{ rowsThisMonth:312400, evalRunsThisMonth:31, activeUsers:8, activeProjects:3 }, fee:35000,
     createdAt:'2025-03-02', status:'active' },
-  { id:'tenant_healthbot', name:'HealthBot India', slug:'healthbot', plan:'Starter', deploymentProfile:'research', // §48 — Starter, no production
+  { id:'tenant_healthbot', name:'HealthBot India', slug:'healthbot', plan:'Starter', deploymentProfile:'evaluation_only', // §48/§51 — v1 evaluation-and-audit layer only; Starter, no production
     planLimits:{ rowsPerMonth:50000, evalRunsPerMonth:10, maxUsers:5, maxProjects:3, sovereignDeployment:false },
     usage:{ rowsThisMonth:41200, evalRunsThisMonth:8, activeUsers:3, activeProjects:1 }, fee:5000,
     createdAt:'2025-05-10', status:'active' },
