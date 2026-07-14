@@ -1175,13 +1175,10 @@ const appState = {
   cockpitPace:[],         // action timestamps this session → pace estimate
   cockpitKbHelp:false,    // '?' shortcuts overlay
   cockpitGD:false,        // 'G then D' chord latch
-<<<<<<< HEAD
   // §51 — Eval Harness: seeded comparison (primary) vs open-ended/grounded (complement) tab + sub-nav
   evalTab:'comparison', evalCompView:'list', evalSetId:null, evalSetRunId:null,
-=======
   cockpitLastLogged:null, // §50 dedupe key so re-renders don't double-write the access log
   accessLogFilter:{ documentId:null, userId:null, date:null }, // §50 Settings → Access Log filters
->>>>>>> 44b12d5c8d70714be5f262e4feeada25cf4d79d2
 };
 // Document-ingestion collections (populated in initMockData — after Section E)
 let documents = [];
@@ -3301,7 +3298,7 @@ function screenAudit(){
   return head+chips+'<div class="mt8">'+(rows||'<div class="muted mt16">No events of this type.</div>')+'</div>';
 }
 // §44 — checkpoint registration: computes weights hash + captures probe fingerprint (both mocked, notes 162-163).
-function mockHash(){ let h='',x=Date.now(); const hex='0123456789abcdef'; for(let i=0;i<32;i++){ x=(x*31+7)>>>0; h+=hex[(x>>(i%8*3))&15]; } return h; }
+function mockWeightsHash(){ let h='',x=Date.now(); const hex='0123456789abcdef'; for(let i=0;i<32;i++){ x=(x*31+7)>>>0; h+=hex[(x>>(i%8*3))&15]; } return h; }
 function registerCheckpointModal(prefill){
   if(!can('Experiments')){ showToast('You lack experiment permission','error'); return; }
   const ep=(prefill&&prefill.endpoint)||'';
@@ -3329,7 +3326,7 @@ function registerCheckpointModal(prefill){
   el('ck-compute').onclick=(e)=>{
     e.stopPropagation();
     const box=el('ck-results'); box.innerHTML='<div class="flex gap8" style="align-items:center"><div class="spinner"></div><span class="secondary" style="font-size:13px">Computing SHA256 + sending probe…</span></div>';
-    setTimeout(()=>{ if(!el('ck-results')) return; const hash=mockHash();
+    setTimeout(()=>{ if(!el('ck-results')) return; const hash=mockWeightsHash();
       captured={ hash, cosineSim:1.00 };
       box.innerHTML='<div class="card" style="padding:12px;background:var(--bg-base)"><div class="row-between" style="font-size:12px"><span class="secondary">Hash</span><span class="mono score-good">'+ICON.check+' '+escapeHtml(hash.slice(0,16))+'…</span></div>'
         +'<div class="row-between mt8" style="font-size:12px"><span class="secondary">Fingerprint</span><span class="score-good">'+ICON.check+' Captured — cosine self-check 1.00</span></div></div>';
